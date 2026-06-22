@@ -465,3 +465,11 @@ Planned:
 ## Status and License
 
 AgentSpace is an actively developed product repository licensed under the [Apache License 2.0](LICENSE).
+
+---
+
+<p align="center">
+  <em> ❤️ Thanks for visiting ✨ AgentSpace!</em><br><br>
+  <img src="https://visitor-badge.laobi.icu/badge?page_id=HKUDS.AgentSpace&style=for-the-badge&color=00d4ff"
+  alt="Views">
+</p>
