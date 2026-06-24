@@ -43,6 +43,18 @@ jobs:
             fi
           }
 
+          stop_service() {
+            if ! run_systemctl stop "$SERVICE_NAME"; then
+              echo "Service stop failed; forcing $SERVICE_NAME to stop."
+              run_systemctl kill --kill-who=control-group --signal=SIGKILL "$SERVICE_NAME" || true
+              run_systemctl reset-failed "$SERVICE_NAME" || true
+            fi
+          }
+
+          start_service() {
+            run_systemctl start "$SERVICE_NAME"
+          }
+
           healthcheck() {
             for attempt in {1..30}; do
               if curl -fsS "$HEALTHCHECK_URL" >/dev/null; then
@@ -70,7 +82,7 @@ jobs:
             git reset --hard "$target_commit"
             install_dependencies
             npm run build
-            run_systemctl restart "$SERVICE_NAME"
+            start_service
             healthcheck
           }
 
@@ -104,6 +116,8 @@ jobs:
             cp -a data/agent-space.sqlite "$BACKUP_DIR/agent-space.sqlite.$(date -u +%Y%m%dT%H%M%SZ)"
           fi
 
+          stop_service
+
           git reset --hard "$after"
           install_dependencies
 
@@ -112,9 +126,13 @@ jobs:
             exit 1
           fi
 
-          run_systemctl restart "$SERVICE_NAME"
+          if ! start_service; then
+            rollback "$before"
+            exit 1
+          fi
 
           if ! healthcheck; then
+            stop_service || true
             rollback "$before"
             exit 1
           fi

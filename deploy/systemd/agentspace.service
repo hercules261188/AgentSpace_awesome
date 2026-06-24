@@ -8,6 +8,7 @@ WorkingDirectory=/srv/AgentSpace
 ExecStart=/usr/bin/npm run start:web
 Restart=always
 RestartSec=5
+TimeoutStopSec=20
 User=www-data
 Environment=NODE_ENV=production
 EnvironmentFile=-/etc/agentspace/web.env
