@@ -55,12 +55,20 @@ jobs:
             return 1
           }
 
+          install_dependencies() {
+            npm --prefix apps/web ci --no-audit --no-fund
+            npm --prefix apps/cli ci --no-audit --no-fund
+            npm --prefix packages/db ci --no-audit --no-fund
+            npm --prefix packages/services ci --no-audit --no-fund
+            npm --prefix packages/daemon ci --no-audit --no-fund
+          }
+
           rollback() {
             local target_commit="$1"
 
             echo "Rolling back to $target_commit"
             git reset --hard "$target_commit"
-            npm run setup
+            install_dependencies
             npm run build
             run_systemctl restart "$SERVICE_NAME"
             healthcheck
@@ -97,7 +105,7 @@ jobs:
           fi
 
           git reset --hard "$after"
-          npm run setup
+          install_dependencies
 
           if ! npm run build; then
             rollback "$before"
