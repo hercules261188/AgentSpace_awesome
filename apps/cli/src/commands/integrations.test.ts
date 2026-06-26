@@ -120,6 +120,7 @@ test("feishu worker --help prints usage without starting the worker", async () =
   assert.match(output, /agent-space integrations feishu smoke-plan/);
   assert.match(output, /agent-space integrations feishu smoke-env/);
   assert.match(output, /agent-space integrations feishu health-check/);
+  assert.match(output, /health-check \[--workspace-id <id>\] \[--integration <id>\|--agent <agent-id-or-name>\]/);
   assert.match(output, /agent-space integrations feishu evidence/);
   assert.match(output, /agent-space integrations feishu data-operation/);
   assert.match(output, /agent-space integrations feishu channel-bindings/);
@@ -947,6 +948,75 @@ test("Feishu health-check CLI dry-run avoids persistence", async () => {
   assert.equal(report.results[0]?.enabledScopeCount, FEISHU_TEST_SCOPES.length);
   assert.equal(report.results[0]?.persisted, false);
   assert.equal(updateCount, 0);
+});
+
+test("Feishu health-check CLI can target an agent bot binding", async () => {
+  const checkedAppIds: string[] = [];
+  const readCredentialIntegrationIds: string[] = [];
+  const updates: string[] = [];
+  const report = await runFeishuHealthCheckCli({
+    workspaceId: "workspace-1",
+    agentId: "Codex",
+    agentOnly: true,
+    integrations: [
+      buildIntegrationRecord({
+        id: "workspace-feishu",
+        displayName: "Workspace Feishu",
+        appId: "cli_workspace",
+      }),
+      buildIntegrationRecord({
+        id: "agent-bot-codex",
+        displayName: "Codex Feishu Bot",
+        agentId: "Codex",
+        appId: "cli_codex_bot",
+        transportMode: "websocket_worker",
+      }),
+      buildIntegrationRecord({
+        id: "agent-bot-hermes",
+        displayName: "Hermes Feishu Bot",
+        agentId: "HermesAgent",
+        appId: "cli_hermes_bot",
+        transportMode: "websocket_worker",
+      }),
+    ],
+    readCredentials: (integration) => {
+      readCredentialIntegrationIds.push(integration.id);
+      return {
+        appSecret: `secret-${integration.id}`,
+        verificationToken: "verify-health",
+      };
+    },
+    healthChecker: async ({ appId }) => {
+      checkedAppIds.push(appId);
+      return {
+        status: "healthy",
+        checkedAt: "2026-06-24T01:00:00.000Z",
+        botAppName: "Codex Bot",
+        scopeReadiness: "verified",
+        enabledScopes: FEISHU_TEST_SCOPES,
+        missingScopes: [],
+      };
+    },
+    updateHealth: (input) => {
+      updates.push(input.integrationId);
+      return buildIntegrationRecord({
+        id: input.integrationId,
+        lastHealthStatus: input.lastHealthStatus,
+      }) as never;
+    },
+  });
+
+  assert.equal(report.agentId, "Codex");
+  assert.equal(report.agentOnly, true);
+  assert.equal(report.integrationCount, 1);
+  assert.equal(report.checkedCount, 1);
+  assert.equal(report.healthyCount, 1);
+  assert.equal(report.strictSatisfied, true);
+  assert.deepEqual(readCredentialIntegrationIds, ["agent-bot-codex"]);
+  assert.deepEqual(checkedAppIds, ["cli_codex_bot"]);
+  assert.deepEqual(updates, ["agent-bot-codex"]);
+  assert.equal(report.results[0]?.id, "agent-bot-codex");
+  assert.equal(report.results[0]?.agentId, "Codex");
 });
 
 test("Feishu health-check CLI degrades when scope verification needs manual review", async () => {

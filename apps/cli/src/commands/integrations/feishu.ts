@@ -489,6 +489,9 @@ export interface FeishuSmokePlanStep {
 
 export interface FeishuHealthCheckCliReport {
   workspaceId: string;
+  integrationId?: string;
+  agentId?: string;
+  agentOnly?: boolean;
   integrationCount: number;
   checkedCount: number;
   healthyCount: number;
@@ -502,6 +505,7 @@ export interface FeishuHealthCheckCliReport {
 export interface FeishuHealthCheckCliItem {
   id: string;
   displayName: string;
+  agentId?: string;
   status: ExternalIntegrationHealthStatus;
   previousHealthStatus?: string;
   checkedAt: string;
@@ -1023,9 +1027,14 @@ export async function runFeishuIntegrationCommand(args: string[], format: Output
   }
 
   if (subcommand === "health-check") {
+    const agentId = getStringFlag(parsed.flags, "agent")
+      ?? getStringFlag(parsed.flags, "agent-id")
+      ?? getStringFlag(parsed.flags, "agent-name");
     const report = await runFeishuHealthCheckCli({
       workspaceId,
       integrationId,
+      agentId,
+      agentOnly: Boolean(agentId),
       baseUrl,
       persist: !dryRun,
     });
@@ -3763,6 +3772,8 @@ export function buildFeishuReadinessReport(input: BuildFeishuReadinessReportInpu
 export async function runFeishuHealthCheckCli(input: {
   workspaceId: string;
   integrationId?: string;
+  agentId?: string;
+  agentOnly?: boolean;
   baseUrl?: string;
   persist?: boolean;
   integrations?: ExternalIntegrationRecord[];
@@ -3778,7 +3789,11 @@ export async function runFeishuHealthCheckCli(input: {
     workspaceId: input.workspaceId,
     provider: FEISHU_PROVIDER_ID,
     includeDisabled: true,
-  })).filter((integration) => !input.integrationId || integration.id === input.integrationId);
+  })).filter((integration) =>
+    (!input.integrationId || integration.id === input.integrationId) &&
+    (!input.agentId || integration.agentId === input.agentId) &&
+    (!input.agentOnly || Boolean(integration.agentId))
+  );
   const healthChecker = input.healthChecker ?? checkFeishuIntegrationHealth;
   const readCredentials = input.readCredentials ?? readFeishuIntegrationCredentials;
   const updateHealth = input.updateHealth ?? updateExternalIntegrationHealthSync;
@@ -3818,6 +3833,9 @@ export async function runFeishuHealthCheckCli(input: {
 
   return {
     workspaceId: input.workspaceId,
+    integrationId: input.integrationId,
+    agentId: input.agentId,
+    agentOnly: input.agentOnly,
     integrationCount: integrations.length,
     checkedCount: results.length,
     healthyCount: results.filter((item) => item.status === "healthy").length,
@@ -6729,6 +6747,7 @@ function buildFeishuHealthCheckCliItem(input: {
   return {
     id: input.integration.id,
     displayName: input.integration.displayName,
+    agentId: input.integration.agentId,
     status: input.health.status,
     previousHealthStatus: input.integration.lastHealthStatus,
     checkedAt: input.health.checkedAt,
@@ -7010,7 +7029,7 @@ function printFeishuIntegrationHelp(): void {
   agent-space integrations feishu readiness [--workspace-id <id>] [--integration <id>] [--strict] [--require bot|data-plane|worker] [--json]
   agent-space integrations feishu smoke-plan [--workspace-id <id>] [--integration <id>] [--app-url <url>] [--strict] [--require bot|data-plane|worker] [--json]
   agent-space integrations feishu smoke-env [--workspace-id <id>] [--integration <id>] [--app-url <url>] [--json]
-  agent-space integrations feishu health-check [--workspace-id <id>] [--integration <id>] [--base-url <url>] [--dry-run] [--strict] [--json]
+  agent-space integrations feishu health-check [--workspace-id <id>] [--integration <id>|--agent <agent-id-or-name>] [--base-url <url>] [--dry-run] [--strict] [--json]
   agent-space integrations feishu evidence [--workspace-id <id>] [--integration <id>] [--openapi-evidence <path>] [--strict] [--require bot|native|guest-policy|data-plane|worker|failure|all] [--json]
   agent-space integrations feishu data-operation --workspace-id <id> --integration <id> --operation read-doc|plan-doc-create|plan-doc-update|plan-doc-append|read-sheet|query-base|plan-sheet-write|plan-base-update --resource <url-or-token> [--type doc|sheet|base|base_table|base_view] [--title <doc-title>] [--folder-token <folder-token>] [--parent-block-id <block-id>] [--block-id <block-id>] [--document-revision-id <n>] [--client-token <token>] [--blocks-json <json>] [--children-json <json>] [--block-json <json>] [--app-token <base-app-token>] [--table-id <base-table-id>] [--range <sheet-range>] [--values-json <json>] [--record-id <id>] [--fields-json <json>] [--approval-agent <agent-id> --approval-channel <channel>] [--json]
   agent-space integrations feishu review-data-operation --workspace-id <id> --approval-id <approval-id> --decision approved|rejected [--comment <text>] [--base-url <url>] [--json]
@@ -7021,7 +7040,7 @@ function printFeishuIntegrationHelp(): void {
 
 Options:
   --workspace-id <id>      AgentSpace workspace id; defaults to AGENT_SPACE_WORKSPACE_ID or default
-  --integration <id>       Limit the worker or drain run to one Feishu integration
+  --integration <id>       Limit the worker, drain, readiness, or health run to one Feishu integration
   --agent <id-or-name>     Agent bot commands: AgentSpace agent id/name to bind to a Feishu bot
   --env-file <path>        Create: read FEISHU_* credentials from a local KEY=value file; process env wins
   --app-id-env <name>      Create/bind: read Feishu app id from an env var; defaults also check FEISHU_APP_ID
