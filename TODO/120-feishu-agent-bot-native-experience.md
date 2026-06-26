@@ -689,59 +689,68 @@ Feishu Base table -> AgentSpace data_table
 
 ## 实施阶段
 
+> 当前进展（2026-06-27）：Phase 1-5 的勾选表示本地代码路径和自动化测试已覆盖；不代表真实飞书租户验收完成。最终完成仍以 Phase 6 的 disposable tenant/apps live smoke 和 final evidence gate 为准。
+>
+> 主要证据位置：
+>
+> - Agent bot binding / policy / credentials：`packages/services/src/integrations/providers/feishu/agent-bot-bindings.ts`、`apps/cli/src/commands/integrations/feishu.ts`、`apps/web/features/integrations/feishu/`。
+> - Native routing / auto-provision / thread collaboration / loop guard：`packages/services/src/integrations/providers/feishu/inbound.ts`、`channel-auto-provisioning.ts`、`thread-bindings.ts`、`agent-bot-routing.ts`。
+> - External guest / data-plane governance / evidence：`external-guests.ts`、`data-plane.ts`、`apps/cli/src/commands/integrations/feishu.ts`。
+> - Regression tests：`packages/services/src/integrations/providers/feishu/__tests__/inbound.test.ts`、`agent-bot-bindings.test.ts`、`data-plane*.test.ts`、`outbound*.test.ts`、`apps/cli/src/commands/integrations.test.ts`、`apps/web/features/agents/agents-page-client.test.tsx`、`apps/web/features/integrations/feishu/feishu-*.test.ts`、`packages/services/src/permissions/permissions.test.ts`。
+
 ### Phase 0：产品语义收口
 
-- [ ] 在 TODO119 基础上明确 workspace integration 与 agent bot binding 的边界。
-- [ ] 决定复用 `external_integrations` 还是新增 `external_agent_bot_bindings`。
-- [ ] 定义 agent settings 与 workspace integration settings 的入口分工。
-- [ ] 更新飞书创建文案：快速开始 = agent bot binding，不再暗示 workspace bot 是唯一模式。
+- [x] 在 TODO119 基础上明确 workspace integration 与 agent bot binding 的边界。
+- [x] 决定复用 `external_integrations` 还是新增 `external_agent_bot_bindings`。
+- [x] 定义 agent settings 与 workspace integration settings 的入口分工。
+- [x] 更新飞书创建文案：快速开始 = agent bot binding，不再暗示 workspace bot 是唯一模式。
 
 ### Phase 1：Agent Bot Binding MVP
 
-- [ ] 支持每个 AgentSpace agent 绑定 Feishu bot。
-- [ ] WebSocket worker 模式只要求 `App ID + App Secret`。
-- [ ] EventCallback 模式保留 `Verification Token` / `Encrypt Key` 高级配置。
-- [ ] Health check 能按 agent bot binding 检查 bot 信息和 scopes。
-- [ ] Outbound reply 使用对应 agent bot 的 credentials。
-- [ ] CLI + UI 都能创建、禁用、轮换 agent bot binding。
-- [ ] 单元测试覆盖 secret 不泄露、placeholder 拒绝、重复 app/tenant/agent 绑定。
+- [x] 支持每个 AgentSpace agent 绑定 Feishu bot。
+- [x] WebSocket worker 模式只要求 `App ID + App Secret`。
+- [x] EventCallback 模式保留 `Verification Token` / `Encrypt Key` 高级配置。
+- [x] Health check 能按 agent bot binding 检查 bot 信息和 scopes。
+- [x] Outbound reply 使用对应 agent bot 的 credentials。
+- [x] CLI + UI 都能创建、禁用、轮换 agent bot binding。
+- [x] 单元测试覆盖 secret 不泄露、placeholder 拒绝、重复 app/tenant/agent 绑定。
 
 ### Phase 2：Channel Auto Provisioning
 
-- [ ] 处理机器人进群事件。
-- [ ] `feishuChatId` 未绑定时自动创建 AgentSpace channel。
-- [ ] 同一 `feishuChatId` 重复进群事件不重复创建 channel。
-- [ ] 第二个 agent bot 进同一飞书群时，只新增 channel-agent membership。
-- [ ] 支持首次消息兜底创建/提示。
-- [ ] 自动创建 channel 后发送确认卡片。
-- [ ] 管理员可配置 auto-create / pending-review / disabled。
+- [x] 处理机器人进群事件。
+- [x] `feishuChatId` 未绑定时自动创建 AgentSpace channel。
+- [x] 同一 `feishuChatId` 重复进群事件不重复创建 channel。
+- [x] 第二个 agent bot 进同一飞书群时，只新增 channel-agent membership。
+- [x] 支持首次消息兜底创建/提示。
+- [x] 自动创建 channel 后发送确认卡片。
+- [x] 管理员可配置 auto-create / pending-review / disabled。
 
 ### Phase 3：Direct Agent Conversation Routing
 
-- [ ] 入站事件根据 `appId` 定位 agent。
-- [ ] `chatId` 定位 channel。
-- [ ] @哪个 bot 就路由给哪个 agent。
-- [ ] 同一飞书 thread 绑定 AgentSpace task/thread context。
-- [ ] 不 @bot 的消息默认不触发，除非 policy 允许。
-- [ ] 防止 bot 回复触发其他 agent bot 无限循环。
-- [ ] 回复卡片/文本显示真实 agent 身份。
+- [x] 入站事件根据 `appId` 定位 agent。
+- [x] `chatId` 定位 channel。
+- [x] @哪个 bot 就路由给哪个 agent。
+- [x] 同一飞书 thread 绑定 AgentSpace task/thread context。
+- [x] 不 @bot 的消息默认不触发，除非 policy 允许。
+- [x] 防止 bot 回复触发其他 agent bot 无限循环。
+- [x] 回复卡片/文本显示真实 agent 身份。
 
 ### Phase 4：External Guest Mode
 
-- [ ] 未绑定飞书用户映射为 `external_guest` actor。
-- [ ] 默认 `reply_on_mention + channel_context_only`。
-- [ ] 管理员可选择 ignore / reply_all / require_identity。
-- [ ] Guest 请求高权限动作时返回身份绑定卡片。
-- [ ] Guest audit 不泄露原始 open_id / union_id。
-- [ ] 权限中心能显示 external guest policy 和最近 guest interaction。
+- [x] 未绑定飞书用户映射为 `external_guest` actor。
+- [x] 默认 `reply_on_mention + channel_context_only`。
+- [x] 管理员可选择 ignore / reply_all / require_identity。
+- [x] Guest 请求高权限动作时返回身份绑定卡片。
+- [x] Guest audit 不泄露原始 open_id / union_id。
+- [x] 权限中心能显示 external guest policy 和最近 guest interaction。
 
 ### Phase 5：Resource Governance
 
-- [ ] Resource binding UI 支持按 channel 展示 Feishu Doc / Sheet / Base。
-- [ ] Agent bot 读取已绑定资源时记录 agentId + botBindingId + actorType。
-- [ ] External guest 只能读取 guest-readable 的当前 channel 资源。
-- [ ] 写入继续走 approval。
-- [ ] Evidence gate 区分 user actor 与 external_guest actor。
+- [x] Resource binding UI 支持按 channel 展示 Feishu Doc / Sheet / Base。
+- [x] Agent bot 读取已绑定资源时记录 agentId + botBindingId + actorType。
+- [x] External guest 只能读取 guest-readable 的当前 channel 资源。
+- [x] 写入继续走 approval。
+- [x] Evidence gate 区分 user actor 与 external_guest actor。
 
 ### Phase 6：Smoke / E2E
 
@@ -756,6 +765,8 @@ Feishu Base table -> AgentSpace data_table
 - [ ] 运行最终 evidence gate，确认 bot reply、auto-provision、guest policy、approval、failure visibility 都有证据。
 
 ## 验收标准
+
+> 验收标准在真实飞书租户/apps 完成 Phase 6 之前保持未勾选；本地实现状态以上方 Phase 1-5 为准。
 
 ### 用户体验
 
