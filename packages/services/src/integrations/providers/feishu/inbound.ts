@@ -3,6 +3,7 @@ import {
   createExternalMessageOutboxSync,
   createExternalMessageMappingSync,
   listQueuedTasksSync,
+  readEmployeeRuntimeBindingSync,
   readExternalChannelBindingByExternalChatSync,
   readExternalMessageMappingByExternalMessageSync,
   readExternalUserBindingByExternalUserSync,
@@ -23,6 +24,10 @@ import type { ExternalMessageEnvelope, IntegrationRuntimeContext } from "../../c
 import { sendContactMessageWithAttachmentsSync } from "../../../contacts/contacts.ts";
 import { sendChannelHumanMessageSync } from "../../../messages/messages.ts";
 import { canWriteChannelForActorSync } from "../../../channel-access/channel-access.ts";
+import {
+  canUseEmployeeInChannelForActorSync,
+  canUseEmployeeRuntimeInChannelForActorSync,
+} from "../../../runtime-access/runtime-access.ts";
 import { sameValue } from "../../../shared/helpers.ts";
 import { readWorkspaceStateSync } from "../../../shared/state-io.ts";
 import type { ExternalMessageInputContext } from "../../../shared/messaging.ts";
@@ -352,10 +357,6 @@ function prepareFeishuInboundDispatchSync(input: ProcessFeishuInboundEventInput)
       : null;
     if (agentBotRoute && guestDecision?.decision === "allow") {
       const route = agentBotRoute;
-      const displayName = ensureFeishuExternalGuestChannelActorSync({
-        workspaceId: input.context.workspaceId,
-        channelName: channelBinding.channelName,
-      });
       const externalGuestActor = buildFeishuExternalGuestActor({
         workspaceId: input.context.workspaceId,
         tenantKey: route.binding.tenantKey,
@@ -363,9 +364,11 @@ function prepareFeishuInboundDispatchSync(input: ProcessFeishuInboundEventInput)
         sourceChatId: message.externalChatId,
         permissionProfile: guestDecision.policy.guestPermissionProfile,
       });
+      const forceAgentMention = shouldForceFeishuAgentMentionForGuest(guestDecision);
       const text = resolveRoutedFeishuText({
         message,
         agentBotRoute: route,
+        forceAgentMention,
       });
       if (!text) {
         const mapping = createFeishuInboundMapping({
@@ -393,6 +396,46 @@ function prepareFeishuInboundDispatchSync(input: ProcessFeishuInboundEventInput)
           }),
         };
       }
+      const routeGuard = evaluateFeishuAgentRouteGuardSync({
+        workspaceId: input.context.workspaceId,
+        channelName: channelBinding.channelName,
+        agentBotRoute: route,
+        shouldRouteToAgent: shouldRouteFeishuMessageToAgent({
+          agentBotRoute: route,
+          forceAgentMention,
+        }),
+      });
+      if (!routeGuard.allowed) {
+        const mapping = createFeishuInboundMapping({
+          context: input.context,
+          message,
+          channelBindingId: channelBinding.id,
+          mappedChannelName: channelBinding.channelName,
+          actorType: "external_guest",
+          agentId: route.agentId,
+          botBindingId: route.binding.id,
+          externalGuestActor,
+          externalGuestDecision: guestDecision,
+          reasonCode: routeGuard.reasonCode,
+          dispatchStatus: "ignored",
+        });
+        return {
+          ready: false,
+          result: finishIgnored({
+            context: input.context,
+            event,
+            message,
+            mappedChannelName: channelBinding.channelName,
+            reasonCode: routeGuard.reasonCode,
+            mapping,
+            noticeOutbox: channelAutoProvisionNotice,
+          }),
+        };
+      }
+      const displayName = ensureFeishuExternalGuestChannelActorSync({
+        workspaceId: input.context.workspaceId,
+        channelName: channelBinding.channelName,
+      });
       createFeishuInboundMapping({
         context: input.context,
         message,
@@ -534,6 +577,42 @@ function prepareFeishuInboundDispatchSync(input: ProcessFeishuInboundEventInput)
         message,
         mappedChannelName: channelBinding.channelName,
         reasonCode: "empty_message",
+        mapping,
+      }),
+    };
+  }
+  const routeGuard = evaluateFeishuAgentRouteGuardSync({
+    workspaceId: input.context.workspaceId,
+    channelName: channelBinding.channelName,
+    agentBotRoute,
+    shouldRouteToAgent: shouldRouteFeishuMessageToAgent({ agentBotRoute }),
+    actor: {
+      userId: userBinding.userId,
+      displayName: user.displayName || userBinding.displayName,
+      role: membership.role,
+    },
+  });
+  if (!routeGuard.allowed) {
+    const mapping = createFeishuInboundMapping({
+      context: input.context,
+      message,
+      channelBindingId: channelBinding.id,
+      mappedChannelName: channelBinding.channelName,
+      userId: userBinding.userId,
+      actorType: "user",
+      agentId: agentBotRoute?.agentId,
+      botBindingId: agentBotRoute?.binding.id,
+      reasonCode: routeGuard.reasonCode,
+      dispatchStatus: "ignored",
+    });
+    return {
+      ready: false,
+      result: finishIgnored({
+        context: input.context,
+        event,
+        message,
+        mappedChannelName: channelBinding.channelName,
+        reasonCode: routeGuard.reasonCode,
         mapping,
       }),
     };
@@ -1156,15 +1235,88 @@ function shortHash(value: string): string {
 function resolveRoutedFeishuText(input: {
   message: ExternalMessageEnvelope;
   agentBotRoute: FeishuAgentBotRoute | null;
+  forceAgentMention?: boolean;
 }): string | undefined {
   const text = input.message.text?.trim();
-  if (!input.agentBotRoute?.botMentioned) {
+  const route = input.agentBotRoute;
+  if (!shouldRouteFeishuMessageToAgent({
+    agentBotRoute: route,
+    forceAgentMention: input.forceAgentMention,
+  })) {
+    return text;
+  }
+  if (!route) {
     return text;
   }
   return ensureFeishuAgentMentionText({
     text,
-    agentId: input.agentBotRoute.agentId,
+    agentId: route.agentId,
   });
+}
+
+function shouldForceFeishuAgentMentionForGuest(decision: FeishuExternalGuestDecision): boolean {
+  return decision.decision === "allow" && decision.policy.unboundUserMode === "reply_all";
+}
+
+function shouldRouteFeishuMessageToAgent(input: {
+  agentBotRoute: FeishuAgentBotRoute | null;
+  forceAgentMention?: boolean;
+}): boolean {
+  return Boolean(input.agentBotRoute && (input.agentBotRoute.botMentioned || input.forceAgentMention));
+}
+
+function evaluateFeishuAgentRouteGuardSync(input: {
+  workspaceId: string;
+  channelName: string;
+  agentBotRoute: FeishuAgentBotRoute | null;
+  shouldRouteToAgent: boolean;
+  actor?: {
+    userId: string;
+    displayName?: string;
+    role?: Parameters<typeof canUseEmployeeInChannelForActorSync>[0]["actorRole"];
+  };
+}): { allowed: true } | { allowed: false; reasonCode: string } {
+  if (!input.agentBotRoute || !input.shouldRouteToAgent) {
+    return { allowed: true };
+  }
+
+  const state = readWorkspaceStateSync(input.workspaceId);
+  const channel = state.channels.find((item) => sameValue(item.name, input.channelName));
+  if (!channel) {
+    return { allowed: false, reasonCode: "feishu_agent_channel_missing" };
+  }
+  const agent = state.activeEmployees.find((item) => sameValue(item.name, input.agentBotRoute!.agentId));
+  if (!agent) {
+    return { allowed: false, reasonCode: "feishu_agent_not_found" };
+  }
+  if (!agent.channels.some((channelName) => sameValue(channelName, channel.name))) {
+    return { allowed: false, reasonCode: "feishu_agent_not_enabled_in_channel" };
+  }
+  if ((agent.channelMemberAccess ?? "enabled") !== "enabled") {
+    return { allowed: false, reasonCode: "feishu_agent_channel_member_access_disabled" };
+  }
+  if (!readEmployeeRuntimeBindingSync(agent.name, input.workspaceId)) {
+    return { allowed: false, reasonCode: "feishu_agent_runtime_unavailable" };
+  }
+
+  if (input.actor?.userId) {
+    const common = {
+      workspaceId: input.workspaceId,
+      employeeName: agent.name,
+      channelName: channel.name,
+      actorUserId: input.actor.userId,
+      actorDisplayName: input.actor.displayName,
+      actorRole: input.actor.role,
+    };
+    if (!canUseEmployeeInChannelForActorSync(common)) {
+      return { allowed: false, reasonCode: "feishu_agent_unavailable_to_actor" };
+    }
+    if (!canUseEmployeeRuntimeInChannelForActorSync(common)) {
+      return { allowed: false, reasonCode: "feishu_agent_runtime_unavailable_to_actor" };
+    }
+  }
+
+  return { allowed: true };
 }
 
 export { summarizeFeishuInboundEventPayload } from "./event-summary.ts";

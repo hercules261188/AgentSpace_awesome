@@ -25,6 +25,7 @@ import {
   initializeOrganizationSync,
   readWorkspaceStateSync,
   resetWorkspaceStateSync,
+  setEmployeeChannelMemberAccessSync,
   writeWorkspaceStateSync,
 } from "../../../../index.ts";
 import { FEISHU_PROVIDER_ID } from "../constants.ts";
@@ -641,6 +642,101 @@ test("agent bot reply_on_mention policy ignores unmentioned unbound Feishu users
   assert.equal(metadata.agentId, "Atlas");
   assert.equal(metadata.botBindingId, fixtures.integration.id);
   assert.doesNotMatch(mapping.metadataJson, /oc_general|ou_mina|on_mina|om-agent-bot-guest-unmentioned/);
+});
+
+test("agent bot reply_all policy dispatches unmentioned unbound Feishu users to the bot agent", databaseTestOptions, () => {
+  const fixtures = seedBoundFeishuWorkspace({
+    agentBot: true,
+    bindUser: false,
+    externalGuestPolicy: {
+      unboundUserMode: "reply_all",
+      guestPermissionProfile: "channel_context_only",
+    },
+  });
+
+  const result = processFeishuInboundEventSync({
+    context: {
+      workspaceId: DEFAULT_WORKSPACE_ID,
+      integrationId: fixtures.integration.id,
+      provider: FEISHU_PROVIDER_ID,
+    },
+    payload: buildFeishuMessagePayload({
+      eventId: "evt-agent-bot-guest-reply-all",
+      messageId: "om-agent-bot-guest-reply-all",
+      text: "help with this error",
+    }),
+  });
+
+  assert.equal(result.dispatchStatus, "sent");
+  assert.equal(result.reasonCode, undefined);
+
+  const state = readWorkspaceStateSync(DEFAULT_WORKSPACE_ID);
+  const humanMessage = state.messages.find((message) =>
+    message.channel === "general" &&
+    message.speaker === FEISHU_EXTERNAL_GUEST_DISPLAY_NAME &&
+    message.summary === "@Atlas help with this error"
+  );
+  assert.ok(humanMessage);
+  const [queuedTask] = listQueuedTasksSync({ workspaceId: DEFAULT_WORKSPACE_ID });
+  assert.equal(queuedTask?.agentId, "Atlas");
+  assert.equal(queuedTask?.requestedByDisplayName, FEISHU_EXTERNAL_GUEST_DISPLAY_NAME);
+
+  const mapping = readExternalMessageMappingByExternalMessageSync({
+    workspaceId: DEFAULT_WORKSPACE_ID,
+    integrationId: fixtures.integration.id,
+    externalMessageId: "om-agent-bot-guest-reply-all",
+  });
+  assert.ok(mapping);
+  const metadata = JSON.parse(mapping.metadataJson) as Record<string, unknown>;
+  assert.equal(metadata.actorType, "external_guest");
+  assert.equal(metadata.externalGuestPolicyDecision, "allow");
+  assert.equal(metadata.externalGuestPolicyReasonCode, "feishu_external_guest_allowed");
+  assert.equal(metadata.externalGuestUnboundUserMode, "reply_all");
+  assert.equal(metadata.agentId, "Atlas");
+  assert.equal(metadata.botBindingId, fixtures.integration.id);
+  assert.doesNotMatch(mapping.metadataJson, /oc_general|ou_mina|on_mina|om-agent-bot-guest-reply-all/);
+});
+
+test("agent bot channel policy disabled ignores Feishu bot mentions without dispatching", databaseTestOptions, () => {
+  const fixtures = seedBoundFeishuWorkspace({
+    agentBot: true,
+    bindUser: false,
+  });
+  setEmployeeChannelMemberAccessSync("Atlas", "disabled", DEFAULT_WORKSPACE_ID);
+
+  const result = processFeishuInboundEventSync({
+    context: {
+      workspaceId: DEFAULT_WORKSPACE_ID,
+      integrationId: fixtures.integration.id,
+      provider: FEISHU_PROVIDER_ID,
+    },
+    payload: buildFeishuMessagePayload({
+      eventId: "evt-agent-bot-channel-disabled",
+      messageId: "om-agent-bot-channel-disabled",
+      text: '<at user_id="ou_bot_atlas">@Atlas Bot</at> help with this error',
+    }),
+  });
+
+  assert.equal(result.dispatchStatus, "ignored");
+  assert.equal(result.reasonCode, "feishu_agent_channel_member_access_disabled");
+  assert.equal(countHumanMessages(), 0);
+  assert.equal(listQueuedTasksSync({ workspaceId: DEFAULT_WORKSPACE_ID }).length, 0);
+  const state = readWorkspaceStateSync(DEFAULT_WORKSPACE_ID);
+  assert.equal(state.humanMembers.some((member) => member.name === FEISHU_EXTERNAL_GUEST_DISPLAY_NAME), false);
+
+  const mapping = readExternalMessageMappingByExternalMessageSync({
+    workspaceId: DEFAULT_WORKSPACE_ID,
+    integrationId: fixtures.integration.id,
+    externalMessageId: "om-agent-bot-channel-disabled",
+  });
+  assert.ok(mapping);
+  const metadata = JSON.parse(mapping.metadataJson) as Record<string, unknown>;
+  assert.equal(metadata.actorType, "external_guest");
+  assert.equal(metadata.externalGuestPolicyDecision, "allow");
+  assert.equal(metadata.reasonCode, "feishu_agent_channel_member_access_disabled");
+  assert.equal(metadata.agentId, "Atlas");
+  assert.equal(metadata.botBindingId, fixtures.integration.id);
+  assert.doesNotMatch(mapping.metadataJson, /oc_general|ou_mina|on_mina|om-agent-bot-channel-disabled/);
 });
 
 test("bound Feishu file messages attach downloaded files to messages and task metadata", databaseTestOptions, async () => {
