@@ -6066,6 +6066,7 @@ function countFeishuThreadContinuationEvidence(
     return metadata?.provider === FEISHU_PROVIDER_ID &&
       metadata.dispatchStatus === "sent" &&
       metadata.threadContinuation === true &&
+      metadata.agentBotMentioned === false &&
       typeof metadata.threadBindingId === "string" &&
       metadata.threadBindingId.trim().length > 0 &&
       typeof metadata.agentId === "string" &&

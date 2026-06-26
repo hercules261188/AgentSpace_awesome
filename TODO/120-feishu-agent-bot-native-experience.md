@@ -814,6 +814,7 @@ Feishu Base table -> AgentSpace data_table
 - [x] External guest write-deny evidence 已收紧：未绑定用户写拒绝必须发生在绑定的 Doc / Sheet / Base 写操作上，最终证据 gate 使用 `external_guest_bound_write_denied`，避免用无资源绑定或非写操作失败误证明“不能写”。
 - [x] Agent/channel policy disabled evidence 已收紧：`feishu_agent_channel_member_access_disabled` 等 policy-denied 入站必须没有关联 outbound reply，最终证据 gate 使用 `agent_channel_policy_denial_without_reply` 表达“bot 不回复”的验收语义。
 - [x] Native route evidence 已收紧：Feishu inbound mapping 持久化 `agentBotMentioned`，最终证据 gate 使用 `direct_agent_bot_route` 且 bound/external guest mention evidence 只认可直接 @agent bot 的入站，避免 `/agent` 或 reply_all/thread continuation 误充当原生体验证明。
+- [x] Thread continuation evidence 已收紧：同 thread follow-up 必须记录 `threadContinuation=true` 且 `agentBotMentioned=false`，最终证据 gate 使用 `thread_continuation_without_remention` 表达“不重新 @bot 也能延续同一 AgentSpace context”的验收语义。
 - [x] 部署默认已明确：self-hosted / 快速开始默认 WebSocket worker；EventCallback 作为 SaaS webhook / 严格验签 / 加密事件的高级模式保留。
 
 ## 推荐第一版产品默认值

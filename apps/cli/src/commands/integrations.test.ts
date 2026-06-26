@@ -1805,6 +1805,29 @@ test("Feishu evidence report requires native route evidence from direct bot ment
   assert.ok(item?.issues.includes("agent_channel_policy_disabled_evidence_missing"));
 });
 
+test("Feishu evidence report requires thread continuation without re-mentioning the bot", () => {
+  const complete = buildCompleteFeishuEvidenceInput();
+  const report = buildFeishuEvidenceReport({
+    ...complete,
+    requiredEvidence: "native",
+    messageMappingsByIntegrationId: {
+      "integration-evidence": complete.messageMappingsByIntegrationId["integration-evidence"].map((mapping) => {
+        const metadataSource = mapping as { metadataJson?: string };
+        const metadata = JSON.parse(metadataSource.metadataJson ?? "{}") as Record<string, unknown>;
+        return metadata.threadContinuation === true
+          ? withAgentBotMentioned(mapping, true)
+          : mapping;
+      }),
+    },
+  });
+
+  assert.equal(report.strictSatisfied, false);
+  assert.equal(report.summary.nativeExperienceSatisfiedCount, 0);
+  const [item] = report.integrations;
+  assert.equal(item?.nativeExperience.threadContinuationEvidence, 0);
+  assert.ok(item?.issues.includes("thread_continuation_evidence_missing"));
+});
+
 test("Feishu evidence report requires thread collaboration with a different agent", () => {
   const report = buildFeishuEvidenceReport({
     ...buildCompleteFeishuEvidenceInput(),
@@ -4622,7 +4645,7 @@ test("Feishu smoke plan converts readiness into live smoke checklist without ext
     },
     {
       key: "native_agent_bot",
-      required: "direct_agent_bot_route + bound_user_bot_mention + external_guest_bot_mention + bot_added_auto_provision + first_message_auto_provision + multi_agent_channel_reuse + thread_task_binding + thread_continuation + thread_collaboration + bot_sender_loop_guard + agent_channel_policy_denial_without_reply",
+      required: "direct_agent_bot_route + bound_user_bot_mention + external_guest_bot_mention + bot_added_auto_provision + first_message_auto_provision + multi_agent_channel_reuse + thread_task_binding + thread_continuation_without_remention + thread_collaboration + bot_sender_loop_guard + agent_channel_policy_denial_without_reply",
     },
     {
       key: "guest_policy",
