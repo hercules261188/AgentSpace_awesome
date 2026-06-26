@@ -2245,6 +2245,102 @@ test("Feishu CLI binding helpers reject generated placeholder values before writ
   assert.equal(auditCalled, false);
 });
 
+test("Feishu agent bot CLI returns redacted JSON for successful bindings", () => {
+  let createInput: Record<string, unknown> | undefined;
+  const result = createFeishuAgentBotBindingForCli({
+    workspaceId: "workspace-1",
+    agentId: "Codex",
+    displayName: "Codex Feishu Bot",
+    transportMode: "websocket_worker",
+    appId: "cli_codex_bot",
+    appSecret: "secret_agent_bot",
+    channelAutoProvisioning: {
+      botAdded: "auto_create_channel",
+      firstMessage: "auto_create_if_bot_mentioned",
+      reviewStatus: "approved",
+    },
+    externalGuestPolicy: {
+      unboundUserMode: "reply_on_mention",
+      guestPermissionProfile: "channel_context_only",
+      requireIdentityFor: ["writes", "approvals"],
+    },
+  }, {
+    createBinding: (input) => {
+      createInput = input as unknown as Record<string, unknown>;
+      return buildIntegrationRecord({
+        id: "agent-bot-codex",
+        displayName: input.displayName,
+        transportMode: input.transportMode,
+        agentId: input.agentId,
+        appId: input.appId,
+        encryptedCredentialsJson: JSON.stringify({ appSecret: "encrypted" }),
+      }) as never;
+    },
+  });
+
+  assert.deepEqual(createInput?.channelAutoProvisioning, {
+    botAdded: "auto_create_channel",
+    firstMessage: "auto_create_if_bot_mentioned",
+    reviewStatus: "approved",
+  });
+  assert.deepEqual(createInput?.externalGuestPolicy, {
+    unboundUserMode: "reply_on_mention",
+    guestPermissionProfile: "channel_context_only",
+    requireIdentityFor: ["writes", "approvals"],
+  });
+  assert.deepEqual(result, {
+    ok: true,
+    kind: "agent_bot",
+    operation: "created",
+    workspaceId: "workspace-1",
+    integrationId: "agent-bot-codex",
+    agentId: "Codex",
+    displayName: "Codex Feishu Bot",
+    status: "active",
+    transportMode: "websocket_worker",
+    appId: "cli_codex_bot",
+    tenantKeyConfigured: false,
+    credentials: {
+      hasAppSecret: true,
+      hasVerificationToken: false,
+      hasEncryptKey: false,
+    },
+    secretRedacted: true,
+  });
+  assert.equal(JSON.stringify(result).includes("secret_agent_bot"), false);
+});
+
+test("Feishu agent bot command returns structured JSON for generated placeholders", async () => {
+  const logs = await captureConsoleLog(async () => {
+    const exitCode = await runFeishuIntegrationCommand([
+      "bind-agent-bot",
+      "--workspace-id",
+      "workspace-1",
+      "--agent",
+      "Codex",
+      "--app-id",
+      "CHANGE_ME_FEISHU_APP_ID",
+      "--app-secret",
+      "secret_agent_bot",
+      "--json",
+    ], "json");
+    assert.equal(exitCode, 1);
+  });
+  const output = JSON.parse(logs.join("\n")) as {
+    ok: boolean;
+    errorCode: string;
+    errorMessage: string;
+    nextStep: string;
+  };
+
+  assert.equal(output.ok, false);
+  assert.equal(output.errorCode, "feishu.agent_bot_binding.placeholder_value");
+  assert.match(output.errorMessage, /app_id/);
+  assert.match(output.nextStep, /Replace app_id with the real value/);
+  assert.equal(JSON.stringify(output).includes("CHANGE_ME_FEISHU_APP_ID"), false);
+  assert.equal(JSON.stringify(output).includes("secret_agent_bot"), false);
+});
+
 test("Feishu CLI channel binding rejects chats already mapped to another AgentSpace channel", () => {
   const integration = buildIntegrationRecord({
     id: "integration-bind",

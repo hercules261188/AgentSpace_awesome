@@ -857,6 +857,41 @@ describe("SettingsPageClient", () => {
     expect(await screen.findByText("Agent 飞书 Bot 已绑定。")).toBeInTheDocument();
   });
 
+  it("keeps agent Feishu bot setup minimal until advanced options are opened", async () => {
+    const user = userEvent.setup();
+    renderSettingsPage({
+      currentMembershipRole: "admin",
+      feishuAvailableAgents: [
+        { id: "Codex", name: "Codex", role: "Engineer" },
+      ],
+      feishuAvailableChannels: [],
+      feishuAvailableUsers: [],
+      feishuIntegrations: [],
+      initialSection: "integrations",
+    });
+
+    const panel = screen.getByRole("region", { name: "Agent 飞书 Bot" });
+    expect(within(panel).getByRole("combobox", { name: "Agent" })).toBeVisible();
+    expect(within(panel).getByLabelText("App ID")).toBeVisible();
+    expect(within(panel).getByLabelText("App Secret")).toBeVisible();
+    expect(within(panel).getByRole("button", { name: "绑定 Bot" })).toBeVisible();
+
+    const advanced = within(panel).getByText("自定义高级功能").closest("details");
+    expect(advanced).not.toHaveAttribute("open");
+    expect(within(panel).getByLabelText("Tenant Key")).not.toBeVisible();
+    expect(within(panel).getByLabelText("Verification Token")).not.toBeVisible();
+    expect(within(panel).getByLabelText("Encrypt Key")).not.toBeVisible();
+
+    await user.click(within(panel).getByText("自定义高级功能"));
+
+    expect(advanced).toHaveAttribute("open");
+    expect(within(panel).getByLabelText("Tenant Key")).toBeVisible();
+    expect(within(panel).getByLabelText("Verification Token")).toBeVisible();
+    expect(within(panel).getByLabelText("Encrypt Key")).toBeVisible();
+    expect(within(panel).getByRole("combobox", { name: "机器人进群" })).toBeVisible();
+    expect(within(panel).getByRole("combobox", { name: "未绑定用户" })).toBeVisible();
+  });
+
   it("renders Feishu smoke readiness checks in the integration guide", () => {
     renderSettingsPage({
       currentMembershipRole: "admin",

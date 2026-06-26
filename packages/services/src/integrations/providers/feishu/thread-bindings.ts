@@ -21,6 +21,7 @@ export interface RecordFeishuThreadBindingInput {
   taskQueueId?: string;
   routerSessionId?: string;
   agentSpaceMessageId?: string;
+  collaboratingAgentIds?: string[];
 }
 
 export interface ReadFeishuThreadBindingInput {
@@ -45,6 +46,7 @@ export function recordFeishuThreadBindingSync(
     botBindingId: input.botBindingId ?? input.integration.id,
     actorType: input.actorType,
     routerSessionId: input.routerSessionId,
+    collaboratingAgentIds: input.collaboratingAgentIds,
   });
   return upsertExternalThreadBindingSync({
     workspaceId: input.workspaceId,
@@ -104,7 +106,10 @@ function buildFeishuThreadBindingMetadata(input: {
   botBindingId: string;
   actorType?: "user" | "external_guest";
   routerSessionId?: string;
+  collaboratingAgentIds?: string[];
 }): Record<string, unknown> {
+  const collaboratingAgentIds = uniqueNonEmpty(input.collaboratingAgentIds ?? [])
+    .filter((agentId) => agentId !== input.agentId);
   return {
     provider: FEISHU_PROVIDER_ID,
     externalChatReference: shortHash(input.externalChatId),
@@ -113,8 +118,21 @@ function buildFeishuThreadBindingMetadata(input: {
     botBindingId: input.botBindingId,
     actorType: input.actorType,
     routerSessionId: input.routerSessionId,
+    threadCollaboration: collaboratingAgentIds.length > 0 ? true : undefined,
+    collaboratingAgentIds: collaboratingAgentIds.length > 0 ? collaboratingAgentIds : undefined,
     updatedAt: new Date().toISOString(),
   };
+}
+
+function uniqueNonEmpty(values: readonly string[]): string[] {
+  const unique: string[] = [];
+  for (const value of values) {
+    const normalized = value.trim();
+    if (normalized && !unique.includes(normalized)) {
+      unique.push(normalized);
+    }
+  }
+  return unique;
 }
 
 function shortHash(value: string): string {

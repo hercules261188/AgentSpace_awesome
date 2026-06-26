@@ -287,6 +287,141 @@ test("applies Feishu runtime data-operation requests as scoped approval plans", 
   }
 });
 
+test("queues identity binding cards when external guests request Feishu writes", async () => {
+  const workDir = mkdtempSync(join(tmpdir(), "agent-space-feishu-runtime-output-"));
+  const previousAppUrl = process.env.AGENT_SPACE_APP_URL;
+  process.env.AGENT_SPACE_APP_URL = "https://agentspace.test";
+  try {
+    appendFeishuRuntimeDataOperationRequest(workDir, {
+      operationType: "sheets.update_range",
+      providerResourceType: "sheet",
+      providerResourceToken: "shtcnGuestWrite",
+      parameters: {
+        range: "Sheet1!A1:B1",
+        values: [["Guest write"]],
+      },
+      contentPreview: "Update guest range.",
+    });
+    const planned: unknown[] = [];
+    const queuedCards: unknown[] = [];
+
+    const result = await applyFeishuRuntimeDataOperationRequests({
+      workDir,
+      workspaceId: "workspace-1",
+      actorName: "Atlas",
+      sourceTaskQueueId: "task-guest-write",
+      sourceChannelName: "research",
+      sourceAgentSpaceMessageId: "message-guest-write",
+      resourceGrants: [{
+        integrationId: "integration-1",
+        resourceBindingId: "binding-1",
+        providerResourceType: "sheet",
+        providerResourceToken: "shtcnGuestWrite",
+        allowedOperations: ["read", "write"],
+      }],
+      readSourceMessageMapping: (() => ({
+        id: "external-message-mapping-guest-write",
+        workspaceId: "workspace-1",
+        integrationId: "agent-bot-codex",
+        channelBindingId: "channel-binding-research",
+        direction: "inbound",
+        externalMessageId: "om_guest_write",
+        externalThreadId: "om_thread_guest_write",
+        externalSenderId: "ou_raw_guest_user",
+        agentSpaceMessageId: "message-guest-write",
+        taskQueueId: "task-guest-write",
+        metadataJson: JSON.stringify({
+          actorType: "external_guest",
+          agentId: "Codex",
+          botBindingId: "agent-bot-codex",
+          externalGuestReference: "f".repeat(64),
+          externalGuestPermissionProfile: "channel_context_only",
+        }),
+        createdAt: "2026-06-26T00:00:00.000Z",
+      })) as never,
+      planWriteOperationWithApproval: (async (input: unknown) => {
+        planned.push(input);
+        return {
+          runId: "external-data-operation-guest-write",
+          result: {
+            ok: false,
+            errorCode: "feishu.data_operation_external_guest_requires_identity",
+            data: {
+              requireIdentity: true,
+            },
+          },
+        };
+      }) as never,
+      queueAgentStatusCard: ((input: unknown) => {
+        queuedCards.push(input);
+        return [{ id: "outbox-identity-required" }];
+      }) as never,
+    });
+
+    assert.deepEqual(result.operationRunIds, ["external-data-operation-guest-write"]);
+    assert.deepEqual(result.approvalIds, []);
+    assert.match(result.warnings.join("\n"), /feishu\.data_operation_external_guest_requires_identity/);
+    assert.match(result.statusMessages.join("\n"), /identity binding notice queued/);
+    assert.equal(planned.length, 1);
+    const planInput = planned[0] as {
+      actor?: Record<string, unknown>;
+      request: {
+        parameters: Record<string, unknown>;
+      };
+      approval: {
+        metadata?: Record<string, unknown>;
+      };
+    };
+    assert.deepEqual(planInput.actor, {
+      actorType: "external_guest",
+      providerUserRefHash: "f".repeat(64),
+      permissionProfile: "channel_context_only",
+      sourceChannelName: "research",
+      agentId: "Codex",
+      botBindingId: "agent-bot-codex",
+    });
+    assert.deepEqual(planInput.request.parameters.feishuGovernance, {
+      provider: "feishu",
+      actorType: "external_guest",
+      agentId: "Codex",
+      botBindingId: "agent-bot-codex",
+      channelName: "research",
+      externalActorReference: "f".repeat(64),
+      externalGuestPermissionProfile: "channel_context_only",
+    });
+    assert.deepEqual(planInput.approval.metadata?.governanceContext, {
+      provider: "feishu",
+      actorType: "external_guest",
+      agentId: "Codex",
+      botBindingId: "agent-bot-codex",
+      channelName: "research",
+      externalActorReference: "f".repeat(64),
+      externalGuestPermissionProfile: "channel_context_only",
+    });
+    assert.equal(queuedCards.length, 1);
+    assert.deepEqual(queuedCards[0], {
+      workspaceId: "workspace-1",
+      channelName: "research",
+      agentId: "Codex",
+      status: "failed",
+      agentNames: ["Codex"],
+      message: "External guests must bind an AgentSpace identity before writing Feishu Docs, Sheets, or Base resources.",
+      taskId: "task-guest-write",
+      sourceAgentSpaceMessageId: "message-guest-write",
+      actionUrl: "https://agentspace.test/w/workspace-1/settings/integrations#feishu-user-bindings",
+    });
+    assert.equal(JSON.stringify(planned).includes("ou_raw_guest_user"), false);
+    assert.equal(JSON.stringify(queuedCards).includes("ou_raw_guest_user"), false);
+  } finally {
+    if (previousAppUrl === undefined) {
+      delete process.env.AGENT_SPACE_APP_URL;
+    } else {
+      process.env.AGENT_SPACE_APP_URL = previousAppUrl;
+    }
+    rmSync(workDir, { recursive: true, force: true });
+  }
+});
+
 test("ignores Feishu runtime requests without writable bound grants", async () => {
   const workDir = mkdtempSync(join(tmpdir(), "agent-space-feishu-runtime-output-"));
   try {

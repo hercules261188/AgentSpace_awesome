@@ -62,6 +62,8 @@ export interface FeishuLarkCliResultManifestOperationSummary {
   operationRunIds: string[];
 }
 
+type ReadFeishuRuntimeSourceMessageMapping = typeof readExternalMessageMappingByAgentSpaceMessageSync;
+
 export function appendFeishuRuntimeDataOperationRequest(
   workDir: string,
   request: FeishuRuntimeDataOperationRequestManifestEntry,
@@ -101,6 +103,7 @@ export async function applyFeishuRuntimeDataOperationRequests(input: {
   resourceGrants: FeishuLarkCliResourceGrant[];
   planWriteOperationWithApproval?: typeof planBoundFeishuWriteDataOperationWithApproval;
   queueAgentStatusCard?: typeof queueFeishuAgentStatusCardOutboxSync;
+  readSourceMessageMapping?: ReadFeishuRuntimeSourceMessageMapping;
   client?: FeishuApiClient;
 }): Promise<FeishuRuntimeDataOperationRequestApplySummary> {
   const manifestPath = join(input.workDir, FEISHU_RUNTIME_DATA_OPERATION_REQUESTS_RELATIVE_PATH);
@@ -157,6 +160,7 @@ export async function applyFeishuRuntimeDataOperationRequests(input: {
       sourceAgentSpaceMessageId: input.sourceAgentSpaceMessageId,
       actorName: input.actorName,
       channelName,
+      readSourceMessageMapping: input.readSourceMessageMapping,
     });
     const governanceContext = buildFeishuRuntimeDataOperationGovernanceContext({
       actorName: input.actorName,
@@ -410,11 +414,13 @@ function resolveFeishuRuntimeDataOperationSourceContext(input: {
   sourceAgentSpaceMessageId?: string;
   actorName: string;
   channelName: string;
+  readSourceMessageMapping?: ReadFeishuRuntimeSourceMessageMapping;
 }): FeishuRuntimeDataOperationSourceContext {
   let sourceMapping: ExternalMessageMappingRecord | null = null;
   if (input.sourceAgentSpaceMessageId) {
     try {
-      sourceMapping = readExternalMessageMappingByAgentSpaceMessageSync({
+      const readSourceMessageMapping = input.readSourceMessageMapping ?? readExternalMessageMappingByAgentSpaceMessageSync;
+      sourceMapping = readSourceMessageMapping({
         workspaceId: input.workspaceId,
         agentSpaceMessageId: input.sourceAgentSpaceMessageId,
         direction: "inbound",

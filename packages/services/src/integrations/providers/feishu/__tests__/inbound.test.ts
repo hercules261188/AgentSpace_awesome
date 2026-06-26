@@ -9,6 +9,7 @@ import {
   createWorkspaceMembershipSync,
   DEFAULT_WORKSPACE_ID,
   getDatabase,
+  listExternalMessageOutboxSync,
   listQueuedTasksSync,
   readExternalChannelBindingByExternalChatSync,
   readExternalMessageMappingByExternalMessageSync,
@@ -638,6 +639,166 @@ test("agent bot thread follow-ups continue without re-mentioning the bot for bou
   assert.equal(threadBinding.agentSpaceMessageId, followUpMessage.id);
 });
 
+test("mentioning a second agent bot in an active Feishu thread records collaboration without replacing the first binding", databaseTestOptions, () => {
+  const fixtures = seedBoundFeishuWorkspace({ agentBot: true });
+  createEmployeeSync({
+    name: "Hermes",
+    role: "Runner",
+    remarkName: "Hermes",
+    summary: "Deployment runner",
+    fit: "Ready",
+    origin: "test",
+  }, DEFAULT_WORKSPACE_ID);
+  const state = readWorkspaceStateSync(DEFAULT_WORKSPACE_ID);
+  writeWorkspaceStateSync({
+    ...state,
+    activeEmployees: state.activeEmployees.map((employee) =>
+      employee.name === "Hermes"
+        ? { ...employee, channels: ["general"] }
+        : employee,
+    ),
+    channels: state.channels.map((channel) =>
+      channel.name === "general"
+        ? {
+          ...channel,
+          employeeNames: ["Atlas", "Hermes"],
+        }
+        : channel,
+    ),
+  }, DEFAULT_WORKSPACE_ID);
+  const hermesRuntime = registerDaemonRuntimesSync({
+    workspaceId: DEFAULT_WORKSPACE_ID,
+    daemonKey: `feishu-inbound-hermes-${Math.random().toString(36).slice(2)}`,
+    deviceName: "Feishu inbound Hermes test",
+    runtimes: [{ provider: "codex", name: "Hermes Runtime" }],
+  }).runtimes[0];
+  assert.ok(hermesRuntime);
+  bindEmployeeRuntimeSync("Hermes", hermesRuntime.id, DEFAULT_WORKSPACE_ID);
+  const hermesBinding = updateExternalIntegrationHealthSync({
+    workspaceId: DEFAULT_WORKSPACE_ID,
+    integrationId: createFeishuAgentBotBindingSync({
+      workspaceId: DEFAULT_WORKSPACE_ID,
+      agentId: "Hermes",
+      appId: "cli_hermes_thread_bot",
+      appSecret: "secret-hermes",
+    }).id,
+    lastHealthStatus: "healthy",
+    configJson: {
+      agentBotBinding: true,
+      eventCallbackPath: "/api/integrations/feishu/events",
+      dataPlane: {
+        docs: true,
+        sheets: true,
+        base: true,
+      },
+      bot: {
+        openId: "ou_bot_hermes",
+        appName: "Hermes Bot",
+        lastHealthCheckedAt: "2026-06-26T00:00:00.000Z",
+      },
+    },
+  });
+  upsertExternalChannelBindingSync({
+    workspaceId: DEFAULT_WORKSPACE_ID,
+    integrationId: hermesBinding.id,
+    channelName: "general",
+    externalChatId: "oc_general",
+    externalChatType: "group",
+    externalChatName: "General",
+  });
+  upsertExternalUserBindingSync({
+    workspaceId: DEFAULT_WORKSPACE_ID,
+    integrationId: hermesBinding.id,
+    userId: fixtures.user.id,
+    externalUserId: "ou_mina",
+    externalUnionId: "on_mina",
+    displayName: "Mina",
+  });
+
+  const [first, second] = withAgentSpaceAppUrl("https://agentspace.test", () => {
+    const firstResult = processFeishuInboundEventSync({
+      context: {
+        workspaceId: DEFAULT_WORKSPACE_ID,
+        integrationId: fixtures.integration.id,
+        provider: FEISHU_PROVIDER_ID,
+      },
+      payload: buildFeishuMessagePayload({
+        eventId: "evt-thread-collab-atlas",
+        messageId: "om-thread-collab-atlas",
+        threadId: "om-thread-collab-root",
+        text: '<at user_id="ou_bot_atlas">@Atlas Bot</at> summarize this incident',
+      }),
+    });
+    const secondResult = processFeishuInboundEventSync({
+      context: {
+        workspaceId: DEFAULT_WORKSPACE_ID,
+        integrationId: hermesBinding.id,
+        provider: FEISHU_PROVIDER_ID,
+      },
+      payload: buildFeishuMessagePayload({
+        eventId: "evt-thread-collab-hermes",
+        messageId: "om-thread-collab-hermes",
+        threadId: "om-thread-collab-root",
+        text: '<at user_id="ou_bot_hermes">@Hermes Bot</at> inspect the deployment',
+      }),
+    });
+    return [firstResult, secondResult] as const;
+  });
+  assert.equal(first.dispatchStatus, "sent");
+  assert.equal(second.dispatchStatus, "sent");
+  const atlasThread = readFeishuThreadBindingSync({
+    workspaceId: DEFAULT_WORKSPACE_ID,
+    tenantKey: fixtures.integration.tenantKey,
+    externalChatId: "oc_general",
+    externalThreadId: "om-thread-collab-root",
+    agentId: "Atlas",
+  });
+  const hermesThread = readFeishuThreadBindingSync({
+    workspaceId: DEFAULT_WORKSPACE_ID,
+    tenantKey: hermesBinding.tenantKey,
+    externalChatId: "oc_general",
+    externalThreadId: "om-thread-collab-root",
+    agentId: "Hermes",
+  });
+  assert.ok(atlasThread);
+  assert.ok(hermesThread);
+  assert.notEqual(atlasThread.id, hermesThread.id);
+  const hermesThreadMetadata = JSON.parse(hermesThread.metadataJson) as Record<string, unknown>;
+  assert.equal(hermesThreadMetadata.threadCollaboration, true);
+  assert.deepEqual(hermesThreadMetadata.collaboratingAgentIds, ["Atlas"]);
+  assert.doesNotMatch(hermesThread.metadataJson, /oc_general|om-thread-collab-root/);
+
+  const hermesMapping = readExternalMessageMappingByExternalMessageSync({
+    workspaceId: DEFAULT_WORKSPACE_ID,
+    integrationId: hermesBinding.id,
+    externalMessageId: "om-thread-collab-hermes",
+  });
+  assert.ok(hermesMapping);
+  const hermesMappingMetadata = JSON.parse(hermesMapping.metadataJson) as Record<string, unknown>;
+  assert.equal(hermesMappingMetadata.threadCollaboration, true);
+  assert.deepEqual(hermesMappingMetadata.threadCollaboratorAgentIds, ["Atlas"]);
+  assert.equal(hermesMappingMetadata.threadContinuation, undefined);
+  assert.equal(hermesMappingMetadata.agentId, "Hermes");
+  assert.doesNotMatch(hermesMapping.metadataJson, /oc_general|om-thread-collab-root|om-thread-collab-hermes|ou_mina|on_mina/);
+
+  const collaborationOutbox = listExternalMessageOutboxSync({
+    workspaceId: DEFAULT_WORKSPACE_ID,
+    integrationId: hermesBinding.id,
+  }).find((outbox) => outbox.payloadJson.includes("AgentSpace agent joined this thread"));
+  assert.ok(collaborationOutbox);
+  const payload = JSON.parse(collaborationOutbox.payloadJson) as { msg_type?: string; content?: string };
+  assert.equal(payload.msg_type, "interactive");
+  const card = JSON.parse(String(payload.content)) as {
+    header?: { title?: { content?: string } };
+    elements?: Array<{ content?: string; actions?: Array<{ url?: string }> }>;
+  };
+  assert.equal(card.header?.title?.content, "Hermes · AgentSpace");
+  assert.match(card.elements?.[0]?.content ?? "", /Current: Hermes/);
+  assert.match(card.elements?.[0]?.content ?? "", /Existing context: Atlas/);
+  assert.equal(card.elements?.[1]?.actions?.[0]?.url, "https://agentspace.test/w/default/im?focus=channel%3Ageneral");
+  assert.doesNotMatch(String(payload.content), /oc_general|om-thread-collab-root|om-thread-collab-hermes|ou_mina|on_mina/);
+});
+
 test("bot added events reuse an existing Feishu chat channel for additional agent bots", databaseTestOptions, () => {
   const fixtures = seedBoundFeishuWorkspace({ agentBot: true, bindChannel: false });
   createEmployeeSync({
@@ -818,7 +979,7 @@ test("external guest reply_on_mention policy allows same thread follow-ups witho
   assert.doesNotMatch(followUpMapping.metadataJson, /om-thread-root-guest|om-thread-follow-up-guest|oc_general|ou_mina|on_mina/);
 });
 
-test("agent bot require_identity policy prompts unbound Feishu users without dispatching", databaseTestOptions, () => {
+test("agent bot require_identity policy sends an identity binding card without dispatching", databaseTestOptions, () => {
   const fixtures = seedBoundFeishuWorkspace({
     agentBot: true,
     bindUser: false,
@@ -865,11 +1026,20 @@ test("agent bot require_identity policy prompts unbound Feishu users without dis
   assert.match(String(metadata.externalGuestReference), /^[a-f0-9]{64}$/);
   assert.doesNotMatch(mapping.metadataJson, /oc_general|ou_mina|on_mina|om-agent-bot-guest-require-identity/);
 
-  const noticePayload = JSON.parse(result.noticeOutbox.payloadJson) as { content?: string };
-  const noticeContent = JSON.parse(String(noticePayload.content)) as { text?: string };
-  assert.match(noticeContent.text ?? "", /还没有绑定 AgentSpace 账号/);
-  assert.match(noticeContent.text ?? "", /https:\/\/agentspace\.test\/w\/default\/settings\/integrations#feishu-user-bindings/);
-  assert.doesNotMatch(noticeContent.text ?? "", /ou_mina|on_mina|om-agent-bot-guest-require-identity/);
+  const noticePayload = JSON.parse(result.noticeOutbox.payloadJson) as {
+    msg_type?: string;
+    content?: string;
+  };
+  assert.equal(noticePayload.msg_type, "interactive");
+  const card = JSON.parse(String(noticePayload.content)) as {
+    header?: { title?: { content?: string } };
+    elements?: Array<{ tag?: string; content?: string; actions?: Array<{ url?: string }> }>;
+  };
+  assert.equal(card.header?.title?.content, "Atlas · AgentSpace");
+  assert.match(card.elements?.[0]?.content ?? "", /identity required/);
+  assert.match(card.elements?.[0]?.content ?? "", /绑定 AgentSpace 身份/);
+  assert.equal(card.elements?.[1]?.actions?.[0]?.url, "https://agentspace.test/w/default/settings/integrations#feishu-user-bindings");
+  assert.doesNotMatch(String(noticePayload.content), /ou_mina|on_mina|om-agent-bot-guest-require-identity/);
 });
 
 test("agent bot ignore policy silently ignores unbound Feishu users", databaseTestOptions, () => {

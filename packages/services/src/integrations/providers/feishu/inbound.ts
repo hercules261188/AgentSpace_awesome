@@ -33,7 +33,10 @@ import { readWorkspaceStateSync } from "../../../shared/state-io.ts";
 import type { ExternalMessageInputContext } from "../../../shared/messaging.ts";
 import type { FeishuInboundAttachmentDownloader } from "./attachments.ts";
 import { FEISHU_PROVIDER_ID } from "./constants.ts";
-import { buildAgentSpaceSettingsIntegrationsDeepLink } from "./links.ts";
+import {
+  buildAgentSpaceChannelDeepLink,
+  buildAgentSpaceSettingsIntegrationsDeepLink,
+} from "./links.ts";
 import {
   asRecord,
   asString,
@@ -45,6 +48,9 @@ import {
 import { summarizeFeishuInboundEventPayload } from "./event-summary.ts";
 import { normalizeFeishuInboundMessage } from "./normalize-message.ts";
 import {
+  buildFeishuAgentThreadCollaborationCard,
+  buildFeishuInteractiveCardOutboundMessage,
+  buildFeishuIdentityBindingRequiredCard,
   buildFeishuTextOutboundMessage,
   queueFeishuAgentStatusCardOutboxSync,
 } from "./outbound.ts";
@@ -73,6 +79,7 @@ import {
   type FeishuExternalGuestActor,
 } from "./external-guests.ts";
 import {
+  listFeishuThreadBindingsForChatSync,
   readFeishuThreadBindingSync,
   recordFeishuThreadBindingSync,
 } from "./thread-bindings.ts";
@@ -117,9 +124,15 @@ interface FeishuInboundPreparedDispatch {
   agentId?: string;
   botBindingId?: string;
   agentBotIntegration?: ExternalIntegrationRecord;
+  agentBotMentioned?: boolean;
   threadContinuation?: boolean;
   text: string;
   displayName: string;
+}
+
+interface FeishuThreadCollaborationNotice {
+  currentAgentId: string;
+  previousAgentIds: string[];
 }
 
 type FeishuInboundPrepareResult =
@@ -566,6 +579,7 @@ function prepareFeishuInboundDispatchSync(input: ProcessFeishuInboundEventInput)
           agentId: route.agentId,
           botBindingId: route.binding.id,
           agentBotIntegration: route.binding,
+          agentBotMentioned: route.botMentioned,
           threadContinuation,
         },
       };
@@ -596,12 +610,23 @@ function prepareFeishuInboundDispatchSync(input: ProcessFeishuInboundEventInput)
     const shouldQueueIdentityNotice = !agentBotRoute || guestDecision?.decision === "require_identity";
     const noticeOutbox = input.queueNotices === false || !shouldQueueIdentityNotice
       ? undefined
-      : queueFeishuInboundNoticeSync({
-        context: input.context,
-        message,
-        channelBindingId: channelBinding.id,
-        text: buildFeishuUserBindingNotice({ workspaceId: input.context.workspaceId }),
-      });
+      : agentBotRoute && guestDecision?.decision === "require_identity"
+        ? queueFeishuIdentityBindingRequiredCardOutboxSync({
+          context: input.context,
+          message,
+          channelBindingId: channelBinding.id,
+          agentId: agentBotRoute.agentId,
+          settingsUrl: buildAgentSpaceSettingsIntegrationsDeepLink({
+            workspaceId: input.context.workspaceId,
+            target: "user-bindings",
+          }),
+        })
+        : queueFeishuInboundNoticeSync({
+          context: input.context,
+          message,
+          channelBindingId: channelBinding.id,
+          text: buildFeishuUserBindingNotice({ workspaceId: input.context.workspaceId }),
+        });
     return {
       ready: false,
       result: finishIgnored({
@@ -784,6 +809,7 @@ function prepareFeishuInboundDispatchSync(input: ProcessFeishuInboundEventInput)
       agentId: agentBotRoute?.agentId,
       botBindingId: agentBotRoute?.binding.id,
       agentBotIntegration: agentBotRoute?.binding,
+      agentBotMentioned: agentBotRoute?.botMentioned,
       threadContinuation,
       text: routedText,
       displayName,
@@ -855,6 +881,7 @@ function dispatchPreparedFeishuInboundEventSync(input: FeishuInboundPreparedDisp
     });
   }
 
+  const threadCollaboration = resolveFeishuThreadCollaborationNoticeSync(input);
   const threadBinding = input.agentBotIntegration && input.agentId && agentSpaceMessageId
     ? recordFeishuThreadBindingSync({
       workspaceId: input.context.workspaceId,
@@ -867,6 +894,7 @@ function dispatchPreparedFeishuInboundEventSync(input: FeishuInboundPreparedDisp
       taskQueueId: dispatchedTask?.id,
       routerSessionId: dispatchedTask?.routerSessionId,
       agentSpaceMessageId,
+      collaboratingAgentIds: threadCollaboration?.previousAgentIds,
     })
     : null;
 
@@ -884,6 +912,7 @@ function dispatchPreparedFeishuInboundEventSync(input: FeishuInboundPreparedDisp
     taskQueueId: dispatchedTask?.id,
     routerSessionId: dispatchedTask?.routerSessionId,
     threadBindingId: threadBinding?.id,
+    threadCollaboration,
     agentSpaceMessageId,
     threadContinuation: input.threadContinuation,
     dispatchStatus: "sent",
@@ -897,6 +926,17 @@ function dispatchPreparedFeishuInboundEventSync(input: FeishuInboundPreparedDisp
       agentNames: pendingAgentNames,
       sourceAgentSpaceMessageId: agentSpaceMessageId,
       message: "AgentSpace has queued the requested agent work.",
+    });
+  }
+  if (threadCollaboration) {
+    queueFeishuThreadCollaborationCardBestEffort({
+      workspaceId: input.context.workspaceId,
+      channelName: input.channelBinding.channelName,
+      integrationId: input.context.integrationId,
+      channelBindingId: input.channelBinding.id,
+      targetExternalChatId: input.message.externalChatId,
+      targetExternalThreadId: input.message.externalThreadId,
+      notice: threadCollaboration,
     });
   }
   const processed = updateExternalIntegrationEventStatusSync({
@@ -951,6 +991,74 @@ function queueFeishuAgentStatusCardBestEffort(input: {
     });
   } catch {
     // External status cards are best-effort; the internal AgentSpace dispatch already succeeded.
+  }
+}
+
+function resolveFeishuThreadCollaborationNoticeSync(
+  input: FeishuInboundPreparedDispatch,
+): FeishuThreadCollaborationNotice | undefined {
+  if (
+    !input.agentBotIntegration ||
+    !input.agentId ||
+    !input.agentBotMentioned ||
+    input.threadContinuation ||
+    !input.message.externalThreadId?.trim()
+  ) {
+    return undefined;
+  }
+  const bindings = listFeishuThreadBindingsForChatSync({
+    workspaceId: input.context.workspaceId,
+    tenantKey: input.agentBotIntegration.tenantKey,
+    externalChatId: input.message.externalChatId,
+    externalThreadId: input.message.externalThreadId,
+  });
+  const currentAlreadyJoined = bindings.some((binding) => binding.agentId === input.agentId);
+  if (currentAlreadyJoined) {
+    return undefined;
+  }
+  const previousAgentIds = uniqueNonEmpty(bindings
+    .map((binding) => binding.agentId)
+    .filter((agentId) => agentId !== input.agentId));
+  return previousAgentIds.length > 0
+    ? {
+      currentAgentId: input.agentId,
+      previousAgentIds,
+    }
+    : undefined;
+}
+
+function queueFeishuThreadCollaborationCardBestEffort(input: {
+  workspaceId: string;
+  channelName: string;
+  integrationId: string;
+  channelBindingId?: string;
+  targetExternalChatId: string;
+  targetExternalThreadId?: string;
+  notice: FeishuThreadCollaborationNotice;
+}): void {
+  try {
+    const outbound = buildFeishuInteractiveCardOutboundMessage({
+      targetExternalChatId: input.targetExternalChatId,
+      targetExternalThreadId: input.targetExternalThreadId,
+      card: buildFeishuAgentThreadCollaborationCard({
+        currentAgentId: input.notice.currentAgentId,
+        previousAgentIds: input.notice.previousAgentIds,
+        actionUrl: buildAgentSpaceChannelDeepLink({
+          workspaceId: input.workspaceId,
+          channelName: input.channelName,
+        }),
+      }),
+    });
+    createExternalMessageOutboxSync({
+      workspaceId: input.workspaceId,
+      integrationId: input.integrationId,
+      channelBindingId: input.channelBindingId,
+      targetExternalChatId: outbound.targetExternalChatId,
+      targetExternalThreadId: outbound.targetExternalThreadId,
+      payloadJson: outbound.payload,
+    });
+  } catch {
+    // Collaboration cards are best-effort; routing and task dispatch have already succeeded.
   }
 }
 
@@ -1330,6 +1438,7 @@ function createFeishuInboundMapping(input: {
   taskQueueId?: string;
   routerSessionId?: string;
   threadBindingId?: string;
+  threadCollaboration?: FeishuThreadCollaborationNotice;
   agentSpaceMessageId?: string;
   threadContinuation?: boolean;
   dispatchStatus: string;
@@ -1364,6 +1473,8 @@ function createFeishuInboundMapping(input: {
       agentId: input.agentId,
       botBindingId: input.botBindingId,
       threadBindingId: input.threadBindingId,
+      threadCollaboration: input.threadCollaboration ? true : undefined,
+      threadCollaboratorAgentIds: input.threadCollaboration?.previousAgentIds,
       threadContinuation: input.threadContinuation,
       dispatchStatus: input.dispatchStatus,
       reasonCode: input.reasonCode,
@@ -1451,6 +1562,17 @@ function shouldContinueFeishuAgentThreadSync(input: {
   }));
 }
 
+function uniqueNonEmpty(values: readonly string[]): string[] {
+  const unique: string[] = [];
+  for (const value of values) {
+    const normalized = value.trim();
+    if (normalized && !unique.includes(normalized)) {
+      unique.push(normalized);
+    }
+  }
+  return unique;
+}
+
 function evaluateFeishuAgentRouteGuardSync(input: {
   workspaceId: string;
   channelName: string;
@@ -1536,6 +1658,31 @@ function queueFeishuInboundNoticeSync(input: {
     targetExternalChatId: input.message.externalChatId,
     targetExternalThreadId: input.message.externalThreadId,
     text: input.text,
+  });
+  return createExternalMessageOutboxSync({
+    workspaceId: input.context.workspaceId,
+    integrationId: input.context.integrationId,
+    channelBindingId: input.channelBindingId,
+    targetExternalChatId: outbound.targetExternalChatId,
+    targetExternalThreadId: outbound.targetExternalThreadId,
+    payloadJson: outbound.payload,
+  });
+}
+
+function queueFeishuIdentityBindingRequiredCardOutboxSync(input: {
+  context: IntegrationRuntimeContext;
+  message: ExternalMessageEnvelope;
+  channelBindingId?: string;
+  agentId: string;
+  settingsUrl?: string;
+}): ExternalMessageOutboxRecord {
+  const outbound = buildFeishuInteractiveCardOutboundMessage({
+    targetExternalChatId: input.message.externalChatId,
+    targetExternalThreadId: input.message.externalThreadId,
+    card: buildFeishuIdentityBindingRequiredCard({
+      agentId: input.agentId,
+      settingsUrl: input.settingsUrl,
+    }),
   });
   return createExternalMessageOutboxSync({
     workspaceId: input.context.workspaceId,

@@ -9,8 +9,10 @@ import type { FeishuApiClient, FeishuApiRequest, FeishuMultipartUploadRequest } 
 import {
   buildFeishuAttachmentOutboundMessage,
   buildFeishuAgentStatusCard,
+  buildFeishuAgentThreadCollaborationCard,
   buildFeishuFileUploadRequest,
   buildFeishuImageUploadRequest,
+  buildFeishuIdentityBindingRequiredCard,
   buildFeishuInteractiveCardOutboundMessage,
   buildFeishuMessageCreateRequest,
   buildFeishuOutboundMessagePolicyInput,
@@ -215,6 +217,64 @@ test("buildFeishuAgentStatusCard adds safe approval action values", () => {
     },
   ]);
   assert.equal(JSON.stringify(card).includes("operationRequest"), false);
+});
+
+test("buildFeishuIdentityBindingRequiredCard points guests to identity binding without raw Feishu ids", () => {
+  const card = buildFeishuIdentityBindingRequiredCard({
+    agentId: "Atlas",
+    settingsUrl: "https://agentspace.test/w/default/settings/integrations#feishu-user-bindings",
+  });
+
+  assert.deepEqual(card.header, {
+    template: "yellow",
+    title: {
+      tag: "plain_text",
+      content: "Atlas · AgentSpace",
+    },
+  });
+  const elements = card.elements as Array<{
+    tag?: string;
+    content?: string;
+    actions?: Array<{ text?: { content?: string }; url?: string }>;
+  }>;
+  assert.match(elements[0]?.content ?? "", /identity required/);
+  assert.match(elements[0]?.content ?? "", /绑定 AgentSpace 身份/);
+  assert.equal(elements[1]?.actions?.[0]?.text?.content, "Open AgentSpace");
+  assert.equal(elements[1]?.actions?.[0]?.url, "https://agentspace.test/w/default/settings/integrations#feishu-user-bindings");
+  const serialized = JSON.stringify(card);
+  assert.equal(serialized.includes("ou_mina"), false);
+  assert.equal(serialized.includes("on_mina"), false);
+  assert.equal(serialized.includes("oc_general"), false);
+  assert.equal(serialized.includes("om_guest_message"), false);
+});
+
+test("buildFeishuAgentThreadCollaborationCard describes multi-agent thread joins without raw Feishu ids", () => {
+  const card = buildFeishuAgentThreadCollaborationCard({
+    currentAgentId: "Hermes",
+    previousAgentIds: ["Atlas", "Atlas"],
+    actionUrl: "https://agentspace.test/w/default/im?focus=channel%3Ageneral",
+  });
+
+  assert.deepEqual(card.header, {
+    template: "blue",
+    title: {
+      tag: "plain_text",
+      content: "Hermes · AgentSpace",
+    },
+  });
+  const elements = card.elements as Array<{
+    content?: string;
+    actions?: Array<{ text?: { content?: string }; url?: string }>;
+  }>;
+  assert.match(elements[0]?.content ?? "", /agent joined this thread/);
+  assert.match(elements[0]?.content ?? "", /Current: Hermes/);
+  assert.match(elements[0]?.content ?? "", /Existing context: Atlas/);
+  assert.equal(elements[1]?.actions?.[0]?.text?.content, "Open AgentSpace");
+  assert.equal(elements[1]?.actions?.[0]?.url, "https://agentspace.test/w/default/im?focus=channel%3Ageneral");
+  const serialized = JSON.stringify(card);
+  assert.equal(serialized.includes("oc_general"), false);
+  assert.equal(serialized.includes("om_root"), false);
+  assert.equal(serialized.includes("ou_mina"), false);
 });
 
 test("builds Feishu image and file upload requests", () => {

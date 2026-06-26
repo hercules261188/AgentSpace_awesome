@@ -239,6 +239,94 @@ export function buildFeishuAgentStatusCard(input: {
   };
 }
 
+export function buildFeishuIdentityBindingRequiredCard(input: {
+  agentId: string;
+  settingsUrl?: string;
+}): Record<string, unknown> {
+  const agentLabel = input.agentId.trim() || "Agent";
+  const elements: Record<string, unknown>[] = [{
+    tag: "markdown",
+    content: [
+      "**AgentSpace identity required**",
+      `Agent: ${escapeFeishuCardMarkdown(agentLabel)}`,
+      "请先绑定 AgentSpace 身份后继续。未绑定飞书用户只能在允许的低权限 guest 策略下试用，不能执行需要真实身份的操作。",
+    ].join("\n"),
+  }];
+  if (input.settingsUrl) {
+    elements.push({
+      tag: "action",
+      actions: [{
+        tag: "button",
+        text: {
+          tag: "plain_text",
+          content: "Open AgentSpace",
+        },
+        type: "primary",
+        url: input.settingsUrl,
+      }],
+    });
+  }
+  return {
+    config: {
+      wide_screen_mode: true,
+    },
+    header: {
+      template: "yellow",
+      title: {
+        tag: "plain_text",
+        content: `${agentLabel} · AgentSpace`,
+      },
+    },
+    elements,
+  };
+}
+
+export function buildFeishuAgentThreadCollaborationCard(input: {
+  currentAgentId: string;
+  previousAgentIds: string[];
+  actionUrl?: string;
+}): Record<string, unknown> {
+  const currentAgent = input.currentAgentId.trim() || "Agent";
+  const previousAgents = uniqueNonEmpty(input.previousAgentIds).filter((agentId) => agentId !== currentAgent);
+  const previousLabel = previousAgents.length > 0 ? previousAgents.join(", ") : "another agent";
+  const elements: Record<string, unknown>[] = [{
+    tag: "markdown",
+    content: [
+      "**AgentSpace agent joined this thread**",
+      `Current: ${escapeFeishuCardMarkdown(currentAgent)}`,
+      `Existing context: ${escapeFeishuCardMarkdown(previousLabel)}`,
+      "AgentSpace keeps each agent task binding separate, so this thread can continue as a governed multi-agent collaboration.",
+    ].join("\n"),
+  }];
+  if (input.actionUrl) {
+    elements.push({
+      tag: "action",
+      actions: [{
+        tag: "button",
+        text: {
+          tag: "plain_text",
+          content: "Open AgentSpace",
+        },
+        type: "primary",
+        url: input.actionUrl,
+      }],
+    });
+  }
+  return {
+    config: {
+      wide_screen_mode: true,
+    },
+    header: {
+      template: "blue",
+      title: {
+        tag: "plain_text",
+        content: `${currentAgent} · AgentSpace`,
+      },
+    },
+    elements,
+  };
+}
+
 export function buildFeishuAgentStatusCardOutboundMessage(input: {
   targetExternalChatId: string;
   targetExternalThreadId?: string;
