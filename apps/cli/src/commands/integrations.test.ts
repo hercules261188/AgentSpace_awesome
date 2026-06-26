@@ -4559,6 +4559,8 @@ test("Feishu smoke plan converts readiness into live smoke checklist without ext
   assert.equal(liveHarness?.status, "pending");
   assert.match(liveHarness?.command ?? "", /npm run smoke:feishu/);
   assert.match(liveHarness?.detail ?? "", /after check-env passes/);
+  assert.match(liveHarness?.detail ?? "", /final AgentSpace evidence gate/);
+  assert.doesNotMatch(liveHarness?.detail ?? "", /TODO119/);
   assert.match(liveHarness?.detail ?? "", /12 live checks/);
   assert.match(liveHarness?.detail ?? "", /Docs docx append blocks/);
   assert.match(liveHarness?.detail ?? "", /Sheets write values/);

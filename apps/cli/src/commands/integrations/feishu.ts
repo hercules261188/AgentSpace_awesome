@@ -4632,7 +4632,7 @@ export function buildFeishuSmokePlanReport(input: BuildFeishuSmokePlanReportInpu
         area: "data-plane",
         title: "Live smoke: run isolated Feishu callback and OpenAPI harness",
         status: readyForDataPlane ? "pending" : "blocked",
-        detail: `Run the throwaway smoke harness after check-env passes. It must pass ${smokeHarness.requiredLiveSteps} live checks, including destructive writes for ${smokeHarness.destructiveLiveStepNames.join(", ")}, before saving the redacted evidence artifact for TODO119 verification.`,
+        detail: `Run the throwaway smoke harness after check-env passes. It must pass ${smokeHarness.requiredLiveSteps} live checks, including destructive writes for ${smokeHarness.destructiveLiveStepNames.join(", ")}, before saving the redacted OpenAPI evidence artifact consumed by the final AgentSpace evidence gate.`,
         command: smokeHarness.strictLiveCommand,
         issues: readyForDataPlane ? [] : dataPlaneIssues,
       },

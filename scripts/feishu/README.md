@@ -1,6 +1,6 @@
 # Feishu Smoke
 
-This folder is an isolated throwaway smoke harness for TODO119. It does not participate in AgentSpace runtime behavior.
+This folder is an isolated throwaway smoke harness for Feishu OpenAPI evidence. It supports the data-plane checks from TODO119 and the final evidence gate for TODO120. It does not participate in AgentSpace runtime behavior.
 
 Run dry-run checks without credentials:
 
@@ -123,7 +123,7 @@ If `smoke-env` cannot find a usable AgentSpace Feishu integration, app id, or pu
 
 Malformed env files or JSON env values return structured `{"ok":false,"errorCode":"..."}` diagnostics in `--json` mode. The diagnostics name the env key and reason without printing app secrets, callback URLs, chat ids, resource tokens, or write values.
 
-Use the strict gate when you want the command itself to prove the TODO119 live smoke is complete:
+Use the strict gate when you want the command itself to prove the isolated OpenAPI live smoke is complete:
 
 ```bash
 npm run smoke:feishu -- --env-file scripts/feishu/.env --live --strict-live
@@ -131,7 +131,7 @@ npm run smoke:feishu -- --env-file scripts/feishu/.env --live --strict-live
 
 `--strict-live` exits non-zero if any live check is skipped or failed. `--env-file` fills missing process env values from a local `KEY=value` file; shell env values still win. Before any live network call, the harness rejects invalid, placeholder, or missing required values and tells you to rerun `--check-env`, so `CHANGE_ME_*` templates and incomplete strict-live env files are not sent to Feishu. `--json` adds a machine-readable summary with missing env names, live coverage, and which checks write external data.
 
-Write a safe evidence artifact for PRs or TODO119 verification. Evidence output is strict-live-success only: `--evidence` refuses dry-run commands and non-strict live runs, and a failed strict-live run prints diagnostics without writing the target file, so an existing live artifact is not overwritten by a local request-shape check or failed partial smoke. Before writing, the harness runs the same redaction and coverage verifier used by `--verify-evidence`; if the generated output contains unsafe callback URLs, raw Feishu identifiers, token-like text, or incomplete coverage, it fails with issue codes and writes nothing.
+Write a safe evidence artifact for PRs or Feishu evidence verification. Evidence output is strict-live-success only: `--evidence` refuses dry-run commands and non-strict live runs, and a failed strict-live run prints diagnostics without writing the target file, so an existing live artifact is not overwritten by a local request-shape check or failed partial smoke. Before writing, the harness runs the same redaction and coverage verifier used by `--verify-evidence`; if the generated output contains unsafe callback URLs, raw Feishu identifiers, token-like text, or incomplete coverage, it fails with issue codes and writes nothing.
 
 ```bash
 npm run smoke:feishu -- --env-file scripts/feishu/.env --live --strict-live --evidence runtime-output/feishu-smoke/live.json
@@ -139,7 +139,7 @@ npm run smoke:feishu -- --env-file scripts/feishu/.env --live --strict-live --ev
 
 The evidence file uses the same redacted schema as `--json`: request paths are tokenized, request bodies only list top-level keys, response data is summarized by code/message/data keys, and the callback probe records only the AgentSpace callback route plus a short route fingerprint instead of the full callback URL.
 
-Verify an existing evidence artifact before marking TODO119 live smoke items complete:
+Verify an existing evidence artifact before using it in the final AgentSpace evidence gate:
 
 ```bash
 npm run smoke:feishu -- --verify-evidence runtime-output/feishu-smoke/live.json --json
