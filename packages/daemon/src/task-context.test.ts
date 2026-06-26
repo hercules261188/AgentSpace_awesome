@@ -14,6 +14,14 @@ test("parseTaskInputJson preserves untrusted Feishu external input metadata", ()
       externalMessageId: "om-1",
       externalChatId: "oc-1",
       trust: "untrusted_user_message",
+      actor: {
+        actorType: "external_guest",
+        externalActorReference: "a".repeat(64),
+        externalGuestPermissionProfile: "channel_context_only",
+        externalGuestRequireIdentityFor: ["writes", "runtime_sensitive_tools"],
+        agentId: "Atlas",
+        botBindingId: "integration-1",
+      },
       workspaceDataPolicy: {
         decision: "allow",
         reasonCode: "workspace_data.external_untrusted_user_message_allowed",
@@ -39,6 +47,14 @@ test("parseTaskInputJson preserves untrusted Feishu external input metadata", ()
     externalMessageId: "om-1",
     externalChatId: "oc-1",
     trust: "untrusted_user_message",
+    actor: {
+      actorType: "external_guest",
+      externalActorReference: "a".repeat(64),
+      externalGuestPermissionProfile: "channel_context_only",
+      externalGuestRequireIdentityFor: ["writes", "runtime_sensitive_tools"],
+      agentId: "Atlas",
+      botBindingId: "integration-1",
+    },
     workspaceDataPolicy: {
       decision: "allow",
       reasonCode: "workspace_data.external_untrusted_user_message_allowed",

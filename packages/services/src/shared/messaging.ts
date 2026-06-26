@@ -48,6 +48,15 @@ export interface ExternalMessageInputContext {
   externalMessageId?: string;
   externalChatId?: string;
   trust: "untrusted_user_message";
+  actor?: {
+    actorType: "user" | "external_guest";
+    userId?: string;
+    externalActorReference?: string;
+    externalGuestPermissionProfile?: string;
+    externalGuestRequireIdentityFor?: string[];
+    agentId?: string;
+    botBindingId?: string;
+  };
   workspaceDataPolicy?: WorkspaceDataPolicyDecision;
 }
 

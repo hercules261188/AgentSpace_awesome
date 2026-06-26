@@ -77,6 +77,10 @@ export {
   type RecordFeishuThreadBindingInput,
 } from "./thread-bindings.ts";
 export {
+  evaluateFeishuExternalGuestRuntimeToolIdentityRequirementFromTaskInput,
+  type FeishuRuntimeToolIdentityRequirement,
+} from "./runtime-tools.ts";
+export {
   createFeishuApiClient,
   fetchFeishuTenantAccessToken,
   type FeishuApiClient,

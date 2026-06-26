@@ -1049,6 +1049,113 @@ describe("daemon API routes", () => {
     expect(approval?.metadata?.toolName).toBe("Bash");
   });
 
+  it("requires identity before Feishu external guests can approve runtime tools", async () => {
+    const daemonToken = createDaemonApiTokenSync({
+      label: "remote-daemon",
+      createdBy: "Tianyu",
+    });
+
+    const registerResponse = await registerPOST(
+      new Request("http://localhost/api/daemon/register", {
+        method: "POST",
+        headers: daemonHeaders(daemonToken.token),
+        body: JSON.stringify({
+          daemonKey: "build-box-feishu-guest-runtime-approval",
+          deviceName: "Build Box Feishu Guest Runtime Approval",
+          runtimes: [
+            {
+              provider: "claude",
+              name: "Remote Claude",
+              version: "test",
+            },
+          ],
+        }),
+      }),
+    );
+    const registerPayload = await registerResponse.json();
+    const runtimeId = registerPayload.runtimes[0].id as string;
+
+    createEmployeeSync({
+      name: "Atlas",
+      role: "Planner",
+    });
+    addChannelEmployeesSync({ channelName: "tour visit", employeeNames: ["Atlas"] });
+    bindEmployeeRuntimeSync("Atlas", runtimeId);
+    const feishuIntegration = createExternalIntegrationSync({
+      workspaceId: "default",
+      provider: "feishu",
+      displayName: "Atlas Feishu Bot",
+      transportMode: "websocket_worker",
+      agentId: "Atlas",
+      appId: "cli_atlas_feishu_runtime_guest",
+    });
+
+    const queued = enqueueNativeTaskSync({
+      assignee: "Atlas",
+      title: "Feishu guest needs tool approval",
+      priority: "medium",
+      triggerType: "mention_chat",
+      metadata: {
+        title: "Feishu guest needs tool approval",
+        channel: "tour visit",
+        channelName: "tour visit",
+        externalInput: {
+          provider: "feishu",
+          providerLabel: "Feishu/Lark",
+          externalEventId: "evt-feishu-runtime-guest",
+          externalMessageId: "om-feishu-runtime-guest",
+          externalChatId: "oc-feishu-runtime-guest",
+          trust: "untrusted_user_message",
+          actor: {
+            actorType: "external_guest",
+            externalActorReference: "a".repeat(64),
+            externalGuestPermissionProfile: "channel_context_only",
+            externalGuestRequireIdentityFor: ["writes", "approvals", "runtime_sensitive_tools"],
+            agentId: "Atlas",
+            botBindingId: feishuIntegration.id,
+          },
+        },
+      },
+    });
+
+    const createResponse = await runtimeApprovalPOST(
+      new Request(`http://localhost/api/daemon/tasks/${queued?.id}/runtime-approvals`, {
+        method: "POST",
+        headers: daemonHeaders(daemonToken.token),
+        body: JSON.stringify({
+          provider: "claude",
+          runtimeId,
+          sessionId: "session-guest-1",
+          toolName: "Bash",
+          toolInput: { command: "gws +write launch-plan" },
+          contentPreview: "Bash: gws +write launch-plan",
+        }),
+      }),
+      { params: Promise.resolve({ taskId: queued!.id }) },
+    );
+    const createPayload = await createResponse.json();
+
+    expect(createResponse.status).toBe(403);
+    expect(createPayload).toMatchObject({
+      errorCode: "feishu.runtime_tool_external_guest_requires_identity",
+      reasonCode: "feishu_external_guest_runtime_sensitive_tool_identity_required",
+      requireIdentity: true,
+      actorType: "external_guest",
+      externalActorReference: "a".repeat(64),
+      identityNoticeQueued: true,
+    });
+    expect(readWorkspaceStateSync().approvals.some((approval) => approval.type === "runtime_tool")).toBe(false);
+    const outbox = listPendingExternalMessageOutboxSync({
+      workspaceId: "default",
+      integrationId: feishuIntegration.id,
+    });
+    expect(outbox).toHaveLength(1);
+    expect(outbox[0]?.targetExternalChatId).toBe("oc-feishu-runtime-guest");
+    expect(outbox[0]?.targetExternalThreadId).toBe("om-feishu-runtime-guest");
+    expect(outbox[0]?.payloadJson).toContain("identity required");
+    expect(outbox[0]?.payloadJson).not.toContain("a".repeat(64));
+  });
+
   it("completes a task with an output bundle and writes attachments back into workspace messages", async () => {
     const daemonToken = createDaemonApiTokenSync({
       label: "remote-daemon",

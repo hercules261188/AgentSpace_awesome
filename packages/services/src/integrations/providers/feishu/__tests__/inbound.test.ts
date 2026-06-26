@@ -157,6 +157,10 @@ test("bound Feishu messages enter the AgentSpace channel message and task queue 
     externalMessageId: "om-bound-1",
     externalChatId: "oc_general",
     trust: "untrusted_user_message",
+    actor: {
+      actorType: "user",
+      userId: fixtures.user.id,
+    },
     workspaceDataPolicy: expectedWorkspaceDataPolicy({
       externalEventId: "evt-bound-1",
       externalMessageId: "om-bound-1",
@@ -291,6 +295,10 @@ test("bound Feishu direct messages enter the AgentSpace contact chat path withou
     externalMessageId: "om-direct-1",
     externalChatId: "oc_direct",
     trust: "untrusted_user_message",
+    actor: {
+      actorType: "user",
+      userId: fixtures.user.id,
+    },
     workspaceDataPolicy: expectedWorkspaceDataPolicy({
       externalEventId: "evt-direct-1",
       externalMessageId: "om-direct-1",
@@ -975,6 +983,31 @@ test("unbound Feishu users can dispatch as a governed external guest on agent bo
   assert.equal(queuedTask?.agentId, "Atlas");
   assert.equal(queuedTask?.requestedByUserId, undefined);
   assert.equal(queuedTask?.requestedByDisplayName, FEISHU_EXTERNAL_GUEST_DISPLAY_NAME);
+  assert.ok(queuedTask);
+  const queuedPayload = JSON.parse(queuedTask.inputJson) as {
+    externalInput?: {
+      actor?: {
+        actorType?: string;
+        externalActorReference?: string;
+        externalGuestPermissionProfile?: string;
+        externalGuestRequireIdentityFor?: string[];
+        agentId?: string;
+        botBindingId?: string;
+      };
+    };
+  };
+  assert.equal(queuedPayload.externalInput?.actor?.actorType, "external_guest");
+  assert.match(String(queuedPayload.externalInput?.actor?.externalActorReference), /^[a-f0-9]{64}$/);
+  assert.equal(queuedPayload.externalInput?.actor?.externalGuestPermissionProfile, "channel_context_only");
+  assert.deepEqual(queuedPayload.externalInput?.actor?.externalGuestRequireIdentityFor, [
+    "writes",
+    "approvals",
+    "private_resources",
+    "runtime_sensitive_tools",
+  ]);
+  assert.equal(queuedPayload.externalInput?.actor?.agentId, "Atlas");
+  assert.equal(queuedPayload.externalInput?.actor?.botBindingId, fixtures.integration.id);
+  assert.doesNotMatch(JSON.stringify(queuedPayload.externalInput?.actor), /ou_mina|on_mina|oc_general/);
 
   const mapping = readExternalMessageMappingByExternalMessageSync({
     workspaceId: DEFAULT_WORKSPACE_ID,

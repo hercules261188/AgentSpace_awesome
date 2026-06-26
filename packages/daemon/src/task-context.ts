@@ -50,6 +50,15 @@ export interface ParsedTaskPayload {
     externalMessageId?: string;
     externalChatId?: string;
     trust: "untrusted_user_message";
+    actor?: {
+      actorType: "user" | "external_guest";
+      userId?: string;
+      externalActorReference?: string;
+      externalGuestPermissionProfile?: string;
+      externalGuestRequireIdentityFor?: string[];
+      agentId?: string;
+      botBindingId?: string;
+    };
     workspaceDataPolicy?: WorkspaceDataPolicyDecision;
   };
   sourceChannel?: string;
@@ -99,6 +108,8 @@ export interface ParsedTaskPayload {
     kind?: string;
   }>;
 }
+
+type ParsedExternalInputActor = NonNullable<NonNullable<ParsedTaskPayload["externalInput"]>["actor"]>;
 
 export interface PreparedDaemonTaskContext {
   prompt: string;
@@ -282,7 +293,32 @@ function parseExternalInputPayload(input: unknown): ParsedTaskPayload["externalI
     externalMessageId: typeof value.externalMessageId === "string" ? value.externalMessageId : undefined,
     externalChatId: typeof value.externalChatId === "string" ? value.externalChatId : undefined,
     trust: "untrusted_user_message",
+    actor: parseExternalInputActor(value.actor),
     workspaceDataPolicy: parseWorkspaceDataPolicyDecision(value.workspaceDataPolicy),
+  };
+}
+
+function parseExternalInputActor(input: unknown): ParsedExternalInputActor | undefined {
+  if (!input || typeof input !== "object") {
+    return undefined;
+  }
+  const value = input as Record<string, unknown>;
+  if (value.actorType !== "user" && value.actorType !== "external_guest") {
+    return undefined;
+  }
+  return {
+    actorType: value.actorType,
+    ...(typeof value.userId === "string" ? { userId: value.userId } : {}),
+    ...(typeof value.externalActorReference === "string" ? { externalActorReference: value.externalActorReference } : {}),
+    ...(typeof value.externalGuestPermissionProfile === "string" ? { externalGuestPermissionProfile: value.externalGuestPermissionProfile } : {}),
+    ...(Array.isArray(value.externalGuestRequireIdentityFor)
+      ? {
+          externalGuestRequireIdentityFor: value.externalGuestRequireIdentityFor
+            .filter((item): item is string => typeof item === "string" && item.trim().length > 0),
+        }
+      : {}),
+    ...(typeof value.agentId === "string" ? { agentId: value.agentId } : {}),
+    ...(typeof value.botBindingId === "string" ? { botBindingId: value.botBindingId } : {}),
   };
 }
 

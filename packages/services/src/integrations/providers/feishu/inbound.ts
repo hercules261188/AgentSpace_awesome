@@ -828,7 +828,14 @@ function dispatchPreparedFeishuInboundEventSync(input: FeishuInboundPreparedDisp
   let pendingAgentNames: string[] = [];
   let dispatchedTask: QueuedTaskRecord | null = null;
   try {
-    const externalInput = buildFeishuExternalInput(input.message);
+    const externalInput = buildFeishuExternalInput({
+      message: input.message,
+      actorType: input.actorType,
+      userId: input.userId,
+      externalGuestActor: input.externalGuestActor,
+      agentId: input.agentId,
+      botBindingId: input.botBindingId,
+    });
     const directContactId = resolveFeishuDirectContactIdSync({
       workspaceId: input.context.workspaceId,
       channelBinding: input.channelBinding,
@@ -1066,15 +1073,59 @@ function queueFeishuThreadCollaborationCardBestEffort(input: {
   }
 }
 
-function buildFeishuExternalInput(message: ExternalMessageEnvelope): ExternalMessageInputContext {
+function buildFeishuExternalInput(input: {
+  message: ExternalMessageEnvelope;
+  actorType?: "user" | "external_guest";
+  userId?: string;
+  externalGuestActor?: {
+    providerUserRefHash: string;
+    permissionProfile: string;
+    requireIdentityFor?: string[];
+  };
+  agentId?: string;
+  botBindingId?: string;
+}): ExternalMessageInputContext {
   return {
     provider: FEISHU_PROVIDER_ID,
     providerLabel: "Feishu/Lark",
-    externalEventId: message.externalEventId,
-    externalMessageId: message.externalMessageId,
-    externalChatId: message.externalChatId,
+    externalEventId: input.message.externalEventId,
+    externalMessageId: input.message.externalMessageId,
+    externalChatId: input.message.externalChatId,
     trust: "untrusted_user_message",
+    actor: buildFeishuExternalInputActor(input),
   };
+}
+
+function buildFeishuExternalInputActor(input: {
+  actorType?: "user" | "external_guest";
+  userId?: string;
+  externalGuestActor?: {
+    providerUserRefHash: string;
+    permissionProfile: string;
+    requireIdentityFor?: string[];
+  };
+  agentId?: string;
+  botBindingId?: string;
+}): ExternalMessageInputContext["actor"] | undefined {
+  if (input.actorType === "external_guest" && input.externalGuestActor) {
+    return {
+      actorType: "external_guest",
+      externalActorReference: input.externalGuestActor.providerUserRefHash,
+      externalGuestPermissionProfile: input.externalGuestActor.permissionProfile,
+      externalGuestRequireIdentityFor: input.externalGuestActor.requireIdentityFor,
+      agentId: input.agentId,
+      botBindingId: input.botBindingId,
+    };
+  }
+  if (input.actorType === "user" && input.userId) {
+    return {
+      actorType: "user",
+      userId: input.userId,
+      agentId: input.agentId,
+      botBindingId: input.botBindingId,
+    };
+  }
+  return undefined;
 }
 
 function processFeishuBotAddedToChatEventSync(input: {
