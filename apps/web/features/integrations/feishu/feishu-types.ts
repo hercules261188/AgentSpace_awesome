@@ -147,14 +147,30 @@ export interface FeishuIntegrationEventSettingsItem {
 export type FeishuInboundBindingSuggestion =
   | {
     kind: "channel";
-    externalChatId: string;
+    externalChatReference: string;
+    externalChatIdRedacted: true;
   }
   | {
     kind: "user";
-    externalUserId: string;
-    externalUnionId?: string;
-    externalOpenId?: string;
+    externalUserReference: string;
+    externalUserIdRedacted: true;
+    externalUnionReference?: string;
+    externalUnionIdRedacted?: true;
+    externalOpenReference?: string;
+    externalOpenIdRedacted?: true;
   };
+
+export interface FeishuAgentBotChannelAutoProvisioningSettingsItem {
+  botAdded?: "auto_create_channel" | "pending_admin_review" | "disabled";
+  firstMessage?: "auto_create_if_bot_mentioned" | "pending_admin_review" | "reply_with_setup_card" | "disabled";
+  reviewStatus?: "approved" | "pending_admin_review" | "needs_identity_binding";
+}
+
+export interface FeishuAgentBotExternalGuestPolicySettingsItem {
+  unboundUserMode?: "ignore" | "reply_on_mention" | "reply_all" | "require_identity";
+  guestPermissionProfile?: "none" | "channel_context_only" | "channel_readonly";
+  requireIdentityFor: string[];
+}
 
 export interface FeishuIntegrationSettingsItem {
   id: string;
@@ -184,6 +200,8 @@ export interface FeishuIntegrationSettingsItem {
   operationRuns: FeishuDataOperationRunSettingsItem[];
   recentOutboxFailures: FeishuOutboxSettingsItem[];
   recentInboundEvents: FeishuIntegrationEventSettingsItem[];
+  channelAutoProvisioning?: FeishuAgentBotChannelAutoProvisioningSettingsItem;
+  externalGuestPolicy?: FeishuAgentBotExternalGuestPolicySettingsItem;
   setupGuide?: FeishuIntegrationSetupGuide;
 }
 

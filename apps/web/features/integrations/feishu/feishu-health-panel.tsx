@@ -270,16 +270,17 @@ function FeishuInboundBindingSuggestion({
     return (
       <div className="feishu-inbound-binding-suggestion">
         <span>{tx("建议绑定群", "Suggested Chat")}</span>
-        <code>{suggestion.externalChatId}</code>
+        <code>{suggestion.externalChatReference}</code>
+        <span className="status-chip status-chip--warning">{tx("ID 已隐藏", "ID hidden")}</span>
         <button
           className="action-button"
           onClick={() => {
-            copyToClipboard(suggestion.externalChatId);
-            setFeedback(tx("飞书会话 ID 已复制。", "Feishu chat ID copied."));
+            copyToClipboard(suggestion.externalChatReference);
+            setFeedback(tx("飞书会话安全引用已复制。", "Feishu chat reference copied."));
           }}
           type="button"
         >
-          {tx("复制", "Copy")}
+          {tx("复制引用", "Copy Ref")}
         </button>
       </div>
     );
@@ -288,18 +289,19 @@ function FeishuInboundBindingSuggestion({
   return (
     <div className="feishu-inbound-binding-suggestion">
       <span>{tx("建议绑定用户", "Suggested User")}</span>
-      <code>{suggestion.externalUserId}</code>
-      {suggestion.externalUnionId ? <code>{suggestion.externalUnionId}</code> : null}
-      {suggestion.externalOpenId ? <code>{suggestion.externalOpenId}</code> : null}
+      <code>{suggestion.externalUserReference}</code>
+      {suggestion.externalUnionReference ? <code>{suggestion.externalUnionReference}</code> : null}
+      {suggestion.externalOpenReference ? <code>{suggestion.externalOpenReference}</code> : null}
+      <span className="status-chip status-chip--warning">{tx("ID 已隐藏", "ID hidden")}</span>
       <button
         className="action-button"
         onClick={() => {
-          copyToClipboard(suggestion.externalUserId);
-          setFeedback(tx("飞书 Open ID 已复制。", "Feishu Open ID copied."));
+          copyToClipboard(suggestion.externalUserReference);
+          setFeedback(tx("飞书用户安全引用已复制。", "Feishu user reference copied."));
         }}
         type="button"
       >
-        {tx("复制", "Copy")}
+        {tx("复制引用", "Copy Ref")}
       </button>
     </div>
   );

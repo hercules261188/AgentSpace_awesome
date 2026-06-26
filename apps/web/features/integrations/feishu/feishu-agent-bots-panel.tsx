@@ -314,6 +314,60 @@ export function FeishuAgentBotsPanel({
                   <span>{tx("状态", "Status")}: {integration.status}</span>
                   {integration.appId ? <span>App ID: {integration.appId}</span> : null}
                 </div>
+                {integration.externalGuestPolicy || integration.channelAutoProvisioning ? (
+                  <div
+                    aria-label={tx("飞书 Bot 治理策略", "Feishu Bot Governance Policy")}
+                    className="feishu-binding-card__meta"
+                  >
+                    {integration.externalGuestPolicy ? (
+                      <>
+                        <span>
+                          {tx("未绑定用户", "Unbound Users")}: {translateUnboundUserMode(
+                            integration.externalGuestPolicy.unboundUserMode,
+                            tx,
+                          )}
+                        </span>
+                        <span>
+                          {tx("访客权限", "Guest Permission")}: {translateGuestPermissionProfile(
+                            integration.externalGuestPolicy.guestPermissionProfile,
+                            tx,
+                          )}
+                        </span>
+                        <span>
+                          {tx("需绑定身份", "Identity Required")}: {
+                            integration.externalGuestPolicy.requireIdentityFor.length > 0
+                              ? integration.externalGuestPolicy.requireIdentityFor.map((item) =>
+                                translateIdentityRequirement(item, tx)
+                              ).join(", ")
+                              : tx("无", "None")
+                          }
+                        </span>
+                      </>
+                    ) : null}
+                    {integration.channelAutoProvisioning ? (
+                      <>
+                        <span>
+                          {tx("机器人进群", "Bot Added")}: {translateBotAddedPolicy(
+                            integration.channelAutoProvisioning.botAdded,
+                            tx,
+                          )}
+                        </span>
+                        <span>
+                          {tx("首次消息", "First Message")}: {translateFirstMessagePolicy(
+                            integration.channelAutoProvisioning.firstMessage,
+                            tx,
+                          )}
+                        </span>
+                        <span>
+                          {tx("建群审核", "Provision Review")}: {translateProvisionReviewStatus(
+                            integration.channelAutoProvisioning.reviewStatus,
+                            tx,
+                          )}
+                        </span>
+                      </>
+                    ) : null}
+                  </div>
+                ) : null}
               </div>
               <div className="feishu-agent-bot-actions">
                 <input
@@ -378,4 +432,98 @@ export function FeishuAgentBotsPanel({
       </div>
     </section>
   );
+}
+
+function translateUnboundUserMode(
+  value: NonNullable<FeishuIntegrationSettingsItem["externalGuestPolicy"]>["unboundUserMode"] | undefined,
+  tx: SettingsTx,
+) {
+  switch (value) {
+    case "ignore":
+      return tx("忽略", "Ignore");
+    case "reply_all":
+      return tx("全部回复", "Reply all");
+    case "require_identity":
+      return tx("要求绑定身份", "Require identity");
+    case "reply_on_mention":
+    default:
+      return tx("@Bot 时回复", "Reply when mentioned");
+  }
+}
+
+function translateGuestPermissionProfile(
+  value: NonNullable<FeishuIntegrationSettingsItem["externalGuestPolicy"]>["guestPermissionProfile"] | undefined,
+  tx: SettingsTx,
+) {
+  switch (value) {
+    case "none":
+      return tx("无", "None");
+    case "channel_readonly":
+      return tx("当前 Channel 只读", "Current channel readonly");
+    case "channel_context_only":
+    default:
+      return tx("当前 Channel 上下文", "Current channel context");
+  }
+}
+
+function translateIdentityRequirement(value: string, tx: SettingsTx) {
+  switch (value) {
+    case "writes":
+      return tx("写入", "Writes");
+    case "approvals":
+      return tx("审批", "Approvals");
+    case "private_resources":
+      return tx("私有资源", "Private resources");
+    case "runtime_sensitive_tools":
+      return tx("高风险工具", "Sensitive tools");
+    default:
+      return value;
+  }
+}
+
+function translateBotAddedPolicy(
+  value: NonNullable<FeishuIntegrationSettingsItem["channelAutoProvisioning"]>["botAdded"] | undefined,
+  tx: SettingsTx,
+) {
+  switch (value) {
+    case "pending_admin_review":
+      return tx("等待管理员审核", "Pending admin review");
+    case "disabled":
+      return tx("关闭", "Disabled");
+    case "auto_create_channel":
+    default:
+      return tx("自动创建 Channel", "Auto-create channel");
+  }
+}
+
+function translateFirstMessagePolicy(
+  value: NonNullable<FeishuIntegrationSettingsItem["channelAutoProvisioning"]>["firstMessage"] | undefined,
+  tx: SettingsTx,
+) {
+  switch (value) {
+    case "pending_admin_review":
+      return tx("等待管理员审核", "Pending admin review");
+    case "reply_with_setup_card":
+      return tx("回复设置卡片", "Reply with setup card");
+    case "disabled":
+      return tx("关闭", "Disabled");
+    case "auto_create_if_bot_mentioned":
+    default:
+      return tx("@Bot 时自动创建", "Auto-create when mentioned");
+  }
+}
+
+function translateProvisionReviewStatus(
+  value: NonNullable<FeishuIntegrationSettingsItem["channelAutoProvisioning"]>["reviewStatus"] | undefined,
+  tx: SettingsTx,
+) {
+  switch (value) {
+    case "pending_admin_review":
+      return tx("等待管理员审核", "Pending admin review");
+    case "needs_identity_binding":
+      return tx("需要身份绑定", "Needs identity binding");
+    case "approved":
+    default:
+      return tx("通过", "Approved");
+  }
 }

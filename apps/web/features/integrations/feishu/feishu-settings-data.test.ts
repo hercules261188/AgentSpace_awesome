@@ -49,7 +49,7 @@ vi.mock("@agent-space/services", () => ({
   FEISHU_EVENT_CALLBACK_PATH: "/api/integrations/feishu/events",
   FEISHU_FINAL_EVIDENCE_GATE_REQUIREMENTS: {
     botReply: "processed_inbound + correlated_reply_mapping",
-    nativeAgentBot: "agent_bot_route + bound_user_bot_mention + external_guest_bot_mention + bot_added_auto_provision + first_message_auto_provision + multi_agent_channel_reuse + thread_task_binding + agent_channel_policy_denial",
+    nativeAgentBot: "agent_bot_route + bound_user_bot_mention + external_guest_bot_mention + bot_added_auto_provision + first_message_auto_provision + multi_agent_channel_reuse + thread_task_binding + thread_continuation + thread_collaboration + agent_channel_policy_denial",
     guestPolicy: "external_guest_allow + external_guest_reply_all + external_guest_require_identity + external_guest_ignore + external_guest_mention_required",
     workerRestart: "two_correlated_websocket_replies",
     workerCardAction: "processed_approval_card_action",
@@ -440,7 +440,7 @@ describe("Feishu settings data", () => {
         },
         {
           key: "native_agent_bot",
-          required: "agent_bot_route + bound_user_bot_mention + external_guest_bot_mention + bot_added_auto_provision + first_message_auto_provision + multi_agent_channel_reuse + thread_task_binding + agent_channel_policy_denial",
+          required: "agent_bot_route + bound_user_bot_mention + external_guest_bot_mention + bot_added_auto_provision + first_message_auto_provision + multi_agent_channel_reuse + thread_task_binding + thread_continuation + thread_collaboration + agent_channel_policy_denial",
         },
         {
           key: "guest_policy",
@@ -476,7 +476,11 @@ describe("Feishu settings data", () => {
     expect(JSON.stringify(item)).not.toContain("summarize confidential text");
     expect(JSON.stringify(item)).not.toContain("ou_mina");
     expect(JSON.stringify(item)).not.toContain("ou_alex");
+    expect(JSON.stringify(item)).not.toContain("ou_new_user");
+    expect(JSON.stringify(item)).not.toContain("on_new_user");
+    expect(JSON.stringify(item)).not.toContain("feishu_user_1");
     expect(JSON.stringify(item)).not.toContain("oc_general");
+    expect(JSON.stringify(item)).not.toContain("oc_new_chat");
     expect(JSON.stringify(item)).not.toContain("om_thread_1");
     expect(item?.recentInboundEvents).toEqual([
       {
@@ -488,9 +492,12 @@ describe("Feishu settings data", () => {
         errorMessage: "external_user_unbound",
         bindingSuggestion: {
           kind: "user",
-          externalUserId: "ou_new_user",
-          externalUnionId: "on_new_user",
-          externalOpenId: "feishu_user_1",
+          externalUserReference: expect.stringMatching(/^user [0-9a-f]{8}$/),
+          externalUserIdRedacted: true,
+          externalUnionReference: expect.stringMatching(/^union [0-9a-f]{8}$/),
+          externalUnionIdRedacted: true,
+          externalOpenReference: expect.stringMatching(/^user [0-9a-f]{8}$/),
+          externalOpenIdRedacted: true,
         },
         receivedAt: "2026-06-24T00:00:00.000Z",
         processedAt: "2026-06-24T00:00:01.000Z",
@@ -504,7 +511,8 @@ describe("Feishu settings data", () => {
         errorMessage: "external_channel_unbound",
         bindingSuggestion: {
           kind: "channel",
-          externalChatId: "oc_new_chat",
+          externalChatReference: expect.stringMatching(/^chat [0-9a-f]{8}$/),
+          externalChatIdRedacted: true,
         },
         receivedAt: "2026-06-24T00:00:02.000Z",
         processedAt: "2026-06-24T00:00:03.000Z",
@@ -674,6 +682,68 @@ describe("Feishu settings data", () => {
     ]));
   });
 
+  it("surfaces agent bot governance policy from Feishu config", () => {
+    mockListExternalIntegrationsSync.mockReturnValue([
+      buildIntegration({
+        id: "agent-bot-atlas",
+        displayName: "Atlas Feishu Bot",
+        agentId: "Atlas",
+        configJson: JSON.stringify({
+          channelAutoProvisioning: {
+            botAdded: "pending_admin_review",
+            firstMessage: "reply_with_setup_card",
+            reviewStatus: "needs_identity_binding",
+          },
+          externalGuestPolicy: {
+            unboundUserMode: "require_identity",
+            guestPermissionProfile: "none",
+            requireIdentityFor: ["writes", "approvals"],
+          },
+        }),
+      }),
+      buildIntegration({
+        id: "agent-bot-codex",
+        displayName: "Codex Feishu Bot",
+        agentId: "Codex",
+      }),
+    ]);
+
+    const [atlas, codex] = listFeishuIntegrationSettingsItems({
+      workspaceId: "workspace-1",
+      appUrl: "https://agent.test",
+      viewer: {
+        role: "admin",
+        userId: "admin-1",
+      },
+    });
+
+    expect(atlas?.channelAutoProvisioning).toEqual({
+      botAdded: "pending_admin_review",
+      firstMessage: "reply_with_setup_card",
+      reviewStatus: "needs_identity_binding",
+    });
+    expect(atlas?.externalGuestPolicy).toEqual({
+      unboundUserMode: "require_identity",
+      guestPermissionProfile: "none",
+      requireIdentityFor: ["writes", "approvals"],
+    });
+    expect(codex?.channelAutoProvisioning).toEqual({
+      botAdded: "auto_create_channel",
+      firstMessage: "auto_create_if_bot_mentioned",
+      reviewStatus: "approved",
+    });
+    expect(codex?.externalGuestPolicy).toEqual({
+      unboundUserMode: "reply_on_mention",
+      guestPermissionProfile: "channel_context_only",
+      requireIdentityFor: [
+        "writes",
+        "approvals",
+        "private_resources",
+        "runtime_sensitive_tools",
+      ],
+    });
+  });
+
   it("lists active AgentSpace agents for Feishu bot binding forms", () => {
     mockListActiveEmployeesSync.mockReturnValue([
       {
@@ -704,7 +774,7 @@ describe("Feishu settings data", () => {
   });
 });
 
-function buildIntegration() {
+function buildIntegration(overrides: Record<string, unknown> = {}) {
   return {
     id: "feishu-1",
     workspaceId: "workspace-1",
@@ -724,6 +794,7 @@ function buildIntegration() {
     scopesJson: [],
     createdAt: "2026-06-24T00:00:00.000Z",
     updatedAt: "2026-06-24T00:00:00.000Z",
+    ...overrides,
   };
 }
 

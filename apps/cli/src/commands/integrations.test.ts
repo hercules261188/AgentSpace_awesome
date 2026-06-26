@@ -967,7 +967,12 @@ test("Feishu evidence report summarizes AgentSpace-side live smoke proof without
     },
     threadBindingsByIntegrationId: {
       "integration-evidence": [
-        buildThreadBinding("integration-evidence"),
+        buildThreadBinding("integration-evidence", {
+          agentId: "HermesAgent",
+          botBindingId: "integration-evidence-hermes",
+          threadCollaboration: true,
+          collaboratingAgentIds: ["Atlas"],
+        }),
       ],
     },
     outboxByIntegrationId: {
@@ -1016,6 +1021,7 @@ test("Feishu evidence report summarizes AgentSpace-side live smoke proof without
   assert.equal(item?.nativeExperience.reusedProviderChannelBindings, 1);
   assert.equal(item?.nativeExperience.threadTaskBindings, 1);
   assert.equal(item?.nativeExperience.threadContinuationEvidence, 1);
+  assert.equal(item?.nativeExperience.threadCollaborationEvidence, 1);
   assert.equal(item?.guestPolicy.satisfied, true);
   assert.equal(item?.guestPolicy.externalGuestAllowedEvidence, 2);
   assert.equal(item?.guestPolicy.externalGuestReplyAllEvidence, 1);
@@ -1400,6 +1406,7 @@ test("Feishu evidence report gates native agent bot experience proof", () => {
   assert.equal(item?.nativeExperience.reusedProviderChannelBindings, 0);
   assert.equal(item?.nativeExperience.threadTaskBindings, 0);
   assert.equal(item?.nativeExperience.threadContinuationEvidence, 0);
+  assert.equal(item?.nativeExperience.threadCollaborationEvidence, 0);
   assert.ok(item?.issues.includes("external_guest_bot_mention_evidence_missing"));
   assert.ok(item?.issues.includes("agent_channel_policy_disabled_evidence_missing"));
   assert.ok(item?.issues.includes("channel_auto_provision_evidence_missing"));
@@ -1408,6 +1415,7 @@ test("Feishu evidence report gates native agent bot experience proof", () => {
   assert.ok(item?.issues.includes("multi_agent_channel_reuse_evidence_missing"));
   assert.ok(item?.issues.includes("thread_task_binding_evidence_missing"));
   assert.ok(item?.issues.includes("thread_continuation_evidence_missing"));
+  assert.ok(item?.issues.includes("thread_collaboration_evidence_missing"));
   assert.equal(JSON.stringify(report).includes("oc_secret"), false);
   assert.equal(JSON.stringify(report).includes("ou_secret"), false);
 });
@@ -1748,6 +1756,7 @@ test("Feishu evidence report blocks strict gates when local proof is incomplete"
     "live_multi_agent_bot_channel_reuse",
     "live_feishu_thread_task_binding",
     "live_feishu_thread_continuation",
+    "live_multi_agent_thread_collaboration",
     "live_external_guest_reply_all",
     "live_external_guest_identity_required",
     "live_external_guest_reply_disabled",
@@ -1798,6 +1807,14 @@ test("Feishu evidence report blocks strict gates when local proof is incomplete"
     step.stepId === "live_feishu_thread_task_binding"
   );
   assert.ok(threadTaskRemediation?.issues.includes("thread_task_binding_evidence_missing"));
+  const threadContinuationRemediation = item?.remediationSteps.find((step) =>
+    step.stepId === "live_feishu_thread_continuation"
+  );
+  assert.ok(threadContinuationRemediation?.issues.includes("thread_continuation_evidence_missing"));
+  const threadCollaborationRemediation = item?.remediationSteps.find((step) =>
+    step.stepId === "live_multi_agent_thread_collaboration"
+  );
+  assert.ok(threadCollaborationRemediation?.issues.includes("thread_collaboration_evidence_missing"));
   const requireIdentityRemediation = item?.remediationSteps.find((step) =>
     step.stepId === "live_external_guest_identity_required"
   );
@@ -3933,7 +3950,7 @@ test("Feishu smoke plan converts readiness into live smoke checklist without ext
     },
     {
       key: "native_agent_bot",
-      required: "agent_bot_route + bound_user_bot_mention + external_guest_bot_mention + bot_added_auto_provision + first_message_auto_provision + multi_agent_channel_reuse + thread_task_binding + agent_channel_policy_denial",
+      required: "agent_bot_route + bound_user_bot_mention + external_guest_bot_mention + bot_added_auto_provision + first_message_auto_provision + multi_agent_channel_reuse + thread_task_binding + thread_continuation + thread_collaboration + agent_channel_policy_denial",
     },
     {
       key: "guest_policy",
@@ -3970,6 +3987,7 @@ test("Feishu smoke plan converts readiness into live smoke checklist without ext
   const liveBot = report.steps.find((step) => step.id === "live_bot_message_reply");
   const liveAutoProvision = report.steps.find((step) => step.id === "live_agent_bot_channel_auto_provision");
   const liveMultiAgentReuse = report.steps.find((step) => step.id === "live_multi_agent_bot_channel_reuse");
+  const liveThreadCollaboration = report.steps.find((step) => step.id === "live_multi_agent_thread_collaboration");
   const liveGuestMention = report.steps.find((step) => step.id === "live_external_guest_agent_bot_mention");
   const liveGuestReplyAll = report.steps.find((step) => step.id === "live_external_guest_reply_all");
   const livePolicyDisabled = report.steps.find((step) => step.id === "live_agent_channel_policy_disabled");
@@ -4011,6 +4029,10 @@ test("Feishu smoke plan converts readiness into live smoke checklist without ext
   assert.match(liveAutoProvision?.detail ?? "", /provisionSource=bot_added/);
   assert.equal(liveMultiAgentReuse?.status, "pending");
   assert.match(liveMultiAgentReuse?.detail ?? "", /linkedFromBindingId/);
+  assert.equal(liveThreadCollaboration?.status, "pending");
+  assert.match(liveThreadCollaboration?.detail ?? "", /same Feishu thread/);
+  assert.match(liveThreadCollaboration?.detail ?? "", /threadCollaboration=true/);
+  assert.match(liveThreadCollaboration?.detail ?? "", /collaboration card/);
   assert.equal(liveGuestMention?.status, "pending");
   assert.match(liveGuestMention?.detail ?? "", /external_guest/);
   assert.equal(liveGuestReplyAll?.status, "pending");
@@ -4079,6 +4101,8 @@ test("Feishu smoke plan converts readiness into live smoke checklist without ext
   assert.match(agentSpaceEvidence?.command ?? "", /--openapi-evidence runtime-output\/feishu-smoke\/live\.json/);
   assert.match(agentSpaceEvidence?.command ?? "", /--strict --require all --json/);
   assert.match(agentSpaceEvidence?.detail ?? "", /Native evidence requires/);
+  assert.match(agentSpaceEvidence?.detail ?? "", /thread continuation/);
+  assert.match(agentSpaceEvidence?.detail ?? "", /thread collaboration/);
   assert.match(agentSpaceEvidence?.detail ?? "", /reply_all/);
   assert.match(liveSheet?.detail ?? "", /payload hash/);
 
@@ -4151,6 +4175,7 @@ test("Feishu smoke plan blocks live smoke steps when local prerequisites are mis
   assert.equal(botGate?.status, "blocked");
   assert.ok(botGate?.issues?.includes("health_not_checked"));
   assert.equal(liveBot?.status, "blocked");
+  assert.equal(report.steps.find((step) => step.id === "live_multi_agent_thread_collaboration")?.status, "blocked");
   assert.equal(report.steps.find((step) => step.id === "live_external_guest_agent_bot_mention")?.status, "blocked");
   assert.equal(report.steps.find((step) => step.id === "live_external_guest_reply_all")?.status, "blocked");
   assert.equal(report.steps.find((step) => step.id === "live_agent_channel_policy_disabled")?.status, "blocked");
@@ -4339,7 +4364,12 @@ function buildCompleteFeishuEvidenceInput() {
     },
     threadBindingsByIntegrationId: {
       "integration-evidence": [
-        buildThreadBinding("integration-evidence"),
+        buildThreadBinding("integration-evidence", {
+          agentId: "HermesAgent",
+          botBindingId: "integration-evidence-hermes",
+          threadCollaboration: true,
+          collaboratingAgentIds: ["Atlas"],
+        }),
       ],
     },
     outboxByIntegrationId: {
@@ -4597,7 +4627,17 @@ function buildAutoProvisionedChannelBinding(
   } as never;
 }
 
-function buildThreadBinding(integrationId: string) {
+function buildThreadBinding(
+  integrationId: string,
+  options: {
+    agentId?: string;
+    botBindingId?: string;
+    threadCollaboration?: boolean;
+    collaboratingAgentIds?: string[];
+  } = {},
+) {
+  const agentId = options.agentId ?? "Atlas";
+  const botBindingId = options.botBindingId ?? integrationId;
   return {
     id: `thread-${integrationId}`,
     workspaceId: "workspace-1",
@@ -4608,7 +4648,7 @@ function buildThreadBinding(integrationId: string) {
     externalChatId: "oc_secret",
     externalThreadId: "om_secret_inbound",
     channelName: "general",
-    agentId: "Atlas",
+    agentId,
     taskQueueId: "task-1",
     agentSpaceMessageId: "message-source-1",
     status: "active",
@@ -4616,10 +4656,16 @@ function buildThreadBinding(integrationId: string) {
       provider: "feishu",
       externalChatReference: "chat-ref-hash",
       externalThreadReference: "thread-ref-hash",
-      agentId: "Atlas",
-      botBindingId: integrationId,
+      agentId,
+      botBindingId,
       actorType: "user",
       routerSessionId: "router-1",
+      ...(options.threadCollaboration
+        ? {
+            threadCollaboration: true,
+            collaboratingAgentIds: options.collaboratingAgentIds ?? ["Atlas"],
+          }
+        : {}),
     }),
     lastMessageAt: "2026-06-24T00:00:01.000Z",
     createdAt: "2026-06-24T00:00:00.000Z",

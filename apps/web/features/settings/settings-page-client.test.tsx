@@ -809,6 +809,21 @@ describe("SettingsPageClient", () => {
       agentId: "Codex",
       transportMode: "websocket_worker",
       appId: "cli_codex_bot",
+      channelAutoProvisioning: {
+        botAdded: "auto_create_channel",
+        firstMessage: "auto_create_if_bot_mentioned",
+        reviewStatus: "approved",
+      },
+      externalGuestPolicy: {
+        unboundUserMode: "reply_on_mention",
+        guestPermissionProfile: "channel_context_only",
+        requireIdentityFor: [
+          "writes",
+          "approvals",
+          "private_resources",
+          "runtime_sensitive_tools",
+        ],
+      },
     }));
 
     renderSettingsPage({
@@ -855,6 +870,13 @@ describe("SettingsPageClient", () => {
       });
     });
     expect(await screen.findByText("Agent 飞书 Bot 已绑定。")).toBeInTheDocument();
+    const governance = screen.getByLabelText("飞书 Bot 治理策略");
+    expect(governance).toHaveTextContent("未绑定用户: @Bot 时回复");
+    expect(governance).toHaveTextContent("访客权限: 当前 Channel 上下文");
+    expect(governance).toHaveTextContent("需绑定身份: 写入, 审批, 私有资源, 高风险工具");
+    expect(governance).toHaveTextContent("机器人进群: 自动创建 Channel");
+    expect(governance).toHaveTextContent("首次消息: @Bot 时自动创建");
+    expect(governance).toHaveTextContent("建群审核: 通过");
   });
 
   it("keeps agent Feishu bot setup minimal until advanced options are opened", async () => {
@@ -1358,9 +1380,12 @@ describe("SettingsPageClient", () => {
               errorMessage: "external_user_unbound",
               bindingSuggestion: {
                 kind: "user",
-                externalUserId: "ou_unbound",
-                externalUnionId: "on_unbound",
-                externalOpenId: "feishu_user_unbound",
+                externalUserReference: "user 27f7c6c7",
+                externalUserIdRedacted: true,
+                externalUnionReference: "union 5b45c653",
+                externalUnionIdRedacted: true,
+                externalOpenReference: "user 1a3d146a",
+                externalOpenIdRedacted: true,
               },
               receivedAt: "2026-06-24T00:02:00.000Z",
               processedAt: "2026-06-24T00:02:01.000Z",
@@ -1374,7 +1399,8 @@ describe("SettingsPageClient", () => {
               errorMessage: "external_channel_unbound",
               bindingSuggestion: {
                 kind: "channel",
-                externalChatId: "oc_unbound",
+                externalChatReference: "chat 93847e2c",
+                externalChatIdRedacted: true,
               },
               receivedAt: "2026-06-24T00:01:00.000Z",
               processedAt: "2026-06-24T00:01:01.000Z",
@@ -1393,11 +1419,16 @@ describe("SettingsPageClient", () => {
     expect(screen.getByText("原因: external_user_unbound")).toBeInTheDocument();
     expect(screen.getByText("原因: external_channel_unbound")).toBeInTheDocument();
     expect(screen.getByText("建议绑定用户")).toBeInTheDocument();
-    expect(screen.getByText("ou_unbound")).toBeInTheDocument();
-    expect(screen.getByText("on_unbound")).toBeInTheDocument();
-    expect(screen.getByText("feishu_user_unbound")).toBeInTheDocument();
+    expect(screen.getByText("user 27f7c6c7")).toBeInTheDocument();
+    expect(screen.getByText("union 5b45c653")).toBeInTheDocument();
+    expect(screen.getByText("user 1a3d146a")).toBeInTheDocument();
     expect(screen.getByText("建议绑定群")).toBeInTheDocument();
-    expect(screen.getByText("oc_unbound")).toBeInTheDocument();
+    expect(screen.getByText("chat 93847e2c")).toBeInTheDocument();
+    expect(screen.getAllByText("ID 已隐藏")).toHaveLength(2);
+    expect(screen.queryByText("ou_unbound")).not.toBeInTheDocument();
+    expect(screen.queryByText("on_unbound")).not.toBeInTheDocument();
+    expect(screen.queryByText("feishu_user_unbound")).not.toBeInTheDocument();
+    expect(screen.queryByText("oc_unbound")).not.toBeInTheDocument();
   });
 
   it("surfaces Feishu data operation scope and resource failures to admins", () => {
@@ -1474,6 +1505,7 @@ describe("SettingsPageClient", () => {
               providerResourceTokenRedacted: true,
               agentSpaceResourceType: "channel_document",
               agentSpaceResourceId: "doc-1",
+              channelName: "general",
               displayName: "Active Doc",
               canWrite: false,
               guestReadable: true,
@@ -1489,6 +1521,7 @@ describe("SettingsPageClient", () => {
               providerResourceTokenRedacted: true,
               agentSpaceResourceType: "data_table",
               agentSpaceResourceId: "table-1",
+              channelName: "general",
               displayName: "Paused Sheet",
               canWrite: true,
               guestReadable: false,
@@ -1504,6 +1537,7 @@ describe("SettingsPageClient", () => {
               providerResourceTokenRedacted: true,
               agentSpaceResourceType: "data_table",
               agentSpaceResourceId: "table-2",
+              channelName: "finance",
               displayName: "Archived Base",
               canWrite: false,
               guestReadable: false,
@@ -1523,6 +1557,16 @@ describe("SettingsPageClient", () => {
     expect(health).toHaveTextContent("暂停: 1");
     expect(health).toHaveTextContent("归档: 1");
     expect(health).toHaveTextContent("最近异常: Paused Sheet · 暂停");
+    const generalGroup = screen.getByText("频道: general").closest(".feishu-binding-channel-group");
+    expect(generalGroup).toHaveTextContent("总数: 2");
+    expect(generalGroup).toHaveTextContent("Doc: 1");
+    expect(generalGroup).toHaveTextContent("Sheet: 1");
+    expect(generalGroup).toHaveTextContent("Base: 0");
+    const financeGroup = screen.getByText("频道: finance").closest(".feishu-binding-channel-group");
+    expect(financeGroup).toHaveTextContent("总数: 1");
+    expect(financeGroup).toHaveTextContent("Doc: 0");
+    expect(financeGroup).toHaveTextContent("Sheet: 0");
+    expect(financeGroup).toHaveTextContent("Base: 1");
     expect(screen.getByText("飞书: doc / resource f8ccdd86")).toBeInTheDocument();
     expect(screen.getByText("飞书: sheet / resource 960ee2a5")).toBeInTheDocument();
     expect(screen.getByText("飞书: base / resource daf16a16")).toBeInTheDocument();

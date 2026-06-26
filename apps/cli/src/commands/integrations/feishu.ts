@@ -504,6 +504,7 @@ export interface FeishuIntegrationEvidence {
     reusedProviderChannelBindings: number;
     threadTaskBindings: number;
     threadContinuationEvidence: number;
+    threadCollaborationEvidence: number;
     satisfied: boolean;
   };
   guestPolicy: {
@@ -4065,6 +4066,14 @@ export function buildFeishuSmokePlanReport(input: BuildFeishuSmokePlanReportInpu
         issues: hasIntegration ? [] : ["integration_missing"],
       },
       {
+        id: "live_multi_agent_thread_collaboration",
+        area: "bot",
+        title: "Live smoke: second agent bot joins an active thread",
+        status: readyForBot ? "pending" : "blocked",
+        detail: "Mention one agent-specific Feishu bot in a mapped group thread, then mention a second agent bot in that same Feishu thread. Verify AgentSpace keeps separate thread bindings, records threadCollaboration=true with collaborator agent ids, and sends the collaboration card without raw Feishu ids.",
+        issues: readyForBot ? [] : botIssues,
+      },
+      {
         id: "live_external_guest_agent_bot_mention",
         area: "bot",
         title: "Live smoke: unbound Feishu user routes as external guest",
@@ -4232,7 +4241,7 @@ export function buildFeishuSmokePlanReport(input: BuildFeishuSmokePlanReportInpu
         area: "failure",
         title: "Verify AgentSpace-side Feishu live smoke evidence",
         status: readyForBot && readyForDataPlane ? "pending" : "blocked",
-        detail: "After live native agent bot, guest-policy, data-plane, worker, and failure smoke, verify local AgentSpace DB evidence without exposing external ids or resource tokens. Native evidence requires agent-specific bot routing, auto-provisioning, multi-agent channel reuse, thread/task binding, and disabled-policy no-reply proof; guest evidence requires allow, reply_all, require_identity, ignore, and mention-required decisions.",
+        detail: "After live native agent bot, guest-policy, data-plane, worker, and failure smoke, verify local AgentSpace DB evidence without exposing external ids or resource tokens. Native evidence requires agent-specific bot routing, auto-provisioning, multi-agent channel reuse, thread/task binding, thread continuation, thread collaboration, and disabled-policy no-reply proof; guest evidence requires allow, reply_all, require_identity, ignore, and mention-required decisions.",
         command: `agent-space integrations feishu evidence --workspace-id ${readiness.workspaceId} --integration ${setupIntegrationFlag} --openapi-evidence ${smokeHarness.evidencePath} --strict --require all --json`,
         issues: readyForBot && readyForDataPlane ? [] : uniqueStrings([...botIssues, ...dataPlaneIssues]),
       },
@@ -4384,6 +4393,7 @@ function buildFeishuIntegrationEvidence(input: {
   const reusedProviderChannelBindings = countFeishuReusedProviderChannelBindings(input.channelBindings);
   const threadTaskBindings = countFeishuThreadTaskBindingEvidence(input.threadBindings);
   const threadContinuationEvidence = countFeishuThreadContinuationEvidence(input.messageMappings);
+  const threadCollaborationEvidence = countFeishuThreadCollaborationEvidence(input.threadBindings);
   const sentOutboxItems = input.outbox.filter((item) => item.status === "sent").length;
   const failedOutboxItems = input.outbox.filter((item) =>
     item.status === "failed" || (item.status === "pending" && Boolean(item.lastError))
@@ -4434,7 +4444,8 @@ function buildFeishuIntegrationEvidence(input: {
     firstMessageAutoProvisionedChannelBindings > 0 &&
     reusedProviderChannelBindings > 0 &&
     threadTaskBindings > 0 &&
-    threadContinuationEvidence > 0;
+    threadContinuationEvidence > 0 &&
+    threadCollaborationEvidence > 0;
   const guestPolicySatisfied = externalGuestAllowedEvidence > 0 &&
     externalGuestReplyAllEvidence > 0 &&
     externalGuestRequireIdentityEvidence > 0 &&
@@ -4488,6 +4499,7 @@ function buildFeishuIntegrationEvidence(input: {
     reusedProviderChannelBindings,
     threadTaskBindings,
     threadContinuationEvidence,
+    threadCollaborationEvidence,
     docReadSucceeded,
     agentDocReadSucceeded,
     docWriteSucceeded,
@@ -4537,6 +4549,7 @@ function buildFeishuIntegrationEvidence(input: {
       reusedProviderChannelBindings,
       threadTaskBindings,
       threadContinuationEvidence,
+      threadCollaborationEvidence,
       satisfied: nativeExperienceSatisfied,
     },
     guestPolicy: {
@@ -4750,6 +4763,7 @@ function buildFeishuEvidenceIssues(input: {
   reusedProviderChannelBindings: number;
   threadTaskBindings: number;
   threadContinuationEvidence: number;
+  threadCollaborationEvidence: number;
   docReadSucceeded: number;
   agentDocReadSucceeded: number;
   docWriteSucceeded: number;
@@ -4818,6 +4832,9 @@ function buildFeishuEvidenceIssues(input: {
     }
     if (input.threadContinuationEvidence === 0) {
       issues.push("thread_continuation_evidence_missing");
+    }
+    if (input.threadCollaborationEvidence === 0) {
+      issues.push("thread_collaboration_evidence_missing");
     }
   }
   if (!input.guestPolicySatisfied) {
@@ -5046,6 +5063,12 @@ function mapFeishuEvidenceIssueToRemediationSpec(input: {
         stepId: "live_feishu_thread_continuation",
         title: "Live smoke: Feishu thread follow-up continues without re-mention",
         detail: "After a mentioned agent bot message creates a Feishu thread binding, send a follow-up in the same Feishu thread without mentioning the bot and verify AgentSpace records threadContinuation=true with taskQueueId, agentId, botBindingId, and the same safe thread binding reference.",
+      };
+    case "thread_collaboration_evidence_missing":
+      return {
+        stepId: "live_multi_agent_thread_collaboration",
+        title: "Live smoke: second agent bot joins an active thread",
+        detail: "Mention one agent bot in a Feishu thread, then mention a second agent bot in that same thread and verify AgentSpace keeps separate thread bindings, records threadCollaboration=true, and sends the collaboration card without raw Feishu ids.",
       };
     case "doc_read_evidence_missing":
       return {
@@ -5395,6 +5418,32 @@ function countFeishuThreadContinuationEvidence(
       metadata.botBindingId.trim().length > 0 &&
       typeof metadata.externalChatReference === "string" &&
       metadata.externalChatReference.trim().length > 0;
+  }).length;
+}
+
+function countFeishuThreadCollaborationEvidence(
+  bindings: readonly ExternalThreadBindingRecord[],
+): number {
+  return bindings.filter((binding) => {
+    if (binding.provider !== FEISHU_PROVIDER_ID || binding.status !== "active") {
+      return false;
+    }
+    if (!binding.taskQueueId || !binding.agentSpaceMessageId || !binding.agentId) {
+      return false;
+    }
+    const metadata = readJsonRecord(binding.metadataJson);
+    return metadata?.provider === FEISHU_PROVIDER_ID &&
+      metadata.threadCollaboration === true &&
+      Array.isArray(metadata.collaboratingAgentIds) &&
+      metadata.collaboratingAgentIds.some((agentId) => typeof agentId === "string" && agentId.trim().length > 0) &&
+      typeof metadata.agentId === "string" &&
+      metadata.agentId.trim().length > 0 &&
+      typeof metadata.botBindingId === "string" &&
+      metadata.botBindingId.trim().length > 0 &&
+      typeof metadata.externalChatReference === "string" &&
+      metadata.externalChatReference.trim().length > 0 &&
+      typeof metadata.externalThreadReference === "string" &&
+      metadata.externalThreadReference.trim().length > 0;
   }).length;
 }
 

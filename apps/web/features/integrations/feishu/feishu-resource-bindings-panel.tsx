@@ -325,7 +325,10 @@ export function FeishuResourceBindingsPanel({
           <div className="feishu-binding-channel-group" key={group.key}>
             <div className="feishu-binding-channel-group__header">
               <strong>{group.label}</strong>
-              <span>{group.bindings.length}</span>
+              <span>{tx("总数", "Total")}: {group.bindings.length}</span>
+              <span>Doc: {group.summary.doc}</span>
+              <span>Sheet: {group.summary.sheet}</span>
+              <span>Base: {group.summary.base}</span>
             </div>
             {group.bindings.map((binding) => (
               <article className="feishu-binding-card" key={binding.id}>
@@ -405,6 +408,11 @@ function groupResourceBindingsByChannel(
 ): Array<{
   key: string;
   label: string;
+  summary: {
+    doc: number;
+    sheet: number;
+    base: number;
+  };
   bindings: FeishuResourceBindingWithIntegration[];
 }> {
   const groups = new Map<string, FeishuResourceBindingWithIntegration[]>();
@@ -417,8 +425,36 @@ function groupResourceBindingsByChannel(
     label: key === "__unscoped__"
       ? tx("未关联频道", "No linked channel")
       : `${tx("频道", "Channel")}: ${key}`,
+    summary: summarizeResourceBindingTypes(groupBindings),
     bindings: groupBindings,
   }));
+}
+
+function summarizeResourceBindingTypes(
+  bindings: FeishuResourceBindingWithIntegration[],
+): {
+  doc: number;
+  sheet: number;
+  base: number;
+} {
+  return bindings.reduce((summary, binding) => {
+    if (binding.providerResourceType === "doc") {
+      summary.doc += 1;
+    } else if (binding.providerResourceType === "sheet") {
+      summary.sheet += 1;
+    } else if (
+      binding.providerResourceType === "base" ||
+      binding.providerResourceType === "base_table" ||
+      binding.providerResourceType === "base_view"
+    ) {
+      summary.base += 1;
+    }
+    return summary;
+  }, {
+    doc: 0,
+    sheet: 0,
+    base: 0,
+  });
 }
 
 function buildFeishuResourceBindingRequirement(

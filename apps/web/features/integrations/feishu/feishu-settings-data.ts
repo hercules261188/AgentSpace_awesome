@@ -34,6 +34,8 @@ import type {
   FeishuAvailableChannelItem,
   FeishuAvailableAgentItem,
   FeishuAvailableUserItem,
+  FeishuAgentBotChannelAutoProvisioningSettingsItem,
+  FeishuAgentBotExternalGuestPolicySettingsItem,
   FeishuChannelBindingSettingsItem,
   FeishuDataOperationRunSettingsItem,
   FeishuInboundBindingSuggestion,
@@ -285,6 +287,12 @@ export function listFeishuIntegrationSettingsItems(input: {
       operationRuns: operationRunItems,
       recentOutboxFailures,
       recentInboundEvents,
+      channelAutoProvisioning: canManage && integration.agentId
+        ? readFeishuAgentBotChannelAutoProvisioning(integration.configJson)
+        : undefined,
+      externalGuestPolicy: canManage && integration.agentId
+        ? readFeishuAgentBotExternalGuestPolicy(integration.configJson)
+        : undefined,
       setupGuide: canManage
         ? buildFeishuIntegrationSetupGuide({
           workspaceId: input.workspaceId,
@@ -630,6 +638,100 @@ function readMetadataString(value: Record<string, unknown>, key: string): string
   return typeof candidate === "string" && candidate.trim() ? candidate.trim() : undefined;
 }
 
+function readFeishuAgentBotChannelAutoProvisioning(
+  configJson: unknown,
+): FeishuAgentBotChannelAutoProvisioningSettingsItem | undefined {
+  const config = parseConfigRecord(configJson);
+  const policy = asRecord(config?.channelAutoProvisioning);
+  if (!policy) {
+    return {
+      botAdded: "auto_create_channel",
+      firstMessage: "auto_create_if_bot_mentioned",
+      reviewStatus: "approved",
+    };
+  }
+  const botAdded = readAllowedValue(policy.botAdded, [
+    "auto_create_channel",
+    "pending_admin_review",
+    "disabled",
+  ] as const);
+  const firstMessage = readAllowedValue(policy.firstMessage, [
+    "auto_create_if_bot_mentioned",
+    "pending_admin_review",
+    "reply_with_setup_card",
+    "disabled",
+  ] as const);
+  const reviewStatus = readAllowedValue(policy.reviewStatus, [
+    "approved",
+    "pending_admin_review",
+    "needs_identity_binding",
+  ] as const);
+  return {
+    botAdded: botAdded ?? "auto_create_channel",
+    firstMessage: firstMessage ?? "auto_create_if_bot_mentioned",
+    reviewStatus: reviewStatus ?? "approved",
+  };
+}
+
+function readFeishuAgentBotExternalGuestPolicy(
+  configJson: unknown,
+): FeishuAgentBotExternalGuestPolicySettingsItem | undefined {
+  const config = parseConfigRecord(configJson);
+  const policy = asRecord(config?.externalGuestPolicy);
+  if (!policy) {
+    return {
+      unboundUserMode: "reply_on_mention",
+      guestPermissionProfile: "channel_context_only",
+      requireIdentityFor: [
+        "writes",
+        "approvals",
+        "private_resources",
+        "runtime_sensitive_tools",
+      ],
+    };
+  }
+  const unboundUserMode = readAllowedValue(policy.unboundUserMode, [
+    "ignore",
+    "reply_on_mention",
+    "reply_all",
+    "require_identity",
+  ] as const);
+  const guestPermissionProfile = readAllowedValue(policy.guestPermissionProfile, [
+    "none",
+    "channel_context_only",
+    "channel_readonly",
+  ] as const);
+  const requireIdentityFor = Array.isArray(policy.requireIdentityFor)
+    ? policy.requireIdentityFor.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+    : [
+      "writes",
+      "approvals",
+      "private_resources",
+      "runtime_sensitive_tools",
+    ];
+  return {
+    unboundUserMode: unboundUserMode ?? "reply_on_mention",
+    guestPermissionProfile: guestPermissionProfile ?? "channel_context_only",
+    requireIdentityFor,
+  };
+}
+
+function parseConfigRecord(value: unknown): Record<string, unknown> | undefined {
+  if (typeof value === "string") {
+    return parseJsonRecord(value);
+  }
+  return asRecord(value);
+}
+
+function readAllowedValue<T extends string>(
+  value: unknown,
+  allowedValues: readonly T[],
+): T | undefined {
+  return typeof value === "string" && allowedValues.includes(value as T)
+    ? value as T
+    : undefined;
+}
+
 function resolveFeishuCallbackOrWorkerStatus(input: {
   transportMode: string;
   callbackUrl: string;
@@ -661,18 +763,45 @@ function buildFeishuInboundBindingSuggestion(
   const sender = asRecord(payload.sender);
   if (reasonCode === "external_channel_unbound") {
     const externalChatId = asString(message?.chatId);
-    return externalChatId ? { kind: "channel", externalChatId } : undefined;
+    return externalChatId
+      ? {
+        kind: "channel",
+        externalChatReference: buildFeishuExternalIdReference({
+          kind: "chat",
+          value: externalChatId,
+        }),
+        externalChatIdRedacted: true,
+      }
+      : undefined;
   }
 
   const externalUserId = asString(sender?.openId);
   if (!externalUserId) {
     return undefined;
   }
+  const externalUnionId = asString(sender?.unionId);
+  const externalOpenId = asString(sender?.userId);
   return {
     kind: "user",
-    externalUserId,
-    externalUnionId: asString(sender?.unionId),
-    externalOpenId: asString(sender?.userId),
+    externalUserReference: buildFeishuExternalIdReference({
+      kind: "user",
+      value: externalUserId,
+    }),
+    externalUserIdRedacted: true,
+    externalUnionReference: externalUnionId
+      ? buildFeishuExternalIdReference({
+        kind: "union",
+        value: externalUnionId,
+      })
+      : undefined,
+    externalUnionIdRedacted: externalUnionId ? true : undefined,
+    externalOpenReference: externalOpenId
+      ? buildFeishuExternalIdReference({
+        kind: "user",
+        value: externalOpenId,
+      })
+      : undefined,
+    externalOpenIdRedacted: externalOpenId ? true : undefined,
   };
 }
 
