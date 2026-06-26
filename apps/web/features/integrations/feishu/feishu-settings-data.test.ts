@@ -728,13 +728,13 @@ describe("Feishu settings data", () => {
       requireIdentityFor: ["writes", "approvals"],
     });
     expect(atlas?.setupGuide?.commands.botReadiness).toBe(
-      "agent-space integrations feishu agent-bot-readiness --workspace-id workspace-1 --integration agent-bot-atlas --strict --require bot --json",
+      "agent-space integrations feishu agent-bot-readiness --workspace-id workspace-1 --agent Atlas --strict --require bot --json",
     );
     expect(atlas?.setupGuide?.commands.dataPlaneReadiness).toBe(
-      "agent-space integrations feishu agent-bot-readiness --workspace-id workspace-1 --integration agent-bot-atlas --strict --require data-plane --json",
+      "agent-space integrations feishu agent-bot-readiness --workspace-id workspace-1 --agent Atlas --strict --require data-plane --json",
     );
     expect(atlas?.setupGuide?.commands.autoProvisionPolicy).toBe(
-      "agent-space integrations feishu auto-provision-policy --workspace-id workspace-1 --integration agent-bot-atlas --bot-added-policy auto_create_channel --first-message-policy auto_create_if_bot_mentioned --unbound-user-mode reply_on_mention --guest-permission-profile channel_context_only --json",
+      "agent-space integrations feishu auto-provision-policy --workspace-id workspace-1 --agent Atlas --bot-added-policy auto_create_channel --first-message-policy auto_create_if_bot_mentioned --unbound-user-mode reply_on_mention --guest-permission-profile channel_context_only --json",
     );
     expect(atlas?.setupGuide?.commands.channelBindings).toBe(
       "agent-space integrations feishu channel-bindings --workspace-id workspace-1 --integration agent-bot-atlas --json",

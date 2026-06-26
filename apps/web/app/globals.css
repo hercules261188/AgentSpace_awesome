@@ -9176,6 +9176,72 @@ textarea:focus {
   min-width: 0;
 }
 
+.feishu-agent-settings-panel {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.feishu-agent-settings-panel__bound {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.feishu-agent-settings-panel__summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.65rem;
+}
+
+.feishu-agent-settings-panel__summary div {
+  display: grid;
+  gap: 0.22rem;
+  min-width: 0;
+  padding: 0.75rem 0.8rem;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.feishu-agent-settings-panel__summary span,
+.feishu-agent-settings-panel__command span {
+  color: rgba(0, 0, 0, 0.56);
+  font-size: 0.76rem;
+  font-weight: 650;
+}
+
+.feishu-agent-settings-panel__summary strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: #1d1d1f;
+  font-size: 0.88rem;
+  font-weight: 700;
+}
+
+.feishu-agent-settings-panel__command-list {
+  display: grid;
+  gap: 0.55rem;
+  padding-top: 0.75rem;
+}
+
+.feishu-agent-settings-panel__command {
+  display: grid;
+  gap: 0.3rem;
+  min-width: 0;
+}
+
+.feishu-agent-settings-panel__command code {
+  display: block;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  padding: 0.65rem 0.7rem;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 8px;
+  background: rgba(245, 245, 247, 0.82);
+  color: #1d1d1f;
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
 .feishu-agent-bot-policy-editor {
   display: grid;
   gap: 0.7rem;
@@ -10870,6 +10936,7 @@ textarea:focus {
   .feishu-mini-panel-grid,
   .feishu-agent-bot-actions,
   .feishu-agent-bot-policy-editor__body,
+  .feishu-agent-settings-panel__summary,
   .feishu-advanced-settings__body,
   .feishu-binding-card,
   .feishu-binding-card__actions,

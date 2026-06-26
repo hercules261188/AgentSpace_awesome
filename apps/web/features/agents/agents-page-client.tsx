@@ -771,6 +771,7 @@ export function AgentsPageClient({
                         }),
                     )
                   }
+                  onFeishuAgentBotUpdated={() => refreshWorkspaceModule(onDataChanged, router)}
                 />
               ) : (
                 <EmptyState body={tx("先选择一个 Agent，查看它的绑定、任务和工作区域。", "Select an agent to view bindings, tasks, and work areas.")} title={tx("未选择 Agent", "No agent selected")} />

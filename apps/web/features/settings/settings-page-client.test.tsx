@@ -1043,10 +1043,10 @@ describe("SettingsPageClient", () => {
     expect(screen.getByText("检查联调环境")).toBeInTheDocument();
     expect(screen.getByText("治理策略命令")).toBeInTheDocument();
     expect(screen.getByText(
-      "agent-space integrations feishu auto-provision-policy --workspace-id workspace-1 --integration feishu-1 --bot-added-policy auto_create_channel --first-message-policy auto_create_if_bot_mentioned --unbound-user-mode reply_on_mention --guest-permission-profile channel_context_only --json",
+      "agent-space integrations feishu auto-provision-policy --workspace-id workspace-1 --agent Codex --bot-added-policy auto_create_channel --first-message-policy auto_create_if_bot_mentioned --unbound-user-mode reply_on_mention --guest-permission-profile channel_context_only --json",
     )).toBeInTheDocument();
     expect(screen.getByText(
-      "agent-space integrations feishu agent-bot-readiness --workspace-id workspace-1 --integration feishu-1 --strict --require bot --json",
+      "agent-space integrations feishu agent-bot-readiness --workspace-id workspace-1 --agent Codex --strict --require bot --json",
     )).toBeInTheDocument();
     expect(screen.getByText("群聊映射命令")).toBeInTheDocument();
     expect(screen.getByText(
@@ -1819,6 +1819,9 @@ function buildFeishuSetupGuide(options: { agentBot?: boolean } = {}): NonNullabl
   NonNullable<ComponentProps<typeof SettingsPageClient>["feishuIntegrations"]>[number]["setupGuide"]
 > {
   const readinessCommand = options.agentBot ? "agent-bot-readiness" : "readiness";
+  const readinessFlags = options.agentBot
+    ? "--workspace-id workspace-1 --agent Codex"
+    : "--workspace-id workspace-1 --integration feishu-1";
   return {
     requiredCredentialFields: ["app_id", "app_secret", "verification_token", "encrypt_key"],
     requiredEvents: ["im.message.receive_v1", "card.action.trigger"],
@@ -1865,13 +1868,13 @@ function buildFeishuSetupGuide(options: { agentBot?: boolean } = {}): NonNullabl
       },
     ],
     commands: {
-      healthCheck: "agent-space integrations feishu health-check --workspace-id workspace-1 --integration feishu-1 --strict --json",
-      botReadiness: `agent-space integrations feishu ${readinessCommand} --workspace-id workspace-1 --integration feishu-1 --strict --require bot --json`,
-      dataPlaneReadiness: `agent-space integrations feishu ${readinessCommand} --workspace-id workspace-1 --integration feishu-1 --strict --require data-plane --json`,
-      workerReadiness: `agent-space integrations feishu ${readinessCommand} --workspace-id workspace-1 --integration feishu-1 --strict --require worker --json`,
+      healthCheck: `agent-space integrations feishu health-check ${readinessFlags} --strict --json`,
+      botReadiness: `agent-space integrations feishu ${readinessCommand} ${readinessFlags} --strict --require bot --json`,
+      dataPlaneReadiness: `agent-space integrations feishu ${readinessCommand} ${readinessFlags} --strict --require data-plane --json`,
+      workerReadiness: `agent-space integrations feishu ${readinessCommand} ${readinessFlags} --strict --require worker --json`,
       ...(options.agentBot
         ? {
-          autoProvisionPolicy: "agent-space integrations feishu auto-provision-policy --workspace-id workspace-1 --integration feishu-1 --bot-added-policy auto_create_channel --first-message-policy auto_create_if_bot_mentioned --unbound-user-mode reply_on_mention --guest-permission-profile channel_context_only --json",
+          autoProvisionPolicy: "agent-space integrations feishu auto-provision-policy --workspace-id workspace-1 --agent Codex --bot-added-policy auto_create_channel --first-message-policy auto_create_if_bot_mentioned --unbound-user-mode reply_on_mention --guest-permission-profile channel_context_only --json",
           channelBindings: "agent-space integrations feishu channel-bindings --workspace-id workspace-1 --integration feishu-1 --json",
         }
         : {}),

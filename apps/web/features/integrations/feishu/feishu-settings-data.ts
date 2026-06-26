@@ -400,6 +400,9 @@ function buildFeishuIntegrationSetupGuide(input: {
   checks: FeishuIntegrationSetupCheck[];
 }): FeishuIntegrationSetupGuide {
   const flags = `--workspace-id ${input.workspaceId} --integration ${input.integrationId}`;
+  const agentFlags = input.agentId
+    ? `--workspace-id ${input.workspaceId} --agent ${input.agentId}`
+    : flags;
   const readinessCommand = input.agentId
     ? "agent-bot-readiness"
     : "readiness";
@@ -414,13 +417,13 @@ function buildFeishuIntegrationSetupGuide(input: {
     checks: input.checks,
     evidenceGates: buildFeishuEvidenceGates(input.transportMode),
     commands: {
-      healthCheck: `agent-space integrations feishu health-check ${flags} --strict --json`,
-      botReadiness: `agent-space integrations feishu ${readinessCommand} ${flags} --strict --require bot --json`,
-      dataPlaneReadiness: `agent-space integrations feishu ${readinessCommand} ${flags} --strict --require data-plane --json`,
-      workerReadiness: `agent-space integrations feishu ${readinessCommand} ${flags} --strict --require worker --json`,
+      healthCheck: `agent-space integrations feishu health-check ${agentFlags} --strict --json`,
+      botReadiness: `agent-space integrations feishu ${readinessCommand} ${agentFlags} --strict --require bot --json`,
+      dataPlaneReadiness: `agent-space integrations feishu ${readinessCommand} ${agentFlags} --strict --require data-plane --json`,
+      workerReadiness: `agent-space integrations feishu ${readinessCommand} ${agentFlags} --strict --require worker --json`,
       ...(input.agentId
         ? {
-          autoProvisionPolicy: `agent-space integrations feishu auto-provision-policy ${flags} --bot-added-policy auto_create_channel --first-message-policy auto_create_if_bot_mentioned --unbound-user-mode reply_on_mention --guest-permission-profile channel_context_only --json`,
+          autoProvisionPolicy: `agent-space integrations feishu auto-provision-policy ${agentFlags} --bot-added-policy auto_create_channel --first-message-policy auto_create_if_bot_mentioned --unbound-user-mode reply_on_mention --guest-permission-profile channel_context_only --json`,
           channelBindings: `agent-space integrations feishu channel-bindings ${flags} --json`,
         }
         : {}),

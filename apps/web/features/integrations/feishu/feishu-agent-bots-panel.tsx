@@ -450,7 +450,7 @@ const FEISHU_AGENT_BOT_IDENTITY_REQUIREMENTS = [
   "runtime_sensitive_tools",
 ] as const;
 
-function FeishuAgentBotPolicyEditor({
+export function FeishuAgentBotPolicyEditor({
   integration,
   isPending,
   onUpdated,

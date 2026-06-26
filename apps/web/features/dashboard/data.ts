@@ -82,6 +82,8 @@ import type {
 import { formatDaemonProviderLabel } from "@agent-space/domain";
 import type { RuntimeProviderHealth } from "@agent-space/domain";
 import { formatCompactTimestamp } from "@/shared/lib/time-format";
+import { listFeishuIntegrationSettingsItems } from "@/features/integrations/feishu/feishu-settings-data";
+import type { FeishuIntegrationSettingsItem } from "@/features/integrations/feishu/feishu-types";
 export {
   getApprovalsPageData,
   getPendingApprovalCount,
@@ -735,6 +737,8 @@ export interface WorkspaceAgentRecord extends ManagementRecordBase {
   instructions?: string;
   knowledge?: WorkspaceAgentKnowledgeRecord;
   googleWorkspaceDelegation?: WorkspaceAgentGoogleWorkspaceDelegationRecord;
+  feishuAgentBot?: FeishuIntegrationSettingsItem;
+  canManageFeishuAgentBot?: boolean;
   documentAccess?: WorkspaceAgentDocumentAccessSummaryRecord;
   forkedFrom?: {
     sourceAgentName: string;
@@ -2515,6 +2519,21 @@ export function getAgentsPageData(input: string | AgentsPageDataOptions = DEFAUL
       .map((delegation) => [delegation.employeeName, delegation]),
   );
   const documentAccessByEmployeeName = buildWorkspaceAgentDocumentAccessSummaries(workspaceId, state);
+  const feishuAgentBotByAgentId = new Map(
+    canManageAllAgents
+      ? listFeishuIntegrationSettingsItems({
+        workspaceId,
+        viewer: currentUserId && currentMembershipRole
+          ? {
+            role: currentMembershipRole,
+            userId: currentUserId,
+          }
+          : undefined,
+      })
+        .filter((integration) => integration.agentId)
+        .map((integration) => [integration.agentId!, integration])
+      : [],
+  );
   const activeRuntimeGrants = listRuntimeGrantsCached(workspaceId).filter((grant) => grant.status === "active");
   const grantsByRuntimeId = new Map<string, RuntimeGrantMember[]>();
   for (const grant of activeRuntimeGrants) {
@@ -2572,6 +2591,8 @@ export function getAgentsPageData(input: string | AgentsPageDataOptions = DEFAUL
         memberByUserId,
         currentUserId,
       ),
+      feishuAgentBot: feishuAgentBotByAgentId.get(agent.internalName),
+      canManageFeishuAgentBot: canManageAllAgents,
       canManage: canManageAllAgents || (typeof currentUserId === "string" && agent.ownerUserId === currentUserId),
       canManageChannelMemberAccess: canManageAllAgents || (typeof currentUserId === "string" && agent.ownerUserId === currentUserId),
     }))
