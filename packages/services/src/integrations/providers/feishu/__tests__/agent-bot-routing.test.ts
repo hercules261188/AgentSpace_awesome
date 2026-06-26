@@ -4,6 +4,7 @@ import { FEISHU_PROVIDER_ID } from "../constants.ts";
 import {
   isFeishuAgentBotMentioned,
   isFeishuBotSenderPayload,
+  isFeishuKnownAgentBotSenderPayload,
 } from "../agent-bot-routing.ts";
 import type { FeishuAgentBotBinding } from "../agent-bot-bindings.ts";
 
@@ -36,6 +37,25 @@ test("identifies bot senders by the current agent bot open id", () => {
     payload: buildPayload({ senderType: "user" }),
     externalSenderId: "ou_mina",
     binding,
+  }), false);
+});
+
+test("identifies senders from any known Feishu agent bot open id", () => {
+  const binding = buildAgentBotBinding({
+    botOpenId: "ou_bot_atlas",
+  });
+
+  assert.equal(isFeishuKnownAgentBotSenderPayload({
+    payload: buildPayload({ senderType: "user" }),
+    externalSenderId: "ou_bot_hermes",
+    binding,
+    knownBotOpenIds: ["ou_bot_atlas", "ou_bot_hermes"],
+  }), true);
+  assert.equal(isFeishuKnownAgentBotSenderPayload({
+    payload: buildPayload({ senderType: "user" }),
+    externalSenderId: "ou_mina",
+    binding,
+    knownBotOpenIds: ["ou_bot_atlas", "ou_bot_hermes"],
   }), false);
 });
 

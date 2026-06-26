@@ -1,9 +1,11 @@
 import {
+  listExternalIntegrationsSync,
   readExternalIntegrationSync,
   type ExternalIntegrationRecord,
 } from "@agent-space/db";
 import { sameValue } from "../../../shared/helpers.ts";
 import { isFeishuAgentBotBinding, type FeishuAgentBotBinding } from "./agent-bot-bindings.ts";
+import { FEISHU_PROVIDER_ID } from "./constants.ts";
 import {
   asRecord,
   asString,
@@ -107,6 +109,54 @@ export function isFeishuBotSenderPayload(input: {
   const senderId = input.externalSenderId?.trim();
   const botOpenId = input.binding ? readFeishuAgentBotOpenId(input.binding) : undefined;
   return Boolean(senderId && botOpenId && senderId === botOpenId);
+}
+
+export function isFeishuKnownAgentBotSenderPayloadSync(input: {
+  workspaceId: string;
+  payload: Record<string, unknown>;
+  externalSenderId?: string;
+  binding?: FeishuAgentBotBinding;
+}): boolean {
+  const currentTenantKey = input.binding?.tenantKey?.trim();
+  const knownBotOpenIds = listExternalIntegrationsSync({
+    workspaceId: input.workspaceId,
+    provider: FEISHU_PROVIDER_ID,
+    scope: "agent",
+  })
+    .filter((integration): integration is FeishuAgentBotBinding =>
+      isActiveFeishuAgentBotBinding(integration) &&
+      isSameFeishuTenantScope(currentTenantKey, integration.tenantKey)
+    )
+    .map(readFeishuAgentBotOpenId)
+    .filter((value): value is string => Boolean(value));
+
+  return isFeishuKnownAgentBotSenderPayload({
+    payload: input.payload,
+    externalSenderId: input.externalSenderId,
+    binding: input.binding,
+    knownBotOpenIds,
+  });
+}
+
+export function isFeishuKnownAgentBotSenderPayload(input: {
+  payload: Record<string, unknown>;
+  externalSenderId?: string;
+  binding?: FeishuAgentBotBinding;
+  knownBotOpenIds?: readonly string[];
+}): boolean {
+  if (isFeishuBotSenderPayload(input)) {
+    return true;
+  }
+  const senderId = input.externalSenderId?.trim();
+  return Boolean(senderId && input.knownBotOpenIds?.some((botOpenId) => botOpenId.trim() === senderId));
+}
+
+function isSameFeishuTenantScope(
+  currentTenantKey: string | undefined,
+  candidateTenantKey: string | undefined,
+): boolean {
+  const candidate = candidateTenantKey?.trim();
+  return !currentTenantKey || !candidate || candidate === currentTenantKey;
 }
 
 function isActiveFeishuAgentBotBinding(

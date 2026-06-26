@@ -585,6 +585,71 @@ test("agent bot ignores bot sender messages before auto-provisioning or dispatch
   assert.doesNotMatch(mapping.metadataJson, /oc_bot_loop|ou_bot_atlas|om-agent-bot-loop/);
 });
 
+test("agent bot ignores messages sent by another registered Feishu agent bot", databaseTestOptions, () => {
+  const fixtures = seedBoundFeishuWorkspace({ agentBot: true });
+  createEmployeeSync({
+    name: "Hermes",
+    role: "Runner",
+    remarkName: "Hermes",
+    summary: "Deployment runner",
+    fit: "Ready",
+    origin: "test",
+  }, DEFAULT_WORKSPACE_ID);
+  const hermesBinding = createFeishuAgentBotBindingSync({
+    workspaceId: DEFAULT_WORKSPACE_ID,
+    agentId: "Hermes",
+    appId: "cli_hermes_loop_bot",
+    appSecret: "secret-hermes",
+  });
+  updateExternalIntegrationHealthSync({
+    workspaceId: DEFAULT_WORKSPACE_ID,
+    integrationId: hermesBinding.id,
+    lastHealthStatus: "healthy",
+    configJson: {
+      ...JSON.parse(hermesBinding.configJson),
+      bot: {
+        openId: "ou_bot_hermes",
+        appName: "Hermes Bot",
+        lastHealthCheckedAt: "2026-06-26T00:00:00.000Z",
+      },
+    },
+  });
+
+  const result = processFeishuInboundEventSync({
+    context: {
+      workspaceId: DEFAULT_WORKSPACE_ID,
+      integrationId: fixtures.integration.id,
+      provider: FEISHU_PROVIDER_ID,
+    },
+    payload: buildFeishuMessagePayload({
+      eventId: "evt-agent-bot-cross-loop",
+      messageId: "om-agent-bot-cross-loop",
+      senderOpenId: "ou_bot_hermes",
+      senderType: "user",
+      text: '<at user_id="ou_bot_atlas">@Atlas Bot</at> please do not bounce',
+    }),
+  });
+
+  assert.equal(result.dispatchStatus, "ignored");
+  assert.equal(result.reasonCode, "feishu_bot_sender_ignored");
+  assert.equal(result.noticeOutbox, undefined);
+  assert.equal(countHumanMessages(), 0);
+  assert.equal(listQueuedTasksSync({ workspaceId: DEFAULT_WORKSPACE_ID }).length, 0);
+
+  const mapping = readExternalMessageMappingByExternalMessageSync({
+    workspaceId: DEFAULT_WORKSPACE_ID,
+    integrationId: fixtures.integration.id,
+    externalMessageId: "om-agent-bot-cross-loop",
+  });
+  assert.ok(mapping);
+  const metadata = JSON.parse(mapping.metadataJson) as Record<string, unknown>;
+  assert.equal(metadata.dispatchStatus, "ignored");
+  assert.equal(metadata.reasonCode, "feishu_bot_sender_ignored");
+  assert.equal(metadata.agentId, "Atlas");
+  assert.equal(metadata.botBindingId, fixtures.integration.id);
+  assert.doesNotMatch(mapping.metadataJson, /oc_general|ou_bot_hermes|om-agent-bot-cross-loop/);
+});
+
 test("agent bot thread follow-ups continue without re-mentioning the bot for bound users", databaseTestOptions, () => {
   const fixtures = seedBoundFeishuWorkspace({ agentBot: true });
 

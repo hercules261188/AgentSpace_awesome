@@ -58,7 +58,7 @@ import {
 import {
   ensureFeishuAgentMentionText,
   isFeishuBotAddedToChatPayload,
-  isFeishuBotSenderPayload,
+  isFeishuKnownAgentBotSenderPayloadSync,
   resolveFeishuAgentBotRouteSync,
   resolveFeishuChatDescriptor,
   type FeishuAgentBotRoute,
@@ -272,7 +272,8 @@ function prepareFeishuInboundDispatchSync(input: ProcessFeishuInboundEventInput)
     };
   }
 
-  if (isFeishuBotSenderPayload({
+  if (isFeishuKnownAgentBotSenderPayloadSync({
+    workspaceId: input.context.workspaceId,
     payload: message.rawPayload,
     externalSenderId: message.externalSenderId,
     binding: agentBotRoute?.binding,
