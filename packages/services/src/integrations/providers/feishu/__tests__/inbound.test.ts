@@ -486,6 +486,7 @@ test("reply-with-setup-card first message policy sends setup card without creati
   assert.equal(result.reasonCode, "feishu_channel_setup_card_required");
   assert.ok(result.noticeOutbox);
   assert.equal(result.noticeOutbox.channelBindingId, undefined);
+  assert.equal(result.noticeOutbox.targetExternalThreadId, "om-setup-card-root");
   assert.equal(countHumanMessages(), 0);
   assert.equal(listQueuedTasksSync({ workspaceId: DEFAULT_WORKSPACE_ID }).length, 0);
   assert.equal(readExternalChannelBindingByExternalChatSync({
@@ -512,9 +513,11 @@ test("reply-with-setup-card first message policy sends setup card without creati
 
   const noticePayload = JSON.parse(result.noticeOutbox.payloadJson) as {
     msg_type?: string;
+    reply_to_message_id?: string;
     content?: string;
   };
   assert.equal(noticePayload.msg_type, "interactive");
+  assert.equal(noticePayload.reply_to_message_id, "om-setup-card-root");
   const card = JSON.parse(String(noticePayload.content)) as {
     header?: { title?: { content?: string } };
     elements?: Array<{ tag?: string; content?: string; actions?: Array<{ url?: string }> }>;
@@ -522,7 +525,7 @@ test("reply-with-setup-card first message policy sends setup card without creati
   assert.equal(card.header?.title?.content, "Atlas · AgentSpace");
   assert.match(card.elements?.[0]?.content ?? "", /channel setup required/);
   assert.equal(card.elements?.[1]?.actions?.[0]?.url, "https://agentspace.test/w/default/settings/integrations#feishu-channel-bindings");
-  assert.doesNotMatch(result.noticeOutbox.payloadJson, /oc_setup_card|om-setup-card-root|ou_mina|on_mina/);
+  assert.doesNotMatch(String(noticePayload.content), /oc_setup_card|om-setup-card-root|ou_mina|on_mina/);
 });
 
 test("agent bot ignores bot sender messages before auto-provisioning or dispatch", databaseTestOptions, () => {
@@ -1075,6 +1078,7 @@ test("agent bot require_identity policy sends an identity binding card without d
   assert.equal(result.dispatchStatus, "ignored");
   assert.equal(result.reasonCode, "feishu_external_guest_identity_required");
   assert.ok(result.noticeOutbox);
+  assert.equal(result.noticeOutbox.targetExternalThreadId, "om-agent-bot-guest-require-identity");
   assert.equal(countHumanMessages(), 0);
   assert.equal(listQueuedTasksSync({ workspaceId: DEFAULT_WORKSPACE_ID }).length, 0);
   const state = readWorkspaceStateSync(DEFAULT_WORKSPACE_ID);
@@ -1097,9 +1101,11 @@ test("agent bot require_identity policy sends an identity binding card without d
 
   const noticePayload = JSON.parse(result.noticeOutbox.payloadJson) as {
     msg_type?: string;
+    reply_to_message_id?: string;
     content?: string;
   };
   assert.equal(noticePayload.msg_type, "interactive");
+  assert.equal(noticePayload.reply_to_message_id, "om-agent-bot-guest-require-identity");
   const card = JSON.parse(String(noticePayload.content)) as {
     header?: { title?: { content?: string } };
     elements?: Array<{ tag?: string; content?: string; actions?: Array<{ url?: string }> }>;
@@ -1672,6 +1678,7 @@ test("unbound Feishu users are ignored and queued for a binding notice", databas
   assert.equal(result.dispatchStatus, "ignored");
   assert.equal(result.reasonCode, "external_user_unbound");
   assert.ok(result.noticeOutbox);
+  assert.equal(result.noticeOutbox.targetExternalThreadId, "om-unbound-user");
   assert.equal(countHumanMessages(), 0);
   assert.equal(listQueuedTasksSync({ workspaceId: DEFAULT_WORKSPACE_ID }).length, 0);
 
@@ -1685,7 +1692,11 @@ test("unbound Feishu users are ignored and queued for a binding notice", databas
   assert.equal(metadata.dispatchStatus, "ignored");
   assert.equal(metadata.reasonCode, "external_user_unbound");
 
-  const noticePayload = JSON.parse(result.noticeOutbox.payloadJson) as { content?: string };
+  const noticePayload = JSON.parse(result.noticeOutbox.payloadJson) as {
+    reply_to_message_id?: string;
+    content?: string;
+  };
+  assert.equal(noticePayload.reply_to_message_id, "om-unbound-user");
   const noticeContent = JSON.parse(String(noticePayload.content)) as { text?: string };
   assert.match(noticeContent.text ?? "", /还没有绑定 AgentSpace 账号/);
   assert.match(noticeContent.text ?? "", /https:\/\/agentspace\.test\/w\/default\/settings\/integrations#feishu-user-bindings/);

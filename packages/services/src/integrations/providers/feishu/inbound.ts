@@ -53,6 +53,7 @@ import {
   buildFeishuIdentityBindingRequiredCard,
   buildFeishuTextOutboundMessage,
   queueFeishuAgentStatusCardOutboxSync,
+  resolveFeishuReplyTargetExternalMessageId,
 } from "./outbound.ts";
 import {
   ensureFeishuAgentMentionText,
@@ -330,7 +331,7 @@ function prepareFeishuInboundDispatchSync(input: ProcessFeishuInboundEventInput)
           binding: provisioned.binding,
           agentId: agentBotRoute.agentId,
           result: provisioned,
-          targetExternalThreadId: message.externalThreadId,
+          targetExternalThreadId: resolveFeishuInboundReplyTargetExternalMessageId(message),
         });
     }
   }
@@ -355,7 +356,7 @@ function prepareFeishuInboundDispatchSync(input: ProcessFeishuInboundEventInput)
           workspaceId: input.context.workspaceId,
           integrationId: input.context.integrationId,
           targetExternalChatId: message.externalChatId,
-          targetExternalThreadId: message.externalThreadId,
+          targetExternalThreadId: resolveFeishuInboundReplyTargetExternalMessageId(message),
           agentId: agentBotRoute.agentId,
           settingsUrl: buildAgentSpaceSettingsIntegrationsDeepLink({
             workspaceId: input.context.workspaceId,
@@ -936,7 +937,7 @@ function dispatchPreparedFeishuInboundEventSync(input: FeishuInboundPreparedDisp
       integrationId: input.context.integrationId,
       channelBindingId: input.channelBinding.id,
       targetExternalChatId: input.message.externalChatId,
-      targetExternalThreadId: input.message.externalThreadId,
+      targetExternalThreadId: resolveFeishuInboundReplyTargetExternalMessageId(input.message),
       notice: threadCollaboration,
     });
   }
@@ -1694,6 +1695,15 @@ function isPromiseLike<T>(value: T | Promise<T>): value is Promise<T> {
   return typeof (value as { then?: unknown })?.then === "function";
 }
 
+function resolveFeishuInboundReplyTargetExternalMessageId(
+  message: ExternalMessageEnvelope,
+): string | undefined {
+  return resolveFeishuReplyTargetExternalMessageId({
+    externalThreadId: message.externalThreadId,
+    externalMessageId: message.externalMessageId,
+  });
+}
+
 function queueFeishuInboundNoticeSync(input: {
   context: IntegrationRuntimeContext;
   message: ExternalMessageEnvelope;
@@ -1702,7 +1712,7 @@ function queueFeishuInboundNoticeSync(input: {
 }): ExternalMessageOutboxRecord {
   const outbound = buildFeishuTextOutboundMessage({
     targetExternalChatId: input.message.externalChatId,
-    targetExternalThreadId: input.message.externalThreadId,
+    targetExternalThreadId: resolveFeishuInboundReplyTargetExternalMessageId(input.message),
     text: input.text,
   });
   return createExternalMessageOutboxSync({
@@ -1724,7 +1734,7 @@ function queueFeishuIdentityBindingRequiredCardOutboxSync(input: {
 }): ExternalMessageOutboxRecord {
   const outbound = buildFeishuInteractiveCardOutboundMessage({
     targetExternalChatId: input.message.externalChatId,
-    targetExternalThreadId: input.message.externalThreadId,
+    targetExternalThreadId: resolveFeishuInboundReplyTargetExternalMessageId(input.message),
     card: buildFeishuIdentityBindingRequiredCard({
       agentId: input.agentId,
       settingsUrl: input.settingsUrl,
