@@ -689,6 +689,16 @@ test("check-env reports missing and invalid live smoke env without exposing valu
         missing: number;
         invalid: number;
       };
+      todo120NativeSmoke: {
+        ready: boolean;
+        required: number;
+        configured: number;
+        missing: string[];
+        invalid: Array<{
+          key: string;
+          reason: string;
+        }>;
+      };
       missingRequired: string[];
       invalidRequired: Array<{
         key: string;
@@ -699,6 +709,13 @@ test("check-env reports missing and invalid live smoke env without exposing valu
     assert.equal(output.summary.required, 15);
     assert.equal(output.summary.ready, 2);
     assert.equal(output.summary.invalid, 1);
+    assert.equal(output.todo120NativeSmoke.ready, false);
+    assert.equal(output.todo120NativeSmoke.required, 2);
+    assert.equal(output.todo120NativeSmoke.configured, 0);
+    assert.deepEqual(output.todo120NativeSmoke.missing, [
+      "FEISHU_SECOND_AGENT_APP_ID",
+      "FEISHU_SECOND_AGENT_APP_SECRET",
+    ]);
     assert.ok(output.summary.missing > 0);
     assert.ok(output.missingRequired.includes("FEISHU_VERIFICATION_TOKEN"));
     assert.deepEqual(output.invalidRequired, [{
@@ -747,6 +764,13 @@ test("check-env accepts a complete strict live smoke env without printing resour
         missing: number;
         invalid: number;
       };
+      todo120NativeSmoke: {
+        ready: boolean;
+        required: number;
+        configured: number;
+        missing: string[];
+        invalid: unknown[];
+      };
       missingRequired: string[];
       invalidRequired: unknown[];
     };
@@ -755,6 +779,13 @@ test("check-env accepts a complete strict live smoke env without printing resour
     assert.equal(output.summary.ready, 15);
     assert.equal(output.summary.missing, 0);
     assert.equal(output.summary.invalid, 0);
+    assert.equal(output.todo120NativeSmoke.ready, false);
+    assert.equal(output.todo120NativeSmoke.required, 2);
+    assert.equal(output.todo120NativeSmoke.configured, 0);
+    assert.deepEqual(output.todo120NativeSmoke.missing, [
+      "FEISHU_SECOND_AGENT_APP_ID",
+      "FEISHU_SECOND_AGENT_APP_SECRET",
+    ]);
     assert.deepEqual(output.missingRequired, []);
     assert.deepEqual(output.invalidRequired, []);
     assert.equal(result.stdout.includes("cli_ready_secret"), false);
@@ -765,6 +796,68 @@ test("check-env accepts a complete strict live smoke env without printing resour
     assert.equal(result.stdout.includes("shtcn_secret_ready"), false);
     assert.equal(result.stdout.includes("tbl_secret_ready"), false);
     assert.equal(result.stdout.includes("rec_secret_ready"), false);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("check-env reports TODO120 native multi-agent env readiness separately from OpenAPI readiness", () => {
+  const directory = mkdtempSync(join(tmpdir(), "agentspace-feishu-check-env-todo120-"));
+  const envPath = join(directory, ".env");
+  writeFileSync(envPath, [
+    "FEISHU_APP_ID=cli_ready_secret",
+    "FEISHU_APP_SECRET=app_secret_ready",
+    "FEISHU_VERIFICATION_TOKEN=verify_secret_ready",
+    "FEISHU_SMOKE_CALLBACK_URL=https://agent.test/api/integrations/feishu/events?workspaceId=workspace-1&integrationId=feishu-1",
+    "FEISHU_SMOKE_CHAT_ID=oc_secret_ready",
+    "FEISHU_SMOKE_DOC_TOKEN=doccn_secret_ready",
+    "FEISHU_SMOKE_DOC_PARENT_BLOCK_ID=blk_secret_ready",
+    "FEISHU_SMOKE_DOC_APPEND_BLOCKS_JSON=[{\"block_type\":2,\"text\":{\"elements\":[{\"text_run\":{\"content\":\"AgentSpace smoke\"}}]}}]",
+    "FEISHU_SMOKE_SHEET_TOKEN=shtcn_secret_ready",
+    "FEISHU_SMOKE_SHEET_WRITE_RANGE=Sheet1!A1:B1",
+    "FEISHU_SMOKE_SHEET_WRITE_VALUES_JSON=[[\"AgentSpace smoke\"]]",
+    "FEISHU_SMOKE_BASE_APP_TOKEN=app_secret_ready",
+    "FEISHU_SMOKE_BASE_TABLE_ID=tbl_secret_ready",
+    "FEISHU_SMOKE_BASE_RECORD_ID=rec_secret_ready",
+    "FEISHU_SMOKE_BASE_UPDATE_FIELDS_JSON={\"Smoke\":\"AgentSpace\"}",
+    "FEISHU_SECOND_AGENT_APP_ID=cli_second_ready_secret",
+    "FEISHU_SECOND_AGENT_APP_SECRET=second_secret_ready",
+    "",
+  ].join("\n"), "utf8");
+
+  try {
+    const result = runSmokeCheckEnv(envPath);
+
+    assert.equal(result.status, 0, result.stderr);
+    const output = JSON.parse(result.stdout) as {
+      ready: boolean;
+      todo120NativeSmoke: {
+        ready: boolean;
+        required: number;
+        configured: number;
+        missing: string[];
+        invalid: unknown[];
+      };
+      items: Array<{
+        key: string;
+        status: string;
+        todo120NativeSmokeRequired?: boolean;
+      }>;
+    };
+    assert.equal(output.ready, true);
+    assert.deepEqual(output.todo120NativeSmoke, {
+      ready: true,
+      required: 2,
+      configured: 2,
+      missing: [],
+      invalid: [],
+    });
+    assert.equal(
+      output.items.find((item) => item.key === "FEISHU_SECOND_AGENT_APP_ID")?.todo120NativeSmokeRequired,
+      true,
+    );
+    assert.equal(result.stdout.includes("cli_second_ready_secret"), false);
+    assert.equal(result.stdout.includes("second_secret_ready"), false);
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }

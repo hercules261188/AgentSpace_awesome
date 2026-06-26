@@ -106,6 +106,16 @@ interface SmokeEnvCheckOutput {
     invalid: number;
     optionalConfigured: number;
   };
+  todo120NativeSmoke: {
+    ready: boolean;
+    required: number;
+    configured: number;
+    missing: string[];
+    invalid: Array<{
+      key: string;
+      reason: string;
+    }>;
+  };
   missingRequired: string[];
   invalidRequired: Array<{
     key: string;
@@ -121,6 +131,7 @@ interface SmokeEnvCheckItem {
   status: "ready" | "missing" | "invalid" | "optional";
   note: string;
   reason?: string;
+  todo120NativeSmokeRequired?: boolean;
 }
 
 interface SmokeCliErrorOutput {
@@ -1102,6 +1113,7 @@ const LIVE_SMOKE_ENV_CHECKS: Array<{
   required: boolean;
   note: string;
   validate?: (value: string) => string | undefined;
+  todo120NativeSmokeRequired?: boolean;
 }> = [
   {
     group: "app",
@@ -1199,6 +1211,20 @@ const LIVE_SMOKE_ENV_CHECKS: Array<{
   },
   {
     group: "optional",
+    key: "FEISHU_SECOND_AGENT_APP_ID",
+    required: false,
+    todo120NativeSmokeRequired: true,
+    note: "TODO120 native multi-agent smoke: second disposable Feishu app id for another AgentSpace agent bot.",
+  },
+  {
+    group: "optional",
+    key: "FEISHU_SECOND_AGENT_APP_SECRET",
+    required: false,
+    todo120NativeSmokeRequired: true,
+    note: "TODO120 native multi-agent smoke: second Feishu app secret used to bind another AgentSpace agent bot.",
+  },
+  {
+    group: "optional",
     key: "FEISHU_API_BASE_URL",
     required: false,
     note: "Optional Feishu/Lark OpenAPI base URL override.",
@@ -1228,6 +1254,7 @@ function buildSmokeEnvCheckOutput(envFilePath?: string): SmokeEnvCheckOutput {
         required: check.required,
         status: check.required ? "missing" : "optional",
         note: check.note,
+        ...(check.todo120NativeSmokeRequired ? { todo120NativeSmokeRequired: true } : {}),
       };
     }
 
@@ -1240,6 +1267,7 @@ function buildSmokeEnvCheckOutput(envFilePath?: string): SmokeEnvCheckOutput {
         status: "invalid",
         note: check.note,
         reason: invalidReason,
+        ...(check.todo120NativeSmokeRequired ? { todo120NativeSmokeRequired: true } : {}),
       };
     }
 
@@ -1249,9 +1277,11 @@ function buildSmokeEnvCheckOutput(envFilePath?: string): SmokeEnvCheckOutput {
       required: check.required,
       status: "ready",
       note: check.note,
+      ...(check.todo120NativeSmokeRequired ? { todo120NativeSmokeRequired: true } : {}),
     };
   });
   const requiredItems = items.filter((item) => item.required);
+  const todo120NativeSmokeItems = items.filter((item) => item.todo120NativeSmokeRequired);
   const missingRequired = requiredItems
     .filter((item) => item.status === "missing")
     .map((item) => item.key);
@@ -1272,6 +1302,20 @@ function buildSmokeEnvCheckOutput(envFilePath?: string): SmokeEnvCheckOutput {
       missing: missingRequired.length,
       invalid: invalidRequired.length,
       optionalConfigured: items.filter((item) => !item.required && item.status === "ready").length,
+    },
+    todo120NativeSmoke: {
+      ready: todo120NativeSmokeItems.every((item) => item.status === "ready"),
+      required: todo120NativeSmokeItems.length,
+      configured: todo120NativeSmokeItems.filter((item) => item.status === "ready").length,
+      missing: todo120NativeSmokeItems
+        .filter((item) => item.status === "optional")
+        .map((item) => item.key),
+      invalid: todo120NativeSmokeItems
+        .filter((item) => item.status === "invalid")
+        .map((item) => ({
+          key: item.key,
+          reason: item.reason ?? "invalid",
+        })),
     },
     missingRequired,
     invalidRequired,
@@ -1920,6 +1964,19 @@ function printSmokeEnvCheckSummary(input: SmokeEnvCheckOutput): void {
   );
   if (input.summary.optionalConfigured > 0) {
     console.log(`Optional env configured: ${input.summary.optionalConfigured}.`);
+  }
+  console.log(
+    `TODO120 native multi-agent env: ${input.todo120NativeSmoke.configured}/`
+    + `${input.todo120NativeSmoke.required} configured.`,
+  );
+  if (!input.todo120NativeSmoke.ready) {
+    const missing = input.todo120NativeSmoke.missing.length > 0
+      ? ` missing ${input.todo120NativeSmoke.missing.join(", ")}`
+      : "";
+    const invalid = input.todo120NativeSmoke.invalid.length > 0
+      ? ` invalid ${input.todo120NativeSmoke.invalid.map((item) => `${item.key}:${item.reason}`).join(", ")}`
+      : "";
+    console.log(`TODO120 native multi-agent smoke not ready:${missing}${invalid}`);
   }
   if (input.missingRequired.length > 0) {
     console.log(`Missing required env: ${input.missingRequired.join(", ")}`);
