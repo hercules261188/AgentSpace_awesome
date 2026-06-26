@@ -113,6 +113,31 @@ export async function readFeishuAppScopes(client: FeishuApiClient): Promise<stri
   return extractFeishuGrantedScopes(response);
 }
 
+export function buildFeishuHealthSnapshotConfigJson(input: {
+  configJson: string;
+  health: FeishuHealthCheckResult;
+}): Record<string, unknown> {
+  const config = parseJsonRecord(input.configJson) ?? {};
+  const currentBot = asRecord(config.bot) ?? {};
+  const shouldWriteBotSnapshot = Boolean(
+    input.health.botOpenId ||
+    input.health.botAppName ||
+    Object.keys(currentBot).length > 0
+  );
+  if (!shouldWriteBotSnapshot) {
+    return config;
+  }
+  return {
+    ...config,
+    bot: {
+      ...currentBot,
+      ...(input.health.botOpenId ? { openId: input.health.botOpenId } : {}),
+      ...(input.health.botAppName ? { appName: input.health.botAppName } : {}),
+      lastHealthCheckedAt: input.health.checkedAt,
+    },
+  };
+}
+
 async function checkFeishuAppScopeReadiness(client: FeishuApiClient): Promise<{
   scopeReadiness: FeishuScopeReadiness;
   enabledScopes?: string[];
@@ -235,6 +260,14 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
 
 function asString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value : undefined;
+}
+
+function parseJsonRecord(value: string): Record<string, unknown> | undefined {
+  try {
+    return asRecord(JSON.parse(value));
+  } catch {
+    return undefined;
+  }
 }
 
 function readNumber(value: unknown): number | undefined {

@@ -760,6 +760,7 @@ test("Feishu health-check CLI persists sanitized scope failures", async () => {
     integrationId: string;
     lastHealthStatus: string;
     lastError?: string;
+    configJson?: unknown;
   }> = [];
   const report = await runFeishuHealthCheckCli({
     workspaceId: "workspace-1",
@@ -808,6 +809,12 @@ test("Feishu health-check CLI persists sanitized scope failures", async () => {
   assert.equal(report.results[0]?.persisted, true);
   assert.equal(updates.length, 1);
   assert.equal(updates[0]?.lastHealthStatus, "degraded");
+  assert.deepEqual(updates[0]?.configJson, {
+    bot: {
+      appName: "AgentSpace Bot",
+      lastHealthCheckedAt: "2026-06-24T01:00:00.000Z",
+    },
+  });
   const serialized = JSON.stringify({ report, updates });
   assert.equal(serialized.includes("tenant-secret-token"), false);
   assert.equal(serialized.includes("secret_health"), false);
@@ -862,6 +869,7 @@ test("Feishu health-check CLI degrades when scope verification needs manual revi
     integrationId: string;
     lastHealthStatus: string;
     lastError?: string;
+    configJson?: unknown;
   }> = [];
   const report = await runFeishuHealthCheckCli({
     workspaceId: "workspace-1",
@@ -903,6 +911,12 @@ test("Feishu health-check CLI degrades when scope verification needs manual revi
   assert.equal(report.results[0]?.scopeReadiness, "manual_review_required");
   assert.equal(report.results[0]?.errorCode, "feishu.integration.scope_manual_review_required");
   assert.equal(updates[0]?.lastHealthStatus, "degraded");
+  assert.deepEqual(updates[0]?.configJson, {
+    bot: {
+      appName: "AgentSpace Bot",
+      lastHealthCheckedAt: "2026-06-24T01:00:00.000Z",
+    },
+  });
   const serialized = JSON.stringify({ report, updates });
   assert.equal(serialized.includes("tenant-manual-review-token"), false);
   assert.equal(serialized.includes("secret_manual_review"), false);
@@ -939,6 +953,7 @@ test("Feishu evidence report summarizes AgentSpace-side live smoke proof without
         buildExternalGuestReplyAllMapping("integration-evidence"),
         buildMessageMapping("integration-evidence", "outbound", "om_secret_restart_reply", "om_secret_restart_inbound"),
         buildAgentChannelPolicyDeniedMapping("integration-evidence"),
+        buildThreadContinuationMapping("integration-evidence"),
         ...buildGuestPolicyEvidenceMappings("integration-evidence"),
       ],
     },
@@ -987,12 +1002,12 @@ test("Feishu evidence report summarizes AgentSpace-side live smoke proof without
   assert.equal(report.summary.failureVisibleCount, 1);
   const [item] = report.integrations;
   assert.equal(item?.bot.satisfied, true);
-  assert.equal(item?.bot.inboundMessageMappings, 7);
+  assert.equal(item?.bot.inboundMessageMappings, 8);
   assert.equal(item?.bot.outboundMessageMappings, 2);
   assert.equal(item?.bot.correlatedReplyMappings, 2);
   assert.equal(item?.nativeExperience.satisfied, true);
-  assert.equal(item?.nativeExperience.agentBotRouteEvidence, 3);
-  assert.equal(item?.nativeExperience.boundUserMentionEvidence, 1);
+  assert.equal(item?.nativeExperience.agentBotRouteEvidence, 4);
+  assert.equal(item?.nativeExperience.boundUserMentionEvidence, 2);
   assert.equal(item?.nativeExperience.externalGuestMentionEvidence, 2);
   assert.equal(item?.nativeExperience.agentChannelPolicyDeniedEvidence, 1);
   assert.equal(item?.nativeExperience.autoProvisionedChannelBindings, 2);
@@ -1000,6 +1015,7 @@ test("Feishu evidence report summarizes AgentSpace-side live smoke proof without
   assert.equal(item?.nativeExperience.firstMessageAutoProvisionedChannelBindings, 1);
   assert.equal(item?.nativeExperience.reusedProviderChannelBindings, 1);
   assert.equal(item?.nativeExperience.threadTaskBindings, 1);
+  assert.equal(item?.nativeExperience.threadContinuationEvidence, 1);
   assert.equal(item?.guestPolicy.satisfied, true);
   assert.equal(item?.guestPolicy.externalGuestAllowedEvidence, 2);
   assert.equal(item?.guestPolicy.externalGuestReplyAllEvidence, 1);
@@ -1383,6 +1399,7 @@ test("Feishu evidence report gates native agent bot experience proof", () => {
   assert.equal(item?.nativeExperience.firstMessageAutoProvisionedChannelBindings, 0);
   assert.equal(item?.nativeExperience.reusedProviderChannelBindings, 0);
   assert.equal(item?.nativeExperience.threadTaskBindings, 0);
+  assert.equal(item?.nativeExperience.threadContinuationEvidence, 0);
   assert.ok(item?.issues.includes("external_guest_bot_mention_evidence_missing"));
   assert.ok(item?.issues.includes("agent_channel_policy_disabled_evidence_missing"));
   assert.ok(item?.issues.includes("channel_auto_provision_evidence_missing"));
@@ -1390,6 +1407,7 @@ test("Feishu evidence report gates native agent bot experience proof", () => {
   assert.ok(item?.issues.includes("first_message_auto_provision_evidence_missing"));
   assert.ok(item?.issues.includes("multi_agent_channel_reuse_evidence_missing"));
   assert.ok(item?.issues.includes("thread_task_binding_evidence_missing"));
+  assert.ok(item?.issues.includes("thread_continuation_evidence_missing"));
   assert.equal(JSON.stringify(report).includes("oc_secret"), false);
   assert.equal(JSON.stringify(report).includes("ou_secret"), false);
 });
@@ -1409,6 +1427,7 @@ test("Feishu evidence report gates external guest policy proof", () => {
         buildExternalGuestReplyAllMapping("integration-evidence"),
         buildMessageMapping("integration-evidence", "outbound", "om_secret_restart_reply", "om_secret_restart_inbound"),
         buildAgentChannelPolicyDeniedMapping("integration-evidence"),
+        buildThreadContinuationMapping("integration-evidence"),
         buildPolicyBlockedMessageMapping("integration-evidence", {
           externalMessageId: "om_secret_guest_require_identity",
           decision: "require_identity",
@@ -1711,6 +1730,7 @@ test("Feishu evidence report blocks strict gates when local proof is incomplete"
   assert.ok(item?.issues.includes("first_message_auto_provision_evidence_missing"));
   assert.ok(item?.issues.includes("multi_agent_channel_reuse_evidence_missing"));
   assert.ok(item?.issues.includes("thread_task_binding_evidence_missing"));
+  assert.ok(item?.issues.includes("thread_continuation_evidence_missing"));
   assert.ok(item?.issues.includes("external_guest_policy_allow_evidence_missing"));
   assert.ok(item?.issues.includes("external_guest_policy_reply_all_evidence_missing"));
   assert.ok(item?.issues.includes("external_guest_policy_require_identity_evidence_missing"));
@@ -1727,6 +1747,7 @@ test("Feishu evidence report blocks strict gates when local proof is incomplete"
     "live_agent_bot_first_message_auto_provision",
     "live_multi_agent_bot_channel_reuse",
     "live_feishu_thread_task_binding",
+    "live_feishu_thread_continuation",
     "live_external_guest_reply_all",
     "live_external_guest_identity_required",
     "live_external_guest_reply_disabled",
@@ -4208,6 +4229,7 @@ function buildCompleteFeishuEvidenceInput() {
         buildExternalGuestReplyAllMapping("integration-evidence"),
         buildMessageMapping("integration-evidence", "outbound", "om_secret_restart_reply", "om_secret_restart_inbound"),
         buildAgentChannelPolicyDeniedMapping("integration-evidence"),
+        buildThreadContinuationMapping("integration-evidence"),
         ...buildGuestPolicyEvidenceMappings("integration-evidence"),
       ],
     },
@@ -4358,6 +4380,36 @@ function buildExternalGuestReplyAllMapping(integrationId: string) {
       threadBindingId: `thread-${integrationId}`,
     }),
     createdAt: "2026-06-24T00:00:01.000Z",
+  } as never;
+}
+
+function buildThreadContinuationMapping(integrationId: string) {
+  return {
+    id: `inbound-${integrationId}-om_secret_thread_continuation`,
+    workspaceId: "workspace-1",
+    integrationId,
+    channelBindingId: `channel-${integrationId}`,
+    direction: "inbound",
+    externalMessageId: "om_secret_thread_continuation",
+    externalThreadId: "om_secret_inbound",
+    externalSenderId: "ou_secret",
+    externalEventId: "evt_secret",
+    agentSpaceMessageId: "message-thread-continuation-source",
+    taskQueueId: "task-thread-continuation",
+    routerSessionId: "router-thread-continuation",
+    metadataJson: JSON.stringify({
+      provider: "feishu",
+      externalChatReference: "chat-ref-hash",
+      mappedChannelName: "general",
+      dispatchStatus: "sent",
+      actorType: "user",
+      userId: "user-1",
+      agentId: "Atlas",
+      botBindingId: integrationId,
+      threadBindingId: `thread-${integrationId}`,
+      threadContinuation: true,
+    }),
+    createdAt: "2026-06-24T00:00:03.000Z",
   } as never;
 }
 

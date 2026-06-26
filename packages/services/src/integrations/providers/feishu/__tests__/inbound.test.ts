@@ -432,6 +432,72 @@ test("agent bot ignores bot sender messages before auto-provisioning or dispatch
   assert.doesNotMatch(mapping.metadataJson, /oc_bot_loop|ou_bot_atlas|om-agent-bot-loop/);
 });
 
+test("agent bot thread follow-ups continue without re-mentioning the bot for bound users", databaseTestOptions, () => {
+  const fixtures = seedBoundFeishuWorkspace({ agentBot: true });
+
+  const first = processFeishuInboundEventSync({
+    context: {
+      workspaceId: DEFAULT_WORKSPACE_ID,
+      integrationId: fixtures.integration.id,
+      provider: FEISHU_PROVIDER_ID,
+    },
+    payload: buildFeishuMessagePayload({
+      eventId: "evt-thread-start-bound",
+      messageId: "om-thread-start-bound",
+      threadId: "om-thread-root-bound",
+      text: '<at user_id="ou_bot_atlas">@Atlas Bot</at> summarize this incident',
+    }),
+  });
+  assert.equal(first.dispatchStatus, "sent");
+
+  const followUp = processFeishuInboundEventSync({
+    context: {
+      workspaceId: DEFAULT_WORKSPACE_ID,
+      integrationId: fixtures.integration.id,
+      provider: FEISHU_PROVIDER_ID,
+    },
+    payload: buildFeishuMessagePayload({
+      eventId: "evt-thread-follow-up-bound",
+      messageId: "om-thread-follow-up-bound",
+      threadId: "om-thread-root-bound",
+      text: "add remediation steps",
+    }),
+  });
+
+  assert.equal(followUp.dispatchStatus, "sent");
+  const state = readWorkspaceStateSync(DEFAULT_WORKSPACE_ID);
+  const followUpMessage = state.messages.find((message) =>
+    message.channel === "general" &&
+    message.speaker === "Mina" &&
+    message.summary === "@Atlas add remediation steps"
+  );
+  assert.ok(followUpMessage);
+  const followUpMapping = readExternalMessageMappingByExternalMessageSync({
+    workspaceId: DEFAULT_WORKSPACE_ID,
+    integrationId: fixtures.integration.id,
+    externalMessageId: "om-thread-follow-up-bound",
+  });
+  assert.ok(followUpMapping);
+  assert.ok(followUpMapping.taskQueueId);
+  const metadata = JSON.parse(followUpMapping.metadataJson) as Record<string, unknown>;
+  assert.equal(metadata.threadContinuation, true);
+  assert.equal(metadata.agentId, "Atlas");
+  assert.equal(metadata.botBindingId, fixtures.integration.id);
+  assert.ok(metadata.threadBindingId);
+  assert.doesNotMatch(followUpMapping.metadataJson, /om-thread-root-bound|om-thread-follow-up-bound|oc_general|ou_mina/);
+
+  const threadBinding = readFeishuThreadBindingSync({
+    workspaceId: DEFAULT_WORKSPACE_ID,
+    tenantKey: fixtures.integration.tenantKey,
+    externalChatId: "oc_general",
+    externalThreadId: "om-thread-root-bound",
+    agentId: "Atlas",
+  });
+  assert.ok(threadBinding);
+  assert.equal(threadBinding.taskQueueId, followUpMapping.taskQueueId);
+  assert.equal(threadBinding.agentSpaceMessageId, followUpMessage.id);
+});
+
 test("bot added events reuse an existing Feishu chat channel for additional agent bots", databaseTestOptions, () => {
   const fixtures = seedBoundFeishuWorkspace({ agentBot: true, bindChannel: false });
   createEmployeeSync({
@@ -550,6 +616,66 @@ test("unbound Feishu users can dispatch as a governed external guest on agent bo
   assert.equal(metadata.botBindingId, fixtures.integration.id);
   assert.match(String(metadata.externalGuestReference), /^[a-f0-9]{64}$/);
   assert.doesNotMatch(mapping.metadataJson, /oc_general|ou_mina|on_mina/);
+});
+
+test("external guest reply_on_mention policy allows same thread follow-ups without re-mentioning the bot", databaseTestOptions, () => {
+  const fixtures = seedBoundFeishuWorkspace({ agentBot: true, bindUser: false });
+
+  const first = processFeishuInboundEventSync({
+    context: {
+      workspaceId: DEFAULT_WORKSPACE_ID,
+      integrationId: fixtures.integration.id,
+      provider: FEISHU_PROVIDER_ID,
+    },
+    payload: buildFeishuMessagePayload({
+      eventId: "evt-thread-start-guest",
+      messageId: "om-thread-start-guest",
+      threadId: "om-thread-root-guest",
+      text: '<at user_id="ou_bot_atlas">@Atlas Bot</at> help with this error',
+    }),
+  });
+  assert.equal(first.dispatchStatus, "sent");
+
+  const followUp = processFeishuInboundEventSync({
+    context: {
+      workspaceId: DEFAULT_WORKSPACE_ID,
+      integrationId: fixtures.integration.id,
+      provider: FEISHU_PROVIDER_ID,
+    },
+    payload: buildFeishuMessagePayload({
+      eventId: "evt-thread-follow-up-guest",
+      messageId: "om-thread-follow-up-guest",
+      threadId: "om-thread-root-guest",
+      text: "include the stack trace",
+    }),
+  });
+
+  assert.equal(followUp.dispatchStatus, "sent");
+  const state = readWorkspaceStateSync(DEFAULT_WORKSPACE_ID);
+  const followUpMessage = state.messages.find((message) =>
+    message.channel === "general" &&
+    message.speaker === FEISHU_EXTERNAL_GUEST_DISPLAY_NAME &&
+    message.summary === "@Atlas include the stack trace"
+  );
+  assert.ok(followUpMessage);
+  assert.equal(followUpMessage.speakerUserId, undefined);
+  const followUpMapping = readExternalMessageMappingByExternalMessageSync({
+    workspaceId: DEFAULT_WORKSPACE_ID,
+    integrationId: fixtures.integration.id,
+    externalMessageId: "om-thread-follow-up-guest",
+  });
+  assert.ok(followUpMapping);
+  assert.ok(followUpMapping.taskQueueId);
+  const metadata = JSON.parse(followUpMapping.metadataJson) as Record<string, unknown>;
+  assert.equal(metadata.actorType, "external_guest");
+  assert.equal(metadata.externalGuestPolicyDecision, "allow");
+  assert.equal(metadata.externalGuestPolicyReasonCode, "feishu_external_guest_thread_continuation_allowed");
+  assert.equal(metadata.externalGuestUnboundUserMode, "reply_on_mention");
+  assert.equal(metadata.threadContinuation, true);
+  assert.equal(metadata.agentId, "Atlas");
+  assert.equal(metadata.botBindingId, fixtures.integration.id);
+  assert.ok(metadata.threadBindingId);
+  assert.doesNotMatch(followUpMapping.metadataJson, /om-thread-root-guest|om-thread-follow-up-guest|oc_general|ou_mina|on_mina/);
 });
 
 test("agent bot require_identity policy prompts unbound Feishu users without dispatching", databaseTestOptions, () => {
@@ -691,6 +817,55 @@ test("agent bot reply_on_mention policy ignores unmentioned unbound Feishu users
   assert.equal(metadata.agentId, "Atlas");
   assert.equal(metadata.botBindingId, fixtures.integration.id);
   assert.doesNotMatch(mapping.metadataJson, /oc_general|ou_mina|on_mina|om-agent-bot-guest-unmentioned/);
+});
+
+test("agent bot ignores unmentioned bound Feishu user messages outside active threads", databaseTestOptions, () => {
+  const fixtures = seedBoundFeishuWorkspace({ agentBot: true });
+
+  const result = processFeishuInboundEventSync({
+    context: {
+      workspaceId: DEFAULT_WORKSPACE_ID,
+      integrationId: fixtures.integration.id,
+      provider: FEISHU_PROVIDER_ID,
+    },
+    payload: buildFeishuMessagePayload({
+      eventId: "evt-agent-bot-bound-unmentioned",
+      messageId: "om-agent-bot-bound-unmentioned",
+      threadId: "om-agent-bot-unbound-thread",
+      text: "this should not wake the agent",
+    }),
+  });
+
+  assert.equal(result.dispatchStatus, "ignored");
+  assert.equal(result.reasonCode, "feishu_agent_bot_mention_required");
+  assert.equal(countHumanMessages(), 0);
+  assert.equal(listQueuedTasksSync({ workspaceId: DEFAULT_WORKSPACE_ID }).length, 0);
+
+  const mapping = readExternalMessageMappingByExternalMessageSync({
+    workspaceId: DEFAULT_WORKSPACE_ID,
+    integrationId: fixtures.integration.id,
+    externalMessageId: "om-agent-bot-bound-unmentioned",
+  });
+  assert.ok(mapping);
+  assert.equal(mapping.taskQueueId, undefined);
+  assert.equal(mapping.agentSpaceMessageId, undefined);
+  const metadata = JSON.parse(mapping.metadataJson) as Record<string, unknown>;
+  assert.equal(metadata.actorType, "user");
+  assert.equal(metadata.userId, fixtures.user.id);
+  assert.equal(metadata.dispatchStatus, "ignored");
+  assert.equal(metadata.reasonCode, "feishu_agent_bot_mention_required");
+  assert.equal(metadata.agentId, "Atlas");
+  assert.equal(metadata.botBindingId, fixtures.integration.id);
+  assert.equal(metadata.threadContinuation, undefined);
+  assert.doesNotMatch(mapping.metadataJson, /oc_general|ou_mina|on_mina|om-agent-bot-bound-unmentioned|om-agent-bot-unbound-thread/);
+
+  assert.equal(readFeishuThreadBindingSync({
+    workspaceId: DEFAULT_WORKSPACE_ID,
+    tenantKey: fixtures.integration.tenantKey,
+    externalChatId: "oc_general",
+    externalThreadId: "om-agent-bot-unbound-thread",
+    agentId: "Atlas",
+  }), null);
 });
 
 test("agent bot reply_all policy dispatches unmentioned unbound Feishu users to the bot agent", databaseTestOptions, () => {

@@ -35,6 +35,7 @@ import {
 import { readFileSync } from "node:fs";
 import {
   checkFeishuIntegrationHealth,
+  buildFeishuHealthSnapshotConfigJson,
   buildEncryptedFeishuCredentials,
   createFeishuApiClient,
   createFeishuAgentBotBindingSync,
@@ -502,6 +503,7 @@ export interface FeishuIntegrationEvidence {
     firstMessageAutoProvisionedChannelBindings: number;
     reusedProviderChannelBindings: number;
     threadTaskBindings: number;
+    threadContinuationEvidence: number;
     satisfied: boolean;
   };
   guestPolicy: {
@@ -3519,6 +3521,10 @@ export async function runFeishuHealthCheckCli(input: {
         integrationId: integration.id,
         lastHealthStatus: health.status,
         lastError: errorMessage,
+        configJson: buildFeishuHealthSnapshotConfigJson({
+          configJson: integration.configJson,
+          health,
+        }),
       });
     }
     results.push(buildFeishuHealthCheckCliItem({
@@ -4377,6 +4383,7 @@ function buildFeishuIntegrationEvidence(input: {
   );
   const reusedProviderChannelBindings = countFeishuReusedProviderChannelBindings(input.channelBindings);
   const threadTaskBindings = countFeishuThreadTaskBindingEvidence(input.threadBindings);
+  const threadContinuationEvidence = countFeishuThreadContinuationEvidence(input.messageMappings);
   const sentOutboxItems = input.outbox.filter((item) => item.status === "sent").length;
   const failedOutboxItems = input.outbox.filter((item) =>
     item.status === "failed" || (item.status === "pending" && Boolean(item.lastError))
@@ -4426,7 +4433,8 @@ function buildFeishuIntegrationEvidence(input: {
     botAddedAutoProvisionedChannelBindings > 0 &&
     firstMessageAutoProvisionedChannelBindings > 0 &&
     reusedProviderChannelBindings > 0 &&
-    threadTaskBindings > 0;
+    threadTaskBindings > 0 &&
+    threadContinuationEvidence > 0;
   const guestPolicySatisfied = externalGuestAllowedEvidence > 0 &&
     externalGuestReplyAllEvidence > 0 &&
     externalGuestRequireIdentityEvidence > 0 &&
@@ -4479,6 +4487,7 @@ function buildFeishuIntegrationEvidence(input: {
     firstMessageAutoProvisionedChannelBindings,
     reusedProviderChannelBindings,
     threadTaskBindings,
+    threadContinuationEvidence,
     docReadSucceeded,
     agentDocReadSucceeded,
     docWriteSucceeded,
@@ -4527,6 +4536,7 @@ function buildFeishuIntegrationEvidence(input: {
       firstMessageAutoProvisionedChannelBindings,
       reusedProviderChannelBindings,
       threadTaskBindings,
+      threadContinuationEvidence,
       satisfied: nativeExperienceSatisfied,
     },
     guestPolicy: {
@@ -4739,6 +4749,7 @@ function buildFeishuEvidenceIssues(input: {
   firstMessageAutoProvisionedChannelBindings: number;
   reusedProviderChannelBindings: number;
   threadTaskBindings: number;
+  threadContinuationEvidence: number;
   docReadSucceeded: number;
   agentDocReadSucceeded: number;
   docWriteSucceeded: number;
@@ -4804,6 +4815,9 @@ function buildFeishuEvidenceIssues(input: {
     }
     if (input.threadTaskBindings === 0) {
       issues.push("thread_task_binding_evidence_missing");
+    }
+    if (input.threadContinuationEvidence === 0) {
+      issues.push("thread_continuation_evidence_missing");
     }
   }
   if (!input.guestPolicySatisfied) {
@@ -5026,6 +5040,12 @@ function mapFeishuEvidenceIssueToRemediationSpec(input: {
         stepId: "live_feishu_thread_task_binding",
         title: "Live smoke: Feishu thread binds to AgentSpace task",
         detail: "Mention the agent bot in a Feishu thread and verify AgentSpace records the thread binding with taskQueueId, agentSpaceMessageId, agentId, and botBindingId.",
+      };
+    case "thread_continuation_evidence_missing":
+      return {
+        stepId: "live_feishu_thread_continuation",
+        title: "Live smoke: Feishu thread follow-up continues without re-mention",
+        detail: "After a mentioned agent bot message creates a Feishu thread binding, send a follow-up in the same Feishu thread without mentioning the bot and verify AgentSpace records threadContinuation=true with taskQueueId, agentId, botBindingId, and the same safe thread binding reference.",
       };
     case "doc_read_evidence_missing":
       return {
@@ -5353,6 +5373,28 @@ function countFeishuThreadTaskBindingEvidence(
       metadata.externalChatReference.trim().length > 0 &&
       typeof metadata.externalThreadReference === "string" &&
       metadata.externalThreadReference.trim().length > 0;
+  }).length;
+}
+
+function countFeishuThreadContinuationEvidence(
+  mappings: readonly ExternalMessageMappingRecord[],
+): number {
+  return mappings.filter((mapping) => {
+    if (mapping.direction !== "inbound" || !mapping.taskQueueId || !mapping.agentSpaceMessageId) {
+      return false;
+    }
+    const metadata = readJsonRecord(mapping.metadataJson);
+    return metadata?.provider === FEISHU_PROVIDER_ID &&
+      metadata.dispatchStatus === "sent" &&
+      metadata.threadContinuation === true &&
+      typeof metadata.threadBindingId === "string" &&
+      metadata.threadBindingId.trim().length > 0 &&
+      typeof metadata.agentId === "string" &&
+      metadata.agentId.trim().length > 0 &&
+      typeof metadata.botBindingId === "string" &&
+      metadata.botBindingId.trim().length > 0 &&
+      typeof metadata.externalChatReference === "string" &&
+      metadata.externalChatReference.trim().length > 0;
   }).length;
 }
 

@@ -69,7 +69,10 @@ import {
   type FeishuExternalGuestDecision,
   type FeishuExternalGuestActor,
 } from "./external-guests.ts";
-import { recordFeishuThreadBindingSync } from "./thread-bindings.ts";
+import {
+  readFeishuThreadBindingSync,
+  recordFeishuThreadBindingSync,
+} from "./thread-bindings.ts";
 
 export interface FeishuInboundRecordResult {
   event: ExternalIntegrationEventRecord;
@@ -107,9 +110,11 @@ interface FeishuInboundPreparedDispatch {
   userId?: string;
   actorType: "user" | "external_guest";
   externalGuestActor?: FeishuExternalGuestActor;
+  externalGuestDecision?: FeishuExternalGuestDecision;
   agentId?: string;
   botBindingId?: string;
   agentBotIntegration?: ExternalIntegrationRecord;
+  threadContinuation?: boolean;
   text: string;
   displayName: string;
 }
@@ -342,6 +347,11 @@ function prepareFeishuInboundDispatchSync(input: ProcessFeishuInboundEventInput)
     };
   }
 
+  const threadContinuation = shouldContinueFeishuAgentThreadSync({
+    workspaceId: input.context.workspaceId,
+    message,
+    agentBotRoute,
+  });
   const externalSenderId = message.externalSenderId?.trim();
   if (!externalSenderId) {
     const mapping = createFeishuInboundMapping({
@@ -379,6 +389,7 @@ function prepareFeishuInboundDispatchSync(input: ProcessFeishuInboundEventInput)
       ? evaluateFeishuExternalGuestPolicy({
         integration: agentBotRoute.binding,
         botMentioned: agentBotRoute.botMentioned,
+        threadContinuation,
       })
       : null;
     if (agentBotRoute && guestDecision?.decision === "allow") {
@@ -390,7 +401,10 @@ function prepareFeishuInboundDispatchSync(input: ProcessFeishuInboundEventInput)
         sourceChatId: message.externalChatId,
         permissionProfile: guestDecision.policy.guestPermissionProfile,
       });
-      const forceAgentMention = shouldForceFeishuAgentMentionForGuest(guestDecision);
+      const forceAgentMention = shouldForceFeishuAgentMentionForGuest({
+        decision: guestDecision,
+        threadContinuation,
+      });
       const text = resolveRoutedFeishuText({
         message,
         agentBotRoute: route,
@@ -429,6 +443,7 @@ function prepareFeishuInboundDispatchSync(input: ProcessFeishuInboundEventInput)
         shouldRouteToAgent: shouldRouteFeishuMessageToAgent({
           agentBotRoute: route,
           forceAgentMention,
+          threadContinuation,
         }),
       });
       if (!routeGuard.allowed) {
@@ -472,6 +487,7 @@ function prepareFeishuInboundDispatchSync(input: ProcessFeishuInboundEventInput)
         botBindingId: route.binding.id,
         externalGuestActor,
         externalGuestDecision: guestDecision,
+        threadContinuation,
         dispatchStatus: "dispatching",
       });
       return {
@@ -484,11 +500,13 @@ function prepareFeishuInboundDispatchSync(input: ProcessFeishuInboundEventInput)
           channelBinding,
           actorType: "external_guest",
           externalGuestActor,
+          externalGuestDecision: guestDecision,
           text,
           displayName,
           agentId: route.agentId,
           botBindingId: route.binding.id,
           agentBotIntegration: route.binding,
+          threadContinuation,
         },
       };
     }
@@ -581,8 +599,43 @@ function prepareFeishuInboundDispatchSync(input: ProcessFeishuInboundEventInput)
     };
   }
 
-  const text = resolveRoutedFeishuText({ message, agentBotRoute });
-  if (!text) {
+  const shouldRouteToAgent = shouldRouteFeishuMessageToAgent({
+    agentBotRoute,
+    threadContinuation,
+  });
+  if (agentBotRoute && !shouldRouteToAgent) {
+    const mapping = createFeishuInboundMapping({
+      context: input.context,
+      message,
+      channelBindingId: channelBinding.id,
+      mappedChannelName: channelBinding.channelName,
+      userId: userBinding.userId,
+      actorType: "user",
+      agentId: agentBotRoute.agentId,
+      botBindingId: agentBotRoute.binding.id,
+      reasonCode: "feishu_agent_bot_mention_required",
+      dispatchStatus: "ignored",
+    });
+    return {
+      ready: false,
+      result: finishIgnored({
+        context: input.context,
+        event,
+        message,
+        mappedChannelName: channelBinding.channelName,
+        reasonCode: "feishu_agent_bot_mention_required",
+        mapping,
+      }),
+    };
+  }
+
+  const routedText = resolveRoutedFeishuText({
+    message,
+    agentBotRoute,
+    forceAgentMention: threadContinuation,
+    threadContinuation,
+  });
+  if (!routedText) {
     const mapping = createFeishuInboundMapping({
       context: input.context,
       message,
@@ -611,7 +664,7 @@ function prepareFeishuInboundDispatchSync(input: ProcessFeishuInboundEventInput)
     workspaceId: input.context.workspaceId,
     channelName: channelBinding.channelName,
     agentBotRoute,
-    shouldRouteToAgent: shouldRouteFeishuMessageToAgent({ agentBotRoute }),
+    shouldRouteToAgent,
     actor: {
       userId: userBinding.userId,
       displayName: user.displayName || userBinding.displayName,
@@ -671,7 +724,8 @@ function prepareFeishuInboundDispatchSync(input: ProcessFeishuInboundEventInput)
       agentId: agentBotRoute?.agentId,
       botBindingId: agentBotRoute?.binding.id,
       agentBotIntegration: agentBotRoute?.binding,
-      text,
+      threadContinuation,
+      text: routedText,
       displayName,
     },
   };
@@ -764,12 +818,14 @@ function dispatchPreparedFeishuInboundEventSync(input: FeishuInboundPreparedDisp
     userId: input.userId,
     actorType: input.actorType,
     externalGuestActor: input.externalGuestActor,
+    externalGuestDecision: input.externalGuestDecision,
     agentId: input.agentId,
     botBindingId: input.botBindingId,
     taskQueueId: dispatchedTask?.id,
     routerSessionId: dispatchedTask?.routerSessionId,
     threadBindingId: threadBinding?.id,
     agentSpaceMessageId,
+    threadContinuation: input.threadContinuation,
     dispatchStatus: "sent",
     downloadedAttachmentCount: input.attachments.length,
   });
@@ -1124,8 +1180,10 @@ function finishFailedDispatch(input: FeishuInboundPreparedDispatch & {
     userId: input.userId,
     actorType: input.actorType,
     externalGuestActor: input.externalGuestActor,
+    externalGuestDecision: input.externalGuestDecision,
     agentId: input.agentId,
     botBindingId: input.botBindingId,
+    threadContinuation: input.threadContinuation,
     reasonCode: input.reasonCode,
     dispatchStatus: "failed",
     errorMessage,
@@ -1213,6 +1271,7 @@ function createFeishuInboundMapping(input: {
   routerSessionId?: string;
   threadBindingId?: string;
   agentSpaceMessageId?: string;
+  threadContinuation?: boolean;
   dispatchStatus: string;
   reasonCode?: string;
   errorMessage?: string;
@@ -1245,6 +1304,7 @@ function createFeishuInboundMapping(input: {
       agentId: input.agentId,
       botBindingId: input.botBindingId,
       threadBindingId: input.threadBindingId,
+      threadContinuation: input.threadContinuation,
       dispatchStatus: input.dispatchStatus,
       reasonCode: input.reasonCode,
       errorMessage: input.errorMessage,
@@ -1262,12 +1322,14 @@ function resolveRoutedFeishuText(input: {
   message: ExternalMessageEnvelope;
   agentBotRoute: FeishuAgentBotRoute | null;
   forceAgentMention?: boolean;
+  threadContinuation?: boolean;
 }): string | undefined {
   const text = input.message.text?.trim();
   const route = input.agentBotRoute;
   if (!shouldRouteFeishuMessageToAgent({
     agentBotRoute: route,
     forceAgentMention: input.forceAgentMention,
+    threadContinuation: input.threadContinuation,
   })) {
     return text;
   }
@@ -1280,15 +1342,43 @@ function resolveRoutedFeishuText(input: {
   });
 }
 
-function shouldForceFeishuAgentMentionForGuest(decision: FeishuExternalGuestDecision): boolean {
-  return decision.decision === "allow" && decision.policy.unboundUserMode === "reply_all";
+function shouldForceFeishuAgentMentionForGuest(input: {
+  decision: FeishuExternalGuestDecision;
+  threadContinuation?: boolean;
+}): boolean {
+  return input.decision.decision === "allow" &&
+    (input.decision.policy.unboundUserMode === "reply_all" || Boolean(input.threadContinuation));
 }
 
 function shouldRouteFeishuMessageToAgent(input: {
   agentBotRoute: FeishuAgentBotRoute | null;
   forceAgentMention?: boolean;
+  threadContinuation?: boolean;
 }): boolean {
-  return Boolean(input.agentBotRoute && (input.agentBotRoute.botMentioned || input.forceAgentMention));
+  return Boolean(input.agentBotRoute && (
+    input.agentBotRoute.botMentioned ||
+    input.forceAgentMention ||
+    input.threadContinuation
+  ));
+}
+
+function shouldContinueFeishuAgentThreadSync(input: {
+  workspaceId: string;
+  message: ExternalMessageEnvelope;
+  agentBotRoute: FeishuAgentBotRoute | null;
+}): boolean {
+  const route = input.agentBotRoute;
+  const externalThreadId = input.message.externalThreadId?.trim();
+  if (!route || route.botMentioned || !externalThreadId) {
+    return false;
+  }
+  return Boolean(readFeishuThreadBindingSync({
+    workspaceId: input.workspaceId,
+    tenantKey: route.binding.tenantKey,
+    externalChatId: input.message.externalChatId,
+    externalThreadId,
+    agentId: route.agentId,
+  }));
 }
 
 function evaluateFeishuAgentRouteGuardSync(input: {

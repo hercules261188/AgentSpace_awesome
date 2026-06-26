@@ -720,7 +720,7 @@ test("Feishu write approvals enqueue approval-required cards in the source threa
     elements: Array<{ content?: string }>;
   };
   assert.equal(card.header.template, "orange");
-  assert.equal(card.header.title.content, "AgentSpace · Approval Required");
+  assert.equal(card.header.title.content, "Atlas · AgentSpace");
   assert.match(card.elements[0]?.content ?? "", /\*\*Atlas\*\* · Approval required/);
   assert.match(card.elements[0]?.content ?? "", /Task: task-approval-1/);
   assert.match(card.elements[0]?.content ?? "", /requested sheets\.update_range/);
@@ -933,7 +933,7 @@ test("Feishu approval card callbacks validate user binding token hash and execut
     elements: Array<{ content?: string }>;
   };
   assert.equal(receiptCard.header.template, "green");
-  assert.equal(receiptCard.header.title.content, "AgentSpace · Complete");
+  assert.equal(receiptCard.header.title.content, "Atlas · AgentSpace");
   assert.match(receiptCard.elements[0]?.content ?? "", /Approved sheets\.update_range completed/);
   assert.equal(JSON.stringify(receiptCard).includes("approved from card"), false);
   const event = readExternalIntegrationEventSync({

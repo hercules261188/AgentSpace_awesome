@@ -466,6 +466,7 @@ export {
   buildFeishuAgentStatusCard,
   buildFeishuAgentStatusCardOutboundMessage,
   buildFeishuAttachmentOutboundMessage,
+  buildFeishuHealthSnapshotConfigJson,
   buildFeishuFileUploadRequest,
   buildFeishuImageUploadRequest,
   buildFeishuInteractiveCardOutboundMessage,

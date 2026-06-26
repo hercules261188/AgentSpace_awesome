@@ -238,24 +238,43 @@ export function updateExternalIntegrationHealthSync(input: {
   integrationId: string;
   lastHealthStatus: ExternalIntegrationHealthStatus;
   lastError?: string;
+  configJson?: JsonInput;
 }): ExternalIntegrationRecord {
   const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
   const now = new Date().toISOString();
-  const result = getDatabase().prepare(
-    `UPDATE external_integration
-     SET last_health_status = ?,
-         last_health_checked_at = ?,
-         last_error = ?,
-         updated_at = ?
-     WHERE workspace_id = ? AND id = ?`,
-  ).run(
-    input.lastHealthStatus,
-    now,
-    normalizeOptionalText(input.lastError),
-    now,
-    workspaceId,
-    input.integrationId.trim(),
-  );
+  const result = input.configJson === undefined
+    ? getDatabase().prepare(
+      `UPDATE external_integration
+       SET last_health_status = ?,
+           last_health_checked_at = ?,
+           last_error = ?,
+           updated_at = ?
+       WHERE workspace_id = ? AND id = ?`,
+    ).run(
+      input.lastHealthStatus,
+      now,
+      normalizeOptionalText(input.lastError),
+      now,
+      workspaceId,
+      input.integrationId.trim(),
+    )
+    : getDatabase().prepare(
+      `UPDATE external_integration
+       SET last_health_status = ?,
+           last_health_checked_at = ?,
+           last_error = ?,
+           config_json = ?,
+           updated_at = ?
+       WHERE workspace_id = ? AND id = ?`,
+    ).run(
+      input.lastHealthStatus,
+      now,
+      normalizeOptionalText(input.lastError),
+      normalizeJsonInput(input.configJson, DEFAULT_JSON_OBJECT),
+      now,
+      workspaceId,
+      input.integrationId.trim(),
+    );
 
   if (result.changes === 0) {
     throw new Error("External integration does not exist.");

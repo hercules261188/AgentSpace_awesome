@@ -16,6 +16,7 @@ import {
   readFeishuIntegrationCredentials,
 } from "./credentials.ts";
 import {
+  buildFeishuHealthSnapshotConfigJson,
   checkFeishuIntegrationHealth,
   type FeishuHealthCheckResult,
 } from "./health.ts";
@@ -336,6 +337,10 @@ export async function checkFeishuAgentBotHealth(input: {
       integrationId: binding.id,
       lastHealthStatus: health.status,
       lastError: health.errorMessage,
+      configJson: buildFeishuHealthSnapshotConfigJson({
+        configJson: binding.configJson,
+        health,
+      }),
     }));
   return {
     binding: updated,

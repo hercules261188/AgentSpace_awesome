@@ -53,6 +53,7 @@ const {
 }));
 
 const {
+  mockBuildFeishuHealthSnapshotConfigJson,
   mockCheckFeishuIntegrationHealth,
   mockCreateFeishuAgentBotBindingSync,
   mockDisableFeishuAgentBotBindingSync,
@@ -64,6 +65,7 @@ const {
   mockValidateFeishuResourceDescriptorForBinding,
   mockValidateFeishuResourceBindingScopes,
 } = vi.hoisted(() => ({
+  mockBuildFeishuHealthSnapshotConfigJson: vi.fn(),
   mockCheckFeishuIntegrationHealth: vi.fn(),
   mockCreateFeishuAgentBotBindingSync: vi.fn(),
   mockDisableFeishuAgentBotBindingSync: vi.fn(),
@@ -114,6 +116,7 @@ vi.mock("@agent-space/services", () => ({
   FEISHU_DEFAULT_SCOPES: ["im:message"],
   FEISHU_EVENT_CALLBACK_PATH: "/api/integrations/feishu/events",
   FEISHU_PROVIDER_ID: "feishu",
+  buildFeishuHealthSnapshotConfigJson: mockBuildFeishuHealthSnapshotConfigJson,
   checkFeishuIntegrationHealth: mockCheckFeishuIntegrationHealth,
   createFeishuAgentBotBindingSync: mockCreateFeishuAgentBotBindingSync,
   disableFeishuAgentBotBindingSync: mockDisableFeishuAgentBotBindingSync,
@@ -213,6 +216,7 @@ describe("Feishu actions", () => {
     mockUpsertExternalChannelBindingSync.mockReset();
     mockUpsertExternalResourceBindingSync.mockReset();
     mockUpsertExternalUserBindingSync.mockReset();
+    mockBuildFeishuHealthSnapshotConfigJson.mockReset();
     mockCheckFeishuIntegrationHealth.mockReset();
     mockCreateFeishuAgentBotBindingSync.mockReset();
     mockDisableFeishuAgentBotBindingSync.mockReset();
@@ -232,6 +236,23 @@ describe("Feishu actions", () => {
     mockReadPublicAppUrl.mockReturnValue("https://agentspace.test");
     mockBuildFeishuEventCallbackUrl.mockReturnValue("https://agentspace.test/api/integrations/feishu/events");
     mockListFeishuIntegrationSettingsItems.mockReturnValue([buildSettingsItem()]);
+    mockBuildFeishuHealthSnapshotConfigJson.mockImplementation((input: {
+      configJson: string | Record<string, unknown>;
+      health: { botOpenId?: string; botAppName?: string; checkedAt: string };
+    }) => {
+      const { configJson, health } = input;
+      const config = typeof configJson === "string" ? JSON.parse(configJson || "{}") : configJson;
+      return health.botOpenId || health.botAppName
+        ? {
+          ...config,
+          bot: {
+            openId: health.botOpenId,
+            appName: health.botAppName,
+            lastHealthCheckedAt: health.checkedAt,
+          },
+        }
+        : config;
+    });
     mockCancelExternalMessageOutboxForIntegrationSync.mockReturnValue(0);
     mockReadExternalIntegrationSync.mockReturnValue(buildIntegration());
     mockReadExternalChannelBindingByExternalChatSync.mockReturnValue(null);
@@ -1083,6 +1104,12 @@ describe("Feishu actions", () => {
     mockRequireCurrentWorkspaceContext.mockResolvedValue(buildWorkspaceContext("admin", "admin-1"));
     mockReadExternalIntegrationSync.mockReturnValue(buildIntegration({
       appId: "cli_health",
+      configJson: JSON.stringify({
+        agentBotBinding: true,
+        channelAutoProvisioning: {
+          botAdded: "auto_create_channel",
+        },
+      }),
     }));
     mockReadFeishuIntegrationCredentials.mockReturnValue({
       appSecret: "secret_health",
@@ -1092,6 +1119,8 @@ describe("Feishu actions", () => {
       status: "degraded",
       checkedAt: "2026-06-24T00:03:00.000Z",
       tenantAccessToken: "tenant-secret-token",
+      botOpenId: "ou_health_bot",
+      botAppName: "Health Bot",
       scopeReadiness: "unauthorized",
       errorMessage: "Feishu app scope check was rejected by Feishu: permission denied for cli_health secret_health Bearer tenant-secret-token",
     });
@@ -1103,6 +1132,30 @@ describe("Feishu actions", () => {
       integrationId: "integration-1",
       lastHealthStatus: "degraded",
       lastError: expect.stringContaining("[redacted]"),
+      configJson: {
+        agentBotBinding: true,
+        channelAutoProvisioning: {
+          botAdded: "auto_create_channel",
+        },
+        bot: {
+          openId: "ou_health_bot",
+          appName: "Health Bot",
+          lastHealthCheckedAt: "2026-06-24T00:03:00.000Z",
+        },
+      },
+    });
+    expect(mockBuildFeishuHealthSnapshotConfigJson).toHaveBeenCalledWith({
+      configJson: JSON.stringify({
+        agentBotBinding: true,
+        channelAutoProvisioning: {
+          botAdded: "auto_create_channel",
+        },
+      }),
+      health: expect.objectContaining({
+        botOpenId: "ou_health_bot",
+        botAppName: "Health Bot",
+        checkedAt: "2026-06-24T00:03:00.000Z",
+      }),
     });
     const lastError = mockUpdateExternalIntegrationHealthSync.mock.calls[0]?.[0]?.lastError as string;
     expect(lastError).toContain("permission denied");

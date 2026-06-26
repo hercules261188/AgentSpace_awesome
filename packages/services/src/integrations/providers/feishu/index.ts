@@ -87,6 +87,7 @@ export {
   type FeishuPlainCredentials,
 } from "./credentials.ts";
 export {
+  buildFeishuHealthSnapshotConfigJson,
   checkFeishuIntegrationHealth,
   readFeishuAppScopes,
   readFeishuBotInfo,

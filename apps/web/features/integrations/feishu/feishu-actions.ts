@@ -27,6 +27,7 @@ import {
   FEISHU_DEFAULT_SCOPES,
   FEISHU_EVENT_CALLBACK_PATH,
   FEISHU_PROVIDER_ID,
+  buildFeishuHealthSnapshotConfigJson,
   checkFeishuIntegrationHealth,
   createFeishuAgentBotBindingSync,
   disableFeishuAgentBotBindingSync,
@@ -572,14 +573,19 @@ export async function checkFeishuIntegrationHealthAction(
     appId: integration.appId ?? "",
     appSecret: credentials.appSecret,
   });
+  const lastError = sanitizeFeishuHealthErrorMessage(health.errorMessage, [
+    integration.appId,
+    credentials.appSecret,
+  ]);
   updateExternalIntegrationHealthSync({
     workspaceId: workspaceContext.currentWorkspace.id,
     integrationId: integration.id,
     lastHealthStatus: health.status,
-    lastError: sanitizeFeishuHealthErrorMessage(health.errorMessage, [
-      integration.appId,
-      credentials.appSecret,
-    ]),
+    lastError,
+    configJson: buildFeishuHealthSnapshotConfigJson({
+      configJson: integration.configJson,
+      health,
+    }),
   });
 
   tryRecordWorkspaceAuditEventSync({

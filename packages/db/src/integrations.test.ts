@@ -36,6 +36,7 @@ import {
   updateExternalDataOperationRunStatusSync,
   updateExternalIntegrationCredentialsSync,
   updateExternalIntegrationEventStatusSync,
+  updateExternalIntegrationHealthSync,
   updateExternalIntegrationStatusSync,
   upsertExternalChannelBindingSync,
   upsertExternalResourceBindingSync,
@@ -250,6 +251,59 @@ test("external integrations can be scoped to agent bot bindings", {
     appId: "codex_bot_app_3",
   });
   assert.equal(replacement.agentId, "Codex");
+});
+
+test("external integration health update can persist a config snapshot", {
+  skip: runIntegrationDbTests
+    ? false
+    : "Set AGENT_SPACE_DB_INTEGRATIONS_TESTS=1 with AGENT_SPACE_TEST_DATABASE_URL to run external integration DB tests.",
+}, () => {
+  const workspace = createWorkspaceSync({
+    slug: "integrations-health-config",
+    name: "Integrations Health Config",
+    createdBy: "system",
+  });
+  const integration = createExternalIntegrationSync({
+    workspaceId: workspace.id,
+    provider: "feishu",
+    displayName: "Feishu Health",
+    transportMode: "websocket_worker",
+    appId: "cli_health_config",
+    configJson: {
+      agentBotBinding: true,
+      channelAutoProvisioning: {
+        botAdded: "auto_create_channel",
+      },
+    },
+  });
+
+  const updated = updateExternalIntegrationHealthSync({
+    workspaceId: workspace.id,
+    integrationId: integration.id,
+    lastHealthStatus: "healthy",
+    configJson: {
+      agentBotBinding: true,
+      channelAutoProvisioning: {
+        botAdded: "auto_create_channel",
+      },
+      bot: {
+        openId: "ou_bot",
+        appName: "Codex Bot",
+      },
+    },
+  });
+
+  assert.equal(updated.lastHealthStatus, "healthy");
+  assert.deepEqual(JSON.parse(updated.configJson), {
+    agentBotBinding: true,
+    channelAutoProvisioning: {
+      botAdded: "auto_create_channel",
+    },
+    bot: {
+      openId: "ou_bot",
+      appName: "Codex Bot",
+    },
+  });
 });
 
 test("external user bindings are unique by AgentSpace user and Feishu user", {

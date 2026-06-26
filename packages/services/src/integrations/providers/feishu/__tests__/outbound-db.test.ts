@@ -12,6 +12,7 @@ import {
   getDatabase,
   readExternalMessageMappingByAgentSpaceMessageSync,
   readExternalMessageOutboxSync,
+  updateExternalIntegrationStatusSync,
   upsertExternalChannelBindingSync,
 } from "@agent-space/db";
 import { FEISHU_PROVIDER_ID } from "../constants.ts";
@@ -237,6 +238,146 @@ test("AgentSpace replies are sent back to the source Feishu thread", databaseTes
   assert.equal(JSON.stringify(outboundMetadata).includes("ok"), false);
 });
 
+test("Feishu replies without agent id reuse the source agent bot integration", databaseTestOptions, () => {
+  const workspace = createWorkspaceSync({
+    slug: "feishu-thread-reply-source-bot",
+    name: "Feishu Thread Reply Source Bot",
+    createdBy: "system",
+  });
+  const workspaceIntegration = createExternalIntegrationSync({
+    workspaceId: workspace.id,
+    provider: FEISHU_PROVIDER_ID,
+    displayName: "Workspace Feishu",
+    transportMode: "http_webhook",
+  });
+  upsertExternalChannelBindingSync({
+    workspaceId: workspace.id,
+    integrationId: workspaceIntegration.id,
+    channelName: "tour visit",
+    externalChatId: "oc_workspace",
+    externalChatType: "group",
+    externalChatName: "Workspace Chat",
+    status: "active",
+    syncMode: "mirror",
+  });
+  const agentBotIntegration = createExternalIntegrationSync({
+    workspaceId: workspace.id,
+    provider: FEISHU_PROVIDER_ID,
+    displayName: "Atlas Feishu Bot",
+    transportMode: "websocket_worker",
+    agentId: "Atlas",
+    appId: "cli_atlas_bot",
+  });
+  const agentBotChannelBinding = upsertExternalChannelBindingSync({
+    workspaceId: workspace.id,
+    integrationId: agentBotIntegration.id,
+    channelName: "tour visit",
+    externalChatId: "oc_agent_bot",
+    externalChatType: "group",
+    externalChatName: "Agent Bot Chat",
+    status: "active",
+    syncMode: "mirror",
+  });
+  createExternalMessageMappingSync({
+    workspaceId: workspace.id,
+    integrationId: agentBotIntegration.id,
+    channelBindingId: agentBotChannelBinding.id,
+    direction: "inbound",
+    externalMessageId: "om_source",
+    externalThreadId: "om_root",
+    externalSenderId: "ou_mina",
+    agentSpaceMessageId: "agent-space-source-message-1",
+    metadataJson: {
+      agentId: "Atlas",
+      botBindingId: agentBotIntegration.id,
+    },
+  });
+
+  const queuedOutbox = queueFeishuChannelReplyOutboxSync({
+    workspaceId: workspace.id,
+    channelName: "tour visit",
+    text: "Atlas reply for Feishu",
+    agentSpaceMessageId: "agent-space-agent-reply-1",
+    sourceAgentSpaceMessageId: "agent-space-source-message-1",
+  });
+
+  assert.equal(queuedOutbox.length, 1);
+  assert.equal(queuedOutbox[0]?.integrationId, agentBotIntegration.id);
+  assert.equal(queuedOutbox[0]?.targetExternalChatId, "oc_agent_bot");
+  assert.equal(queuedOutbox[0]?.targetExternalThreadId, "om_root");
+});
+
+test("Feishu replies do not fall back to workspace bot when the source agent bot is disabled", databaseTestOptions, () => {
+  const workspace = createWorkspaceSync({
+    slug: "feishu-thread-reply-disabled-source-bot",
+    name: "Feishu Thread Reply Disabled Source Bot",
+    createdBy: "system",
+  });
+  const workspaceIntegration = createExternalIntegrationSync({
+    workspaceId: workspace.id,
+    provider: FEISHU_PROVIDER_ID,
+    displayName: "Workspace Feishu",
+    transportMode: "http_webhook",
+  });
+  upsertExternalChannelBindingSync({
+    workspaceId: workspace.id,
+    integrationId: workspaceIntegration.id,
+    channelName: "tour visit",
+    externalChatId: "oc_workspace",
+    externalChatType: "group",
+    externalChatName: "Workspace Chat",
+    status: "active",
+    syncMode: "mirror",
+  });
+  const agentBotIntegration = createExternalIntegrationSync({
+    workspaceId: workspace.id,
+    provider: FEISHU_PROVIDER_ID,
+    displayName: "Atlas Feishu Bot",
+    transportMode: "websocket_worker",
+    agentId: "Atlas",
+    appId: "cli_atlas_bot_disabled",
+  });
+  const agentBotChannelBinding = upsertExternalChannelBindingSync({
+    workspaceId: workspace.id,
+    integrationId: agentBotIntegration.id,
+    channelName: "tour visit",
+    externalChatId: "oc_agent_bot",
+    externalChatType: "group",
+    externalChatName: "Agent Bot Chat",
+    status: "active",
+    syncMode: "mirror",
+  });
+  createExternalMessageMappingSync({
+    workspaceId: workspace.id,
+    integrationId: agentBotIntegration.id,
+    channelBindingId: agentBotChannelBinding.id,
+    direction: "inbound",
+    externalMessageId: "om_source",
+    externalThreadId: "om_root",
+    externalSenderId: "ou_mina",
+    agentSpaceMessageId: "agent-space-source-message-1",
+    metadataJson: {
+      agentId: "Atlas",
+      botBindingId: agentBotIntegration.id,
+    },
+  });
+  updateExternalIntegrationStatusSync({
+    workspaceId: workspace.id,
+    integrationId: agentBotIntegration.id,
+    status: "disabled",
+  });
+
+  const queuedOutbox = queueFeishuChannelReplyOutboxSync({
+    workspaceId: workspace.id,
+    channelName: "tour visit",
+    text: "Atlas reply for Feishu",
+    agentSpaceMessageId: "agent-space-agent-reply-1",
+    sourceAgentSpaceMessageId: "agent-space-source-message-1",
+  });
+
+  assert.deepEqual(queuedOutbox, []);
+});
+
 test("Agent status cards are queued back to the source Feishu thread", databaseTestOptions, () => {
   const workspace = createWorkspaceSync({
     slug: "feishu-thread-status-card",
@@ -303,7 +444,7 @@ test("Agent status cards are queued back to the source Feishu thread", databaseT
       }>;
     };
     assert.equal(card.header.template, "blue");
-    assert.equal(card.header.title.content, "AgentSpace · Thinking");
+    assert.equal(card.header.title.content, "Atlas · AgentSpace");
     assert.match(card.elements[0]?.content ?? "", /\*\*Atlas\*\* · Thinking/);
     assert.equal(card.elements[1]?.actions?.[0]?.text?.content, "Open AgentSpace");
     assert.equal(card.elements[1]?.actions?.[0]?.url, "https://agentspace.test/w/feishu-thread-status-card/im?focus=channel%3Atour+visit");

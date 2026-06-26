@@ -164,7 +164,7 @@ test("buildFeishuAgentStatusCard wraps status cards as Feishu interactive messag
     }>;
   };
   assert.equal(parsed.header.template, "green");
-  assert.equal(parsed.header.title.content, "AgentSpace · Complete");
+  assert.equal(parsed.header.title.content, "Atlas, Nova · AgentSpace");
   assert.match(parsed.elements[0]?.content ?? "", /\*\*Atlas, Nova\*\* · Complete/);
   assert.match(parsed.elements[0]?.content ?? "", /Channel: general/);
   assert.match(parsed.elements[0]?.content ?? "", /Task: task-123/);

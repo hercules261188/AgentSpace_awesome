@@ -45,6 +45,7 @@ export const FEISHU_EXTERNAL_GUEST_DISPLAY_NAME = "Feishu Guest";
 export function evaluateFeishuExternalGuestPolicy(input: {
   integration: ExternalIntegrationRecord;
   botMentioned: boolean;
+  threadContinuation?: boolean;
 }): FeishuExternalGuestDecision {
   const policy = readFeishuExternalParticipantPolicy(input.integration);
   if (policy.unboundUserMode === "ignore") {
@@ -62,6 +63,13 @@ export function evaluateFeishuExternalGuestPolicy(input: {
     };
   }
   if (policy.unboundUserMode === "reply_on_mention" && !input.botMentioned) {
+    if (input.threadContinuation) {
+      return {
+        decision: "allow",
+        policy,
+        reasonCode: "feishu_external_guest_thread_continuation_allowed",
+      };
+    }
     return {
       decision: "ignore",
       policy,

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  buildFeishuHealthSnapshotConfigJson,
   checkFeishuIntegrationHealth,
   createFeishuApiClient,
   fetchFeishuTenantAccessToken,
@@ -132,6 +133,46 @@ test("readFeishuAppScopes resolves granted app scope names", async () => {
     "bitable:app",
     "im:message",
   ]);
+});
+
+test("buildFeishuHealthSnapshotConfigJson stores bot identity without clobbering policies", () => {
+  const config = buildFeishuHealthSnapshotConfigJson({
+    configJson: JSON.stringify({
+      agentBotBinding: true,
+      bot: {
+        avatarKey: "avatar-existing",
+      },
+      channelAutoProvisioning: {
+        botAdded: "auto_create_channel",
+      },
+      externalGuestPolicy: {
+        unboundUserMode: "reply_on_mention",
+      },
+    }),
+    health: {
+      status: "healthy",
+      checkedAt: "2026-06-24T00:00:00.000Z",
+      botOpenId: "ou_bot",
+      botAppName: "Codex Bot",
+      scopeReadiness: "verified",
+    },
+  });
+
+  assert.deepEqual(config, {
+    agentBotBinding: true,
+    bot: {
+      avatarKey: "avatar-existing",
+      openId: "ou_bot",
+      appName: "Codex Bot",
+      lastHealthCheckedAt: "2026-06-24T00:00:00.000Z",
+    },
+    channelAutoProvisioning: {
+      botAdded: "auto_create_channel",
+    },
+    externalGuestPolicy: {
+      unboundUserMode: "reply_on_mention",
+    },
+  });
 });
 
 test("checkFeishuIntegrationHealth returns ok after token and bot info succeed", async () => {

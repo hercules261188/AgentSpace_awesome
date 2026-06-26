@@ -10,6 +10,7 @@ import {
   readExternalMessageMappingByAgentSpaceMessageSync,
   readExternalChannelBindingSync,
   type ExternalIntegrationRecord,
+  type ExternalMessageMappingRecord,
   type ExternalMessageOutboxRecord,
 } from "@agent-space/db";
 import type { MessageAttachment } from "@agent-space/domain/workspace";
@@ -231,7 +232,7 @@ export function buildFeishuAgentStatusCard(input: {
       template: statusView.template,
       title: {
         tag: "plain_text",
-        content: statusView.title,
+        content: `${agentLabel} · AgentSpace`,
       },
     },
     elements,
@@ -373,13 +374,14 @@ export function queueFeishuChannelReplyOutboxSync(input: {
   agentSpaceMessageId?: string;
   sourceAgentSpaceMessageId?: string;
 }): ExternalMessageOutboxRecord[] {
-  const integrations = listActiveFeishuOutboundIntegrationsSync({
+  const candidates = listFeishuOutboundIntegrationCandidatesSync({
     workspaceId: input.workspaceId,
     agentId: input.agentId,
+    sourceAgentSpaceMessageId: input.sourceAgentSpaceMessageId,
   });
   const outboxItems: ExternalMessageOutboxRecord[] = [];
 
-  for (const integration of integrations) {
+  for (const { integration, sourceMapping } of candidates) {
     const channelBinding = listExternalChannelBindingsSync({
       workspaceId: input.workspaceId,
       integrationId: integration.id,
@@ -389,14 +391,6 @@ export function queueFeishuChannelReplyOutboxSync(input: {
       continue;
     }
 
-    const sourceMapping = input.sourceAgentSpaceMessageId
-      ? readExternalMessageMappingByAgentSpaceMessageSync({
-        workspaceId: input.workspaceId,
-        integrationId: integration.id,
-        agentSpaceMessageId: input.sourceAgentSpaceMessageId,
-        direction: "inbound",
-      })
-      : null;
     for (const outbound of buildFeishuOutboundMessages({
       targetExternalChatId: channelBinding.externalChatId,
       targetExternalThreadId: resolveFeishuReplyTargetExternalMessageId(sourceMapping),
@@ -431,13 +425,14 @@ export function queueFeishuAgentStatusCardOutboxSync(input: {
   sourceAgentSpaceMessageId?: string;
   approvalAction?: FeishuApprovalCardActionPayload;
 }): ExternalMessageOutboxRecord[] {
-  const integrations = listActiveFeishuOutboundIntegrationsSync({
+  const candidates = listFeishuOutboundIntegrationCandidatesSync({
     workspaceId: input.workspaceId,
     agentId: input.agentId ?? resolveSingleAgentName(input.agentNames),
+    sourceAgentSpaceMessageId: input.sourceAgentSpaceMessageId,
   });
   const outboxItems: ExternalMessageOutboxRecord[] = [];
 
-  for (const integration of integrations) {
+  for (const { integration, sourceMapping } of candidates) {
     const channelBinding = listExternalChannelBindingsSync({
       workspaceId: input.workspaceId,
       integrationId: integration.id,
@@ -447,14 +442,6 @@ export function queueFeishuAgentStatusCardOutboxSync(input: {
       continue;
     }
 
-    const sourceMapping = input.sourceAgentSpaceMessageId
-      ? readExternalMessageMappingByAgentSpaceMessageSync({
-        workspaceId: input.workspaceId,
-        integrationId: integration.id,
-        agentSpaceMessageId: input.sourceAgentSpaceMessageId,
-        direction: "inbound",
-      })
-      : null;
     const outbound = buildFeishuAgentStatusCardOutboundMessage({
       targetExternalChatId: channelBinding.externalChatId,
       targetExternalThreadId: resolveFeishuReplyTargetExternalMessageId(sourceMapping),
@@ -479,6 +466,65 @@ export function queueFeishuAgentStatusCardOutboxSync(input: {
   }
 
   return outboxItems;
+}
+
+interface FeishuOutboundIntegrationCandidate {
+  integration: ExternalIntegrationRecord;
+  sourceMapping?: ExternalMessageMappingRecord | null;
+}
+
+function listFeishuOutboundIntegrationCandidatesSync(input: {
+  workspaceId: string;
+  agentId?: string;
+  sourceAgentSpaceMessageId?: string;
+}): FeishuOutboundIntegrationCandidate[] {
+  const sourceAgentSpaceMessageId = input.sourceAgentSpaceMessageId?.trim();
+  if (sourceAgentSpaceMessageId) {
+    const sourceMapped = resolveFeishuSourceMappedOutboundIntegrationSync({
+      workspaceId: input.workspaceId,
+      sourceAgentSpaceMessageId,
+    });
+    if (sourceMapped) {
+      return sourceMapped.integration.status === "active" ? [sourceMapped] : [];
+    }
+  }
+
+  return listActiveFeishuOutboundIntegrationsSync({
+    workspaceId: input.workspaceId,
+    agentId: input.agentId,
+  }).map((integration) => ({
+    integration,
+    sourceMapping: sourceAgentSpaceMessageId
+      ? readExternalMessageMappingByAgentSpaceMessageSync({
+        workspaceId: input.workspaceId,
+        integrationId: integration.id,
+        agentSpaceMessageId: sourceAgentSpaceMessageId,
+        direction: "inbound",
+      })
+      : null,
+  }));
+}
+
+function resolveFeishuSourceMappedOutboundIntegrationSync(input: {
+  workspaceId: string;
+  sourceAgentSpaceMessageId: string;
+}): FeishuOutboundIntegrationCandidate | null {
+  for (const integration of listExternalIntegrationsSync({
+    workspaceId: input.workspaceId,
+    provider: FEISHU_PROVIDER_ID,
+    includeDisabled: true,
+  })) {
+    const sourceMapping = readExternalMessageMappingByAgentSpaceMessageSync({
+      workspaceId: input.workspaceId,
+      integrationId: integration.id,
+      agentSpaceMessageId: input.sourceAgentSpaceMessageId,
+      direction: "inbound",
+    });
+    if (sourceMapping) {
+      return { integration, sourceMapping };
+    }
+  }
+  return null;
 }
 
 function listActiveFeishuOutboundIntegrationsSync(input: {
@@ -1406,33 +1452,28 @@ function serializeFeishuOutboundAttachment(attachment: MessageAttachment): Feish
 }
 
 function resolveFeishuAgentStatusCardView(status: FeishuAgentStatusCardStatus): {
-  title: string;
   label: string;
   template: string;
 } {
   if (status === "complete") {
     return {
-      title: "AgentSpace · Complete",
       label: "Complete",
       template: "green",
     };
   }
   if (status === "failed") {
     return {
-      title: "AgentSpace · Failed",
       label: "Failed",
       template: "red",
     };
   }
   if (status === "approval_required") {
     return {
-      title: "AgentSpace · Approval Required",
       label: "Approval required",
       template: "orange",
     };
   }
   return {
-    title: "AgentSpace · Thinking",
     label: "Thinking",
     template: "blue",
   };
