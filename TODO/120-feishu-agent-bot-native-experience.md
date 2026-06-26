@@ -799,12 +799,12 @@ Feishu Base table -> AgentSpace data_table
 ## 风险与开放问题
 
 - [ ] 飞书机器人进群事件在不同 tenant / app 类型下的 payload 字段需真实租户验证。
-- [ ] 一个 agent 绑定多个 Feishu bot 是否需要第一版支持，还是先限制一个 agent 一个 bot。
-- [ ] 一个 Feishu bot 是否允许绑定多个 AgentSpace agent，建议第一版禁止。
-- [ ] 自动创建 channel 的命名冲突和归档恢复策略需要定义。
-- [ ] External guest 的 displayName 是否可存储，需按隐私策略决定；默认只存 redacted reference/hash。
-- [ ] 多 bot 同群时 thread handoff / collaboration 语义需要避免打断原 agent task。
-- [ ] Production SaaS 是否仍应推荐 EventCallback，self-hosted 是否默认 WebSocket worker，需要部署文档明确。
+- [x] 第一版限制一个 AgentSpace agent 只能有一个 active Feishu bot binding；重复绑定返回 `feishu.agent_bot_binding.duplicate_agent`，禁用或轮换后再更换。
+- [x] 第一版禁止同一个 Feishu app/tenant 绑定多个 AgentSpace agent；`external_integration` 使用 `(workspace_id, provider, app_id, tenant_key)` 唯一约束，agent bot 绑定返回 `feishu.agent_bot_binding.duplicate_app_tenant`。
+- [x] 自动创建 channel 的命名冲突和归档恢复策略已定义：名称使用 `feishu-<slug>`，冲突时追加 chat 短 hash / 序号； archived binding 会原地恢复并记录 `restoredFromStatus` / `restoredBindingId`。
+- [x] External guest 第一版不存储真实 Feishu displayName；AgentSpace UI 使用统一 `Feishu Guest` 展示名，审计和任务上下文只保存 provider user hash / safe reference。
+- [x] 多 bot 同群的 thread handoff / collaboration 语义已落到 evidence gate：同一 thread 可记录 `threadContinuation=true`、`threadCollaboration=true` 和 collaborator agent ids，不覆盖原 agent task。
+- [x] 部署默认已明确：self-hosted / 快速开始默认 WebSocket worker；EventCallback 作为 SaaS webhook / 严格验签 / 加密事件的高级模式保留。
 
 ## 推荐第一版产品默认值
 
