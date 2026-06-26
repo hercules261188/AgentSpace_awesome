@@ -10,6 +10,10 @@ import type {
   ExternalResourceBindingAgentSpaceType,
   ExternalResourceBindingProviderType,
 } from "@agent-space/db";
+import type {
+  FeishuAgentBotChannelAutoProvisioningInput,
+  FeishuAgentBotExternalGuestPolicyInput,
+} from "@agent-space/services";
 
 export interface FeishuAvailableChannelItem {
   name: string;
@@ -263,6 +267,8 @@ export interface CreateFeishuAgentBotBindingInput {
   verificationToken?: string;
   encryptKey?: string;
   tenantKey?: string;
+  channelAutoProvisioning?: FeishuAgentBotChannelAutoProvisioningInput;
+  externalGuestPolicy?: FeishuAgentBotExternalGuestPolicyInput;
 }
 
 export interface RotateFeishuAgentBotCredentialsInput {

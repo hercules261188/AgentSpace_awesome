@@ -41,6 +41,11 @@ export function FeishuAgentBotsPanel({
   const [verificationToken, setVerificationToken] = useState("");
   const [encryptKey, setEncryptKey] = useState("");
   const [tenantKey, setTenantKey] = useState("");
+  const [botAddedPolicy, setBotAddedPolicy] = useState<"auto_create_channel" | "pending_admin_review" | "disabled">("auto_create_channel");
+  const [firstMessagePolicy, setFirstMessagePolicy] = useState<"auto_create_if_bot_mentioned" | "pending_admin_review" | "reply_with_setup_card" | "disabled">("auto_create_if_bot_mentioned");
+  const [reviewStatusPolicy, setReviewStatusPolicy] = useState<"approved" | "pending_admin_review" | "needs_identity_binding">("approved");
+  const [unboundUserMode, setUnboundUserMode] = useState<"ignore" | "reply_on_mention" | "reply_all" | "require_identity">("reply_on_mention");
+  const [guestPermissionProfile, setGuestPermissionProfile] = useState<"none" | "channel_context_only" | "channel_readonly">("channel_context_only");
   const [rotationSecrets, setRotationSecrets] = useState<Record<string, string>>({});
   const requiresVerificationToken = transportMode === "http_webhook";
   const canCreate = Boolean(agentId.trim() && appId.trim() && appSecret.trim() && (!requiresVerificationToken || verificationToken.trim()));
@@ -115,7 +120,7 @@ export function FeishuAgentBotsPanel({
         <details className="feishu-advanced-settings">
           <summary>
             <span>{tx("自定义高级功能", "Customize Advanced Options")}</span>
-            <small>{tx("名称、事件回调、Tenant Key 和事件加密", "Name, event callback, Tenant Key, and event encryption")}</small>
+            <small>{tx("事件回调、Tenant Key、自动建群和未绑定用户策略", "Event callback, Tenant Key, auto-provisioning, and unbound user policy")}</small>
           </summary>
 
           <div className="feishu-advanced-settings__body">
@@ -175,6 +180,73 @@ export function FeishuAgentBotsPanel({
                 value={encryptKey}
               />
             </label>
+
+            <label className="form-field">
+              <span>{tx("机器人进群", "Bot Added")}</span>
+              <select
+                disabled={isPending}
+                onChange={(event) => setBotAddedPolicy(event.currentTarget.value as "auto_create_channel" | "pending_admin_review" | "disabled")}
+                value={botAddedPolicy}
+              >
+                <option value="auto_create_channel">{tx("自动创建 Channel", "Auto-create channel")}</option>
+                <option value="pending_admin_review">{tx("等待管理员审核", "Pending admin review")}</option>
+                <option value="disabled">{tx("关闭", "Disabled")}</option>
+              </select>
+            </label>
+
+            <label className="form-field">
+              <span>{tx("首次消息", "First Message")}</span>
+              <select
+                disabled={isPending}
+                onChange={(event) => setFirstMessagePolicy(event.currentTarget.value as "auto_create_if_bot_mentioned" | "pending_admin_review" | "reply_with_setup_card" | "disabled")}
+                value={firstMessagePolicy}
+              >
+                <option value="auto_create_if_bot_mentioned">{tx("@Bot 时自动创建", "Auto-create when mentioned")}</option>
+                <option value="pending_admin_review">{tx("等待管理员审核", "Pending admin review")}</option>
+                <option value="reply_with_setup_card">{tx("回复设置卡片", "Reply with setup card")}</option>
+                <option value="disabled">{tx("关闭", "Disabled")}</option>
+              </select>
+            </label>
+
+            <label className="form-field">
+              <span>{tx("建群审核状态", "Provision Review")}</span>
+              <select
+                disabled={isPending}
+                onChange={(event) => setReviewStatusPolicy(event.currentTarget.value as "approved" | "pending_admin_review" | "needs_identity_binding")}
+                value={reviewStatusPolicy}
+              >
+                <option value="approved">{tx("通过", "Approved")}</option>
+                <option value="pending_admin_review">{tx("等待管理员审核", "Pending admin review")}</option>
+                <option value="needs_identity_binding">{tx("需要身份绑定", "Needs identity binding")}</option>
+              </select>
+            </label>
+
+            <label className="form-field">
+              <span>{tx("未绑定用户", "Unbound Users")}</span>
+              <select
+                disabled={isPending}
+                onChange={(event) => setUnboundUserMode(event.currentTarget.value as "ignore" | "reply_on_mention" | "reply_all" | "require_identity")}
+                value={unboundUserMode}
+              >
+                <option value="reply_on_mention">{tx("@Bot 时回复", "Reply when mentioned")}</option>
+                <option value="reply_all">{tx("全部回复", "Reply all")}</option>
+                <option value="require_identity">{tx("要求绑定身份", "Require identity")}</option>
+                <option value="ignore">{tx("忽略", "Ignore")}</option>
+              </select>
+            </label>
+
+            <label className="form-field">
+              <span>{tx("访客权限", "Guest Permission")}</span>
+              <select
+                disabled={isPending}
+                onChange={(event) => setGuestPermissionProfile(event.currentTarget.value as "none" | "channel_context_only" | "channel_readonly")}
+                value={guestPermissionProfile}
+              >
+                <option value="channel_context_only">{tx("当前 Channel 上下文", "Current channel context")}</option>
+                <option value="channel_readonly">{tx("当前 Channel 只读", "Current channel readonly")}</option>
+                <option value="none">{tx("无", "None")}</option>
+              </select>
+            </label>
           </div>
         </details>
 
@@ -194,6 +266,21 @@ export function FeishuAgentBotsPanel({
                     verificationToken,
                     encryptKey,
                     tenantKey,
+                    channelAutoProvisioning: {
+                      botAdded: botAddedPolicy,
+                      firstMessage: firstMessagePolicy,
+                      reviewStatus: reviewStatusPolicy,
+                    },
+                    externalGuestPolicy: {
+                      unboundUserMode,
+                      guestPermissionProfile,
+                      requireIdentityFor: [
+                        "writes",
+                        "approvals",
+                        "private_resources",
+                        "runtime_sensitive_tools",
+                      ],
+                    },
                   });
                   setAppSecret("");
                   setVerificationToken("");

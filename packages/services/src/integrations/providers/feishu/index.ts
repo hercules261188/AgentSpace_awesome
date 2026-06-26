@@ -29,6 +29,8 @@ export {
   readFeishuAgentBotBindingByAgentSync,
   resolveFeishuAgentBotBindingSync,
   rotateFeishuAgentBotCredentialsSync,
+  type FeishuAgentBotChannelAutoProvisioningInput,
+  type FeishuAgentBotExternalGuestPolicyInput,
   type CreateFeishuAgentBotBindingInput,
   type DisableFeishuAgentBotBindingInput,
   type FeishuAgentBotBinding,

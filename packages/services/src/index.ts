@@ -596,6 +596,8 @@ export {
   type DiagnoseFeishuLarkCliRuntimeInput,
   type FeishuApprovedDataOperationValidationResult,
   type FeishuAgentBotBinding,
+  type FeishuAgentBotChannelAutoProvisioningInput,
+  type FeishuAgentBotExternalGuestPolicyInput,
   type FeishuAgentBotHealthCheckResult,
   type FeishuAgentBotRoute,
   type FeishuBoundDataOperationActor,

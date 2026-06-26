@@ -71,6 +71,8 @@ import {
   type ExternalDataOperationRequest,
   type ExternalDataOperationResult,
   type FeishuDataOperationApprovalContext,
+  type FeishuAgentBotChannelAutoProvisioningInput,
+  type FeishuAgentBotExternalGuestPolicyInput,
   type FeishuAgentBotBinding,
   type FeishuApiClient,
   type FeishuApiRequest,
@@ -324,6 +326,8 @@ export interface FeishuAgentBotCliInput {
   verificationToken?: string;
   encryptKey?: string;
   tenantKey?: string;
+  channelAutoProvisioning?: FeishuAgentBotChannelAutoProvisioningInput;
+  externalGuestPolicy?: FeishuAgentBotExternalGuestPolicyInput;
   actorUserId?: string;
 }
 
@@ -1198,6 +1202,8 @@ export function createFeishuAgentBotBindingForCli(
     verificationToken: normalizeOptionalText(input.verificationToken),
     encryptKey: normalizeOptionalText(input.encryptKey),
     createdByUserId: normalizeOptionalText(input.actorUserId),
+    ...(input.channelAutoProvisioning ? { channelAutoProvisioning: input.channelAutoProvisioning } : {}),
+    ...(input.externalGuestPolicy ? { externalGuestPolicy: input.externalGuestPolicy } : {}),
   });
   return buildFeishuAgentBotCliResult("created", binding);
 }
@@ -1377,6 +1383,8 @@ export function buildFeishuAgentBotCliInputFromFlags(input: {
     verificationToken,
     encryptKey,
     tenantKey,
+    channelAutoProvisioning: buildFeishuAgentBotChannelAutoProvisioningFromFlags(input.flags),
+    externalGuestPolicy: buildFeishuAgentBotExternalGuestPolicyFromFlags(input.flags),
     actorUserId: input.actorUserId,
   };
 }
@@ -1394,6 +1402,91 @@ export function readFeishuCreateCliEnv(input: {
     ...parseFeishuCliEnvFile(readFileSync(input.envFilePath, "utf8")),
     ...env,
   };
+}
+
+function buildFeishuAgentBotChannelAutoProvisioningFromFlags(
+  flags: Record<string, string | boolean>,
+): FeishuAgentBotChannelAutoProvisioningInput | undefined {
+  const botAdded = readFeishuPolicyFlag(flags, ["bot-added-policy", "bot_added_policy"], [
+    "auto_create_channel",
+    "pending_admin_review",
+    "disabled",
+  ], "feishu.agent_bot_binding.invalid_channel_auto_provisioning_policy");
+  const firstMessage = readFeishuPolicyFlag(flags, ["first-message-policy", "first_message_policy"], [
+    "auto_create_if_bot_mentioned",
+    "pending_admin_review",
+    "reply_with_setup_card",
+    "disabled",
+  ], "feishu.agent_bot_binding.invalid_channel_auto_provisioning_policy");
+  const reviewStatus = readFeishuPolicyFlag(flags, ["review-status", "review_status"], [
+    "approved",
+    "pending_admin_review",
+    "needs_identity_binding",
+  ], "feishu.agent_bot_binding.invalid_channel_auto_provisioning_policy");
+  return botAdded || firstMessage || reviewStatus
+    ? { botAdded, firstMessage, reviewStatus }
+    : undefined;
+}
+
+function buildFeishuAgentBotExternalGuestPolicyFromFlags(
+  flags: Record<string, string | boolean>,
+): FeishuAgentBotExternalGuestPolicyInput | undefined {
+  const unboundUserMode = readFeishuPolicyFlag(flags, ["unbound-user-mode", "unbound_user_mode"], [
+    "ignore",
+    "reply_on_mention",
+    "reply_all",
+    "require_identity",
+  ], "feishu.agent_bot_binding.invalid_external_guest_policy");
+  const guestPermissionProfile = readFeishuPolicyFlag(flags, ["guest-permission-profile", "guest_permission_profile"], [
+    "none",
+    "channel_context_only",
+    "channel_readonly",
+  ], "feishu.agent_bot_binding.invalid_external_guest_policy");
+  const requireIdentityFor = readFeishuPolicyListFlag(flags, ["require-identity-for", "require_identity_for"]);
+  return unboundUserMode || guestPermissionProfile || requireIdentityFor
+    ? { unboundUserMode, guestPermissionProfile, requireIdentityFor }
+    : undefined;
+}
+
+function readFeishuPolicyFlag<T extends string>(
+  flags: Record<string, string | boolean>,
+  keys: string[],
+  allowedValues: readonly T[],
+  errorCode: string,
+): T | undefined {
+  const value = readStringFlagByKeys(flags, keys);
+  if (!value) {
+    return undefined;
+  }
+  if (allowedValues.includes(value as T)) {
+    return value as T;
+  }
+  throw new Error(errorCode);
+}
+
+function readFeishuPolicyListFlag(
+  flags: Record<string, string | boolean>,
+  keys: string[],
+): string[] | undefined {
+  const value = readStringFlagByKeys(flags, keys);
+  if (!value) {
+    return undefined;
+  }
+  const items = value.split(",").map((item) => item.trim()).filter(Boolean);
+  return items.length > 0 ? items : undefined;
+}
+
+function readStringFlagByKeys(
+  flags: Record<string, string | boolean>,
+  keys: string[],
+): string | undefined {
+  for (const key of keys) {
+    const value = getStringFlag(flags, key);
+    if (value?.trim()) {
+      return value.trim();
+    }
+  }
+  return undefined;
 }
 
 export function createFeishuChannelBindingForCli(
@@ -2987,6 +3080,20 @@ export function buildFeishuCliAgentBotErrorReport(error: unknown): FeishuCliErro
         ok: false,
         errorCode: message,
         errorMessage: "Feishu agent bot transport must be http_webhook or websocket_worker.",
+      };
+    case "feishu.agent_bot_binding.invalid_channel_auto_provisioning_policy":
+      return {
+        ok: false,
+        errorCode: message,
+        errorMessage: "Feishu agent bot auto-provisioning policy is invalid.",
+        nextStep: "Use --bot-added-policy auto_create_channel|pending_admin_review|disabled and --first-message-policy auto_create_if_bot_mentioned|pending_admin_review|reply_with_setup_card|disabled.",
+      };
+    case "feishu.agent_bot_binding.invalid_external_guest_policy":
+      return {
+        ok: false,
+        errorCode: message,
+        errorMessage: "Feishu agent bot external guest policy is invalid.",
+        nextStep: "Use --unbound-user-mode ignore|reply_on_mention|reply_all|require_identity and --guest-permission-profile none|channel_context_only|channel_readonly.",
       };
     case "feishu.agent_bot_binding.not_found":
       return {
@@ -5903,6 +6010,12 @@ Options:
   --app-secret <secret>    Create/bind/rotate fallback for Feishu app secret; env input is preferred
   --verification-token <token> Create/bind fallback for event verification token; env input is preferred
   --encrypt-key <key>      Create/bind fallback for event encrypt key; env input is preferred
+  --bot-added-policy <mode> Agent bot bind: auto_create_channel|pending_admin_review|disabled
+  --first-message-policy <mode> Agent bot bind: auto_create_if_bot_mentioned|pending_admin_review|reply_with_setup_card|disabled
+  --review-status <status> Agent bot bind: approved|pending_admin_review|needs_identity_binding for auto-provisioned channels
+  --unbound-user-mode <mode> Agent bot bind: ignore|reply_on_mention|reply_all|require_identity
+  --guest-permission-profile <profile> Agent bot bind: none|channel_context_only|channel_readonly
+  --require-identity-for <csv> Agent bot bind: comma-separated operations that require a bound AgentSpace identity
   --limit <n>              Outbox drain batch size; defaults to 50
   --base-url <url>         Feishu OpenAPI base URL; defaults to AGENT_SPACE_FEISHU_API_BASE_URL
   --app-url <url>          Public AgentSpace URL used by smoke-plan/smoke-env callback values

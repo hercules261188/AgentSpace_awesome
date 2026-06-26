@@ -224,6 +224,8 @@ export async function createFeishuAgentBotBindingAction(
       verificationToken: input.verificationToken,
       encryptKey: input.encryptKey,
       tenantKey: input.tenantKey,
+      channelAutoProvisioning: input.channelAutoProvisioning,
+      externalGuestPolicy: input.externalGuestPolicy,
       createdByUserId: workspaceContext.currentUser.id,
     });
   } catch (error) {

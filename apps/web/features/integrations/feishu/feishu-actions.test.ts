@@ -1201,6 +1201,16 @@ describe("Feishu actions", () => {
       verificationToken: "",
       encryptKey: "",
       tenantKey: "",
+      channelAutoProvisioning: {
+        botAdded: "pending_admin_review",
+        firstMessage: "reply_with_setup_card",
+        reviewStatus: "pending_admin_review",
+      },
+      externalGuestPolicy: {
+        unboundUserMode: "require_identity",
+        guestPermissionProfile: "none",
+        requireIdentityFor: ["writes", "approvals"],
+      },
     });
 
     expect(mockCreateFeishuAgentBotBindingSync).toHaveBeenCalledWith(expect.objectContaining({
@@ -1209,6 +1219,16 @@ describe("Feishu actions", () => {
       appId: " cli_codex_bot ",
       appSecret: " raw-agent-secret ",
       transportMode: "websocket_worker",
+      channelAutoProvisioning: {
+        botAdded: "pending_admin_review",
+        firstMessage: "reply_with_setup_card",
+        reviewStatus: "pending_admin_review",
+      },
+      externalGuestPolicy: {
+        unboundUserMode: "require_identity",
+        guestPermissionProfile: "none",
+        requireIdentityFor: ["writes", "approvals"],
+      },
       createdByUserId: "admin-1",
     }));
     expectNoFeishuSecretLeak(mockTryRecordWorkspaceAuditEventSync.mock.calls[0]?.[0]);

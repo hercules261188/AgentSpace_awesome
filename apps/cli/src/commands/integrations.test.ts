@@ -344,6 +344,74 @@ test("Feishu agent bot CLI defaults to websocket worker and redacts credentials"
   }]);
 });
 
+test("Feishu agent bot CLI accepts auto-provision and guest policy flags", () => {
+  const input = buildFeishuAgentBotCliInputFromFlags({
+    workspaceId: "workspace-1",
+    flags: {
+      "agent": "Codex",
+      "app-id": "cli_codex_bot",
+      "app-secret": "secret_codex_bot",
+      "bot-added-policy": "pending_admin_review",
+      "first-message-policy": "reply_with_setup_card",
+      "review-status": "pending_admin_review",
+      "unbound-user-mode": "require_identity",
+      "guest-permission-profile": "none",
+      "require-identity-for": "writes, approvals, private_resources",
+    },
+    actorUserId: "admin-1",
+    env: {},
+  });
+  const createInputs: unknown[] = [];
+
+  createFeishuAgentBotBindingForCli(input, {
+    createBinding: (createInput) => {
+      createInputs.push(createInput);
+      return buildIntegrationRecord({
+        id: "agent-bot-codex",
+        displayName: "Codex Feishu Bot",
+        transportMode: createInput.transportMode,
+        agentId: createInput.agentId,
+        appId: createInput.appId,
+        encryptedCredentialsJson: JSON.stringify({ appSecret: "encrypted-app-secret" }),
+      });
+    },
+  });
+
+  assert.deepEqual(createInputs[0], {
+    workspaceId: "workspace-1",
+    agentId: "Codex",
+    displayName: undefined,
+    transportMode: "websocket_worker",
+    appId: "cli_codex_bot",
+    appSecret: "secret_codex_bot",
+    tenantKey: undefined,
+    verificationToken: undefined,
+    encryptKey: undefined,
+    createdByUserId: "admin-1",
+    channelAutoProvisioning: {
+      botAdded: "pending_admin_review",
+      firstMessage: "reply_with_setup_card",
+      reviewStatus: "pending_admin_review",
+    },
+    externalGuestPolicy: {
+      unboundUserMode: "require_identity",
+      guestPermissionProfile: "none",
+      requireIdentityFor: ["writes", "approvals", "private_resources"],
+    },
+  });
+
+  assert.throws(() => buildFeishuAgentBotCliInputFromFlags({
+    workspaceId: "workspace-1",
+    flags: {
+      "agent": "Codex",
+      "app-id": "cli_codex_bot",
+      "app-secret": "secret_codex_bot",
+      "unbound-user-mode": "maybe",
+    },
+    env: {},
+  }), /feishu\.agent_bot_binding\.invalid_external_guest_policy/);
+});
+
 test("Feishu agent bot CLI rotates and disables existing bindings", () => {
   const rotated = rotateFeishuAgentBotCredentialsForCli({
     workspaceId: "workspace-1",

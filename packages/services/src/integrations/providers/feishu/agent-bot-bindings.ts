@@ -19,6 +19,15 @@ import {
   checkFeishuIntegrationHealth,
   type FeishuHealthCheckResult,
 } from "./health.ts";
+import type {
+  FeishuBotAddedAutoProvisionMode,
+  FeishuChannelReviewStatus,
+  FeishuFirstMessageAutoProvisionMode,
+} from "./channel-auto-provisioning.ts";
+import type {
+  FeishuGuestPermissionProfile,
+  FeishuUnboundUserMode,
+} from "./external-guests.ts";
 
 export interface FeishuAgentBotBinding extends ExternalIntegrationRecord {
   provider: typeof FEISHU_PROVIDER_ID;
@@ -37,6 +46,20 @@ export interface CreateFeishuAgentBotBindingInput {
   verificationToken?: string;
   encryptKey?: string;
   createdByUserId?: string;
+  channelAutoProvisioning?: FeishuAgentBotChannelAutoProvisioningInput;
+  externalGuestPolicy?: FeishuAgentBotExternalGuestPolicyInput;
+}
+
+export interface FeishuAgentBotChannelAutoProvisioningInput {
+  botAdded?: FeishuBotAddedAutoProvisionMode;
+  firstMessage?: FeishuFirstMessageAutoProvisionMode;
+  reviewStatus?: FeishuChannelReviewStatus;
+}
+
+export interface FeishuAgentBotExternalGuestPolicyInput {
+  unboundUserMode?: FeishuUnboundUserMode;
+  guestPermissionProfile?: FeishuGuestPermissionProfile;
+  requireIdentityFor?: string[];
 }
 
 export interface RotateFeishuAgentBotCredentialsInput {
@@ -100,15 +123,7 @@ export function createFeishuAgentBotBindingSync(
         verificationToken,
         encryptKey,
       }),
-      configJson: {
-        eventCallbackPath: FEISHU_EVENT_CALLBACK_PATH,
-        agentBotBinding: true,
-        dataPlane: {
-          docs: true,
-          sheets: true,
-          base: true,
-        },
-      },
+      configJson: buildFeishuAgentBotConfig(input),
       capabilitiesJson: {
         messageTransport: true,
         docsDataPlane: true,
@@ -122,6 +137,91 @@ export function createFeishuAgentBotBindingSync(
   } catch (error) {
     throw normalizeFeishuAgentBotBindingError(error);
   }
+}
+
+function buildFeishuAgentBotConfig(input: CreateFeishuAgentBotBindingInput): Record<string, unknown> {
+  return {
+    eventCallbackPath: FEISHU_EVENT_CALLBACK_PATH,
+    agentBotBinding: true,
+    dataPlane: {
+      docs: true,
+      sheets: true,
+      base: true,
+    },
+    ...buildFeishuAgentBotChannelAutoProvisioningConfig(input.channelAutoProvisioning),
+    ...buildFeishuAgentBotExternalGuestPolicyConfig(input.externalGuestPolicy),
+  };
+}
+
+function buildFeishuAgentBotChannelAutoProvisioningConfig(
+  policy: FeishuAgentBotChannelAutoProvisioningInput | undefined,
+): Record<string, unknown> {
+  if (!policy) {
+    return {};
+  }
+  return {
+    channelAutoProvisioning: {
+      botAdded: normalizeOptionalPolicyValue(
+        policy.botAdded,
+        ["auto_create_channel", "pending_admin_review", "disabled"],
+        "feishu.agent_bot_binding.invalid_channel_auto_provisioning_policy",
+      ),
+      firstMessage: normalizeOptionalPolicyValue(
+        policy.firstMessage,
+        ["auto_create_if_bot_mentioned", "pending_admin_review", "reply_with_setup_card", "disabled"],
+        "feishu.agent_bot_binding.invalid_channel_auto_provisioning_policy",
+      ),
+      reviewStatus: normalizeOptionalPolicyValue(
+        policy.reviewStatus,
+        ["approved", "pending_admin_review", "needs_identity_binding"],
+        "feishu.agent_bot_binding.invalid_channel_auto_provisioning_policy",
+      ),
+    },
+  };
+}
+
+function buildFeishuAgentBotExternalGuestPolicyConfig(
+  policy: FeishuAgentBotExternalGuestPolicyInput | undefined,
+): Record<string, unknown> {
+  if (!policy) {
+    return {};
+  }
+  return {
+    externalGuestPolicy: {
+      unboundUserMode: normalizeOptionalPolicyValue(
+        policy.unboundUserMode,
+        ["ignore", "reply_on_mention", "reply_all", "require_identity"],
+        "feishu.agent_bot_binding.invalid_external_guest_policy",
+      ),
+      guestPermissionProfile: normalizeOptionalPolicyValue(
+        policy.guestPermissionProfile,
+        ["none", "channel_context_only", "channel_readonly"],
+        "feishu.agent_bot_binding.invalid_external_guest_policy",
+      ),
+      requireIdentityFor: normalizePolicyStringArray(policy.requireIdentityFor),
+    },
+  };
+}
+
+function normalizeOptionalPolicyValue<T extends string>(
+  value: T | undefined,
+  allowedValues: readonly T[],
+  errorCode: string,
+): T | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (allowedValues.includes(value)) {
+    return value;
+  }
+  throw new Error(errorCode);
+}
+
+function normalizePolicyStringArray(value: string[] | undefined): string[] | undefined {
+  if (!value) {
+    return undefined;
+  }
+  return value.map((item) => item.trim()).filter(Boolean);
 }
 
 export function listFeishuAgentBotBindingsSync(input: {

@@ -88,6 +88,63 @@ test("Feishu agent bot binding defaults to websocket worker with only app creden
   }).map((item) => item.id), [binding.id]);
 });
 
+test("Feishu agent bot binding stores channel and guest policies in config", databaseTestOptions, () => {
+  const workspace = createWorkspaceSync({
+    slug: "feishu-agent-bot-policies",
+    name: "Feishu Agent Bot Policies",
+    createdBy: "system",
+  });
+
+  const binding = createFeishuAgentBotBindingSync({
+    workspaceId: workspace.id,
+    agentId: "Codex",
+    appId: "cli_codex_policy_bot",
+    appSecret: "super-secret",
+    channelAutoProvisioning: {
+      botAdded: "pending_admin_review",
+      firstMessage: "reply_with_setup_card",
+      reviewStatus: "pending_admin_review",
+    },
+    externalGuestPolicy: {
+      unboundUserMode: "require_identity",
+      guestPermissionProfile: "none",
+      requireIdentityFor: ["writes", "approvals", "private_resources"],
+    },
+  });
+
+  assert.deepEqual(JSON.parse(binding.configJson), {
+    eventCallbackPath: "/api/integrations/feishu/events",
+    agentBotBinding: true,
+    dataPlane: {
+      docs: true,
+      sheets: true,
+      base: true,
+    },
+    channelAutoProvisioning: {
+      botAdded: "pending_admin_review",
+      firstMessage: "reply_with_setup_card",
+      reviewStatus: "pending_admin_review",
+    },
+    externalGuestPolicy: {
+      unboundUserMode: "require_identity",
+      guestPermissionProfile: "none",
+      requireIdentityFor: ["writes", "approvals", "private_resources"],
+    },
+  });
+
+  assert.throws(() => createFeishuAgentBotBindingSync({
+    workspaceId: workspace.id,
+    agentId: "Hermes",
+    appId: "cli_invalid_policy_bot",
+    appSecret: "super-secret",
+    channelAutoProvisioning: {
+      botAdded: "auto_create_channel",
+      firstMessage: "reply_with_setup_card",
+      reviewStatus: "invalid" as "approved",
+    },
+  }), /feishu\.agent_bot_binding\.invalid_channel_auto_provisioning_policy/);
+});
+
 test("Feishu agent bot binding keeps EventCallback verification token in advanced credentials", databaseTestOptions, () => {
   const workspace = createWorkspaceSync({
     slug: "feishu-agent-bot-webhook",
