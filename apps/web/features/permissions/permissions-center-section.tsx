@@ -1225,6 +1225,8 @@ function formatResourceType(type: string, tx: SettingsTx): string {
       return tx("知识页", "Knowledge page");
     case "oauth_credential":
       return tx("OAuth 凭据", "OAuth credential");
+    case "external_identity_policy":
+      return tx("外部身份策略", "External identity policy");
     default:
       return type;
   }
@@ -1240,6 +1242,8 @@ function formatSubjectType(type: string, tx: SettingsTx): string {
       return "Daemon token";
     case "oauth_credential":
       return "OAuth";
+    case "external_guest":
+      return tx("外部访客", "External guest");
     case "system":
       return tx("系统", "System");
     default:
@@ -1292,6 +1296,8 @@ function formatSource(source: string, tx: SettingsTx): string {
       return "OAuth delegation";
     case "external_drive_permission":
       return "Google Drive";
+    case "external_guest_policy":
+      return tx("外部访客策略", "External guest policy");
     case "derived":
       return tx("推导", "Derived");
     default:
