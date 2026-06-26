@@ -9161,6 +9161,21 @@ textarea:focus {
   align-self: flex-end;
 }
 
+.feishu-agent-bot-form {
+  border-bottom: 0;
+}
+
+.feishu-agent-bot-actions {
+  display: grid;
+  grid-template-columns: minmax(11rem, 1fr) auto auto;
+  gap: 0.55rem;
+  align-items: center;
+}
+
+.feishu-agent-bot-actions input {
+  min-width: 0;
+}
+
 .feishu-resource-scope-hint {
   display: grid;
   gap: 0.45rem;
@@ -10757,6 +10772,7 @@ textarea:focus {
   }
 
   .feishu-mini-panel-grid,
+  .feishu-agent-bot-actions,
   .feishu-advanced-settings__body,
   .feishu-binding-card,
   .feishu-binding-card__actions,

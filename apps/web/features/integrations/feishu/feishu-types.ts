@@ -23,6 +23,13 @@ export interface FeishuAvailableUserItem {
   role: string;
 }
 
+export interface FeishuAvailableAgentItem {
+  id: string;
+  name: string;
+  role: string;
+  remarkName?: string;
+}
+
 export interface FeishuUserBindingSettingsItem {
   id: string;
   integrationId: string;
@@ -137,6 +144,7 @@ export interface FeishuIntegrationSettingsItem {
   displayName: string;
   status: ExternalIntegrationStatus;
   transportMode: ExternalIntegrationTransportMode;
+  agentId?: string;
   appId?: string;
   tenantKey?: string;
   callbackUrl: string;
@@ -240,6 +248,26 @@ export interface CreateFeishuIntegrationInput {
   displayName: string;
   transportMode: ExternalIntegrationTransportMode;
   appId: string;
+  appSecret: string;
+  verificationToken?: string;
+  encryptKey?: string;
+  tenantKey?: string;
+}
+
+export interface CreateFeishuAgentBotBindingInput {
+  agentId: string;
+  displayName?: string;
+  transportMode: ExternalIntegrationTransportMode;
+  appId: string;
+  appSecret: string;
+  verificationToken?: string;
+  encryptKey?: string;
+  tenantKey?: string;
+}
+
+export interface RotateFeishuAgentBotCredentialsInput {
+  integrationId: string;
+  appId?: string;
   appSecret: string;
   verificationToken?: string;
   encryptKey?: string;

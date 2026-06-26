@@ -20,6 +20,7 @@ import {
   FEISHU_PROVIDER_ID,
   FEISHU_REQUIRED_CREDENTIAL_FIELDS,
   FEISHU_REQUIRED_EVENTS,
+  listActiveEmployeesSync,
   sanitizeFeishuOperationResponseSummary,
 } from "@agent-space/services";
 import { buildPublicAppUrl } from "@/features/auth/public-app-url";
@@ -31,6 +32,7 @@ import {
 } from "./feishu-resource-labels";
 import type {
   FeishuAvailableChannelItem,
+  FeishuAvailableAgentItem,
   FeishuAvailableUserItem,
   FeishuChannelBindingSettingsItem,
   FeishuDataOperationRunSettingsItem,
@@ -258,6 +260,7 @@ export function listFeishuIntegrationSettingsItems(input: {
       displayName: integration.displayName,
       status: integration.status,
       transportMode: integration.transportMode,
+      agentId: canManage ? integration.agentId : undefined,
       appId: canManage ? integration.appId : undefined,
       tenantKey: canManage ? integration.tenantKey : undefined,
       callbackUrl,
@@ -340,6 +343,17 @@ export function listFeishuAvailableChannels(input: {
   return listStoredChannelsSync(input.workspaceId).map((channel) => ({
     name: channel.name,
     kind: channel.kind,
+  }));
+}
+
+export function listFeishuAvailableAgents(_input: {
+  workspaceId: string;
+}): FeishuAvailableAgentItem[] {
+  return listActiveEmployeesSync().map((agent) => ({
+    id: agent.name,
+    name: agent.name,
+    role: agent.role,
+    remarkName: agent.remarkName,
   }));
 }
 

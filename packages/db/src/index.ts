@@ -220,6 +220,7 @@ export {
   readExternalChannelBindingByExternalChatSync,
   readExternalChannelBindingSync,
   readExternalDataOperationRunSync,
+  readExternalIntegrationByAgentSync,
   readExternalIntegrationEventSync,
   readExternalIntegrationSync,
   readExternalMessageMappingByAgentSpaceMessageSync,

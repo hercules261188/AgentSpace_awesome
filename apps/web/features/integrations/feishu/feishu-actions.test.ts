@@ -54,7 +54,10 @@ const {
 
 const {
   mockCheckFeishuIntegrationHealth,
+  mockCreateFeishuAgentBotBindingSync,
+  mockDisableFeishuAgentBotBindingSync,
   mockResolveFeishuResourceDescriptorForType,
+  mockRotateFeishuAgentBotCredentialsSync,
   mockTryRecordWorkspaceAuditEventSync,
   mockUpsertFeishuExternalChannelDocumentSync,
   mockUpsertFeishuExternalDataTableSync,
@@ -62,7 +65,10 @@ const {
   mockValidateFeishuResourceBindingScopes,
 } = vi.hoisted(() => ({
   mockCheckFeishuIntegrationHealth: vi.fn(),
+  mockCreateFeishuAgentBotBindingSync: vi.fn(),
+  mockDisableFeishuAgentBotBindingSync: vi.fn(),
   mockResolveFeishuResourceDescriptorForType: vi.fn(),
+  mockRotateFeishuAgentBotCredentialsSync: vi.fn(),
   mockTryRecordWorkspaceAuditEventSync: vi.fn(),
   mockUpsertFeishuExternalChannelDocumentSync: vi.fn(),
   mockUpsertFeishuExternalDataTableSync: vi.fn(),
@@ -109,7 +115,10 @@ vi.mock("@agent-space/services", () => ({
   FEISHU_EVENT_CALLBACK_PATH: "/api/integrations/feishu/events",
   FEISHU_PROVIDER_ID: "feishu",
   checkFeishuIntegrationHealth: mockCheckFeishuIntegrationHealth,
+  createFeishuAgentBotBindingSync: mockCreateFeishuAgentBotBindingSync,
+  disableFeishuAgentBotBindingSync: mockDisableFeishuAgentBotBindingSync,
   resolveFeishuResourceDescriptorForType: mockResolveFeishuResourceDescriptorForType,
+  rotateFeishuAgentBotCredentialsSync: mockRotateFeishuAgentBotCredentialsSync,
   tryRecordWorkspaceAuditEventSync: mockTryRecordWorkspaceAuditEventSync,
   upsertFeishuExternalChannelDocumentSync: mockUpsertFeishuExternalChannelDocumentSync,
   upsertFeishuExternalDataTableSync: mockUpsertFeishuExternalDataTableSync,
@@ -167,12 +176,14 @@ vi.mock("./feishu-settings-data", () => ({
 
 import {
   checkFeishuIntegrationHealthAction,
+  createFeishuAgentBotBindingAction,
   createFeishuChannelBindingAction,
   createFeishuIntegrationAction,
   createFeishuResourceBindingAction,
   createFeishuUserBindingAction,
   deleteFeishuIntegrationAction,
   pauseFeishuChannelBindingAction,
+  rotateFeishuAgentBotCredentialsAction,
   rotateFeishuIntegrationSecretAction,
   revokeFeishuUserBindingAction,
   testFeishuIntegrationConnectionAction,
@@ -203,7 +214,10 @@ describe("Feishu actions", () => {
     mockUpsertExternalResourceBindingSync.mockReset();
     mockUpsertExternalUserBindingSync.mockReset();
     mockCheckFeishuIntegrationHealth.mockReset();
+    mockCreateFeishuAgentBotBindingSync.mockReset();
+    mockDisableFeishuAgentBotBindingSync.mockReset();
     mockResolveFeishuResourceDescriptorForType.mockReset();
+    mockRotateFeishuAgentBotCredentialsSync.mockReset();
     mockTryRecordWorkspaceAuditEventSync.mockReset();
     mockUpsertFeishuExternalChannelDocumentSync.mockReset();
     mockUpsertFeishuExternalDataTableSync.mockReset();
@@ -1157,6 +1171,81 @@ describe("Feishu actions", () => {
     expectNoFeishuSecretLeak(mockCreateExternalIntegrationSync.mock.calls[0]?.[0]);
     expectNoFeishuSecretLeak(mockTryRecordWorkspaceAuditEventSync.mock.calls[0]?.[0]);
     expectNoFeishuSecretLeak(result);
+  });
+
+  it("creates agent bot bindings through the Feishu service without leaking secrets", async () => {
+    mockRequireCurrentWorkspaceContext.mockResolvedValue(buildWorkspaceContext("admin", "admin-1"));
+    mockCreateFeishuAgentBotBindingSync.mockReturnValue(buildIntegration({
+      id: "agent-bot-codex",
+      displayName: "Codex Feishu Bot",
+      transportMode: "websocket_worker",
+      agentId: "Codex",
+      appId: "cli_codex_bot",
+      encryptedCredentialsJson: JSON.stringify({
+        appSecret: "v1:app-secret-ciphertext",
+      }),
+    }));
+    mockListFeishuIntegrationSettingsItems.mockReturnValue([
+      buildSettingsItem({
+        id: "agent-bot-codex",
+        agentId: "Codex",
+      }),
+    ]);
+
+    const result = await createFeishuAgentBotBindingAction({
+      agentId: " Codex ",
+      displayName: "",
+      transportMode: "websocket_worker",
+      appId: " cli_codex_bot ",
+      appSecret: " raw-agent-secret ",
+      verificationToken: "",
+      encryptKey: "",
+      tenantKey: "",
+    });
+
+    expect(mockCreateFeishuAgentBotBindingSync).toHaveBeenCalledWith(expect.objectContaining({
+      workspaceId: "workspace-1",
+      agentId: " Codex ",
+      appId: " cli_codex_bot ",
+      appSecret: " raw-agent-secret ",
+      transportMode: "websocket_worker",
+      createdByUserId: "admin-1",
+    }));
+    expectNoFeishuSecretLeak(mockTryRecordWorkspaceAuditEventSync.mock.calls[0]?.[0]);
+    expectNoFeishuSecretLeak(result);
+  });
+
+  it("rotates agent bot credentials through the Feishu service", async () => {
+    mockRequireCurrentWorkspaceContext.mockResolvedValue(buildWorkspaceContext("admin", "admin-1"));
+    mockRotateFeishuAgentBotCredentialsSync.mockReturnValue(buildIntegration({
+      id: "agent-bot-codex",
+      displayName: "Codex Feishu Bot",
+      transportMode: "websocket_worker",
+      agentId: "Codex",
+      appId: "cli_codex_bot",
+      encryptedCredentialsJson: JSON.stringify({
+        appSecret: "v1:rotated-app-secret-ciphertext",
+      }),
+    }));
+    mockListFeishuIntegrationSettingsItems.mockReturnValue([
+      buildSettingsItem({
+        id: "agent-bot-codex",
+        agentId: "Codex",
+      }),
+    ]);
+
+    await rotateFeishuAgentBotCredentialsAction({
+      integrationId: "agent-bot-codex",
+      appSecret: "raw-rotated-secret",
+    });
+
+    expect(mockRotateFeishuAgentBotCredentialsSync).toHaveBeenCalledWith(expect.objectContaining({
+      workspaceId: "workspace-1",
+      integrationId: "agent-bot-codex",
+      appSecret: "raw-rotated-secret",
+      updatedByUserId: "admin-1",
+    }));
+    expectNoFeishuSecretLeak(mockTryRecordWorkspaceAuditEventSync.mock.calls[0]?.[0]);
   });
 
   it("allows WebSocket worker integrations to start with only App ID and App Secret", async () => {

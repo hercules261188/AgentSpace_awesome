@@ -33,6 +33,7 @@ export function createExternalIntegrationSync(input: {
   provider: ExternalIntegrationProvider;
   displayName: string;
   transportMode: ExternalIntegrationTransportMode;
+  agentId?: string;
   appId?: string;
   tenantKey?: string;
   encryptedCredentialsJson?: JsonInput;
@@ -44,6 +45,7 @@ export function createExternalIntegrationSync(input: {
   const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
   const provider = normalizeRequiredText(input.provider, "External integration provider is required.");
   const displayName = normalizeRequiredText(input.displayName, "External integration display name is required.");
+  const agentId = normalizeOptionalText(input.agentId);
   const appId = normalizeOptionalText(input.appId);
   const tenantKey = normalizeOptionalText(input.tenantKey);
   assertExternalIntegrationAppTenantUnique({
@@ -51,6 +53,11 @@ export function createExternalIntegrationSync(input: {
     provider,
     appId,
     tenantKey,
+  });
+  assertExternalIntegrationAgentUnique({
+    workspaceId,
+    provider,
+    agentId,
   });
   const id = `external-integration-${randomLikeId()}`;
   const now = new Date().toISOString();
@@ -63,6 +70,7 @@ export function createExternalIntegrationSync(input: {
        display_name,
        status,
        transport_mode,
+       agent_id,
        app_id,
        tenant_key,
        encrypted_credentials_json,
@@ -74,13 +82,14 @@ export function createExternalIntegrationSync(input: {
        created_at,
        updated_at,
        last_health_status
-     ) VALUES (?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'unknown')`,
+     ) VALUES (?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'unknown')`,
   ).run(
     id,
     workspaceId,
     provider,
     displayName,
     input.transportMode,
+    agentId,
     appId,
     tenantKey,
     normalizeJsonInput(input.encryptedCredentialsJson, DEFAULT_JSON_OBJECT),
@@ -116,6 +125,8 @@ export function readExternalIntegrationSync(input: {
 export function listExternalIntegrationsSync(options: {
   workspaceId?: string;
   provider?: ExternalIntegrationProvider;
+  agentId?: string;
+  scope?: "all" | "workspace" | "agent";
   includeDisabled?: boolean;
 } = {}): ExternalIntegrationRecord[] {
   const workspaceId = options.workspaceId ?? DEFAULT_WORKSPACE_ID;
@@ -124,6 +135,14 @@ export function listExternalIntegrationsSync(options: {
   if (options.provider) {
     where.push("provider = ?");
     params.push(options.provider);
+  }
+  if (options.agentId) {
+    where.push("agent_id = ?");
+    params.push(options.agentId.trim());
+  } else if (options.scope === "workspace") {
+    where.push("agent_id IS NULL");
+  } else if (options.scope === "agent") {
+    where.push("agent_id IS NOT NULL");
   }
   if (!options.includeDisabled) {
     where.push("status <> 'disabled'");
@@ -136,6 +155,33 @@ export function listExternalIntegrationsSync(options: {
   ).all(...params) as Array<Record<string, unknown>>;
 
   return rows.map(mapExternalIntegrationRecord).filter((record): record is ExternalIntegrationRecord => record !== null);
+}
+
+export function readExternalIntegrationByAgentSync(input: {
+  workspaceId?: string;
+  provider: ExternalIntegrationProvider;
+  agentId: string;
+  includeDisabled?: boolean;
+}): ExternalIntegrationRecord | null {
+  const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
+  const agentId = normalizeRequiredText(input.agentId, "External integration agent id is required.");
+  const where = [
+    "workspace_id = ?",
+    "provider = ?",
+    "agent_id = ?",
+  ];
+  const params: unknown[] = [workspaceId, input.provider, agentId];
+  if (!input.includeDisabled) {
+    where.push("status <> 'disabled'");
+  }
+  const row = getDatabase().prepare(
+    `${selectExternalIntegrationSql()}
+     WHERE ${where.join(" AND ")}
+     ORDER BY updated_at DESC, id DESC
+     LIMIT 1`,
+  ).get(...params) as Record<string, unknown> | undefined;
+
+  return row ? mapExternalIntegrationRecord(row) : null;
 }
 
 export function deleteExternalIntegrationSync(input: {
@@ -1421,6 +1467,40 @@ function assertExternalIntegrationAppTenantUnique(input: {
   }
 }
 
+function assertExternalIntegrationAgentUnique(input: {
+  workspaceId: string;
+  provider: ExternalIntegrationProvider;
+  agentId: string | null;
+  excludeIntegrationId?: string;
+}): void {
+  if (!input.agentId) {
+    return;
+  }
+  const params: unknown[] = [
+    input.workspaceId,
+    input.provider,
+    input.agentId,
+  ];
+  const excludeClause = input.excludeIntegrationId
+    ? "AND id <> ?"
+    : "";
+  if (input.excludeIntegrationId) {
+    params.push(input.excludeIntegrationId);
+  }
+  const row = getDatabase().prepare(
+    `${selectExternalIntegrationSql()}
+     WHERE workspace_id = ?
+       AND provider = ?
+       AND agent_id = ?
+       AND status <> 'disabled'
+       ${excludeClause}
+     LIMIT 1`,
+  ).get(...params) as Record<string, unknown> | undefined;
+  if (row) {
+    throw new Error("External integration agent is already connected.");
+  }
+}
+
 function requireExternalUserBinding(input: { workspaceId: string; bindingId: string }): ExternalUserBindingRecord {
   const record = readExternalUserBindingByIdSync(input);
   if (!record) {
@@ -1477,6 +1557,7 @@ function selectExternalIntegrationSql(): string {
     display_name AS displayName,
     status,
     transport_mode AS transportMode,
+    agent_id AS agentId,
     app_id AS appId,
     tenant_key AS tenantKey,
     encrypted_credentials_json AS encryptedCredentialsJson,
@@ -1659,6 +1740,7 @@ function mapExternalIntegrationRecord(value: Record<string, unknown>): ExternalI
     displayName: value.displayName,
     status: value.status,
     transportMode: value.transportMode,
+    agentId: asOptionalString(value.agentId),
     appId: asOptionalString(value.appId),
     tenantKey: asOptionalString(value.tenantKey),
     encryptedCredentialsJson: value.encryptedCredentialsJson,

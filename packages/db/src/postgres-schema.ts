@@ -1,4 +1,4 @@
-export const POSTGRES_SCHEMA_VERSION = "20";
+export const POSTGRES_SCHEMA_VERSION = "21";
 
 export const POSTGRES_TABLE_NAMES = [
   "app_metadata",
@@ -222,6 +222,7 @@ export function getPostgresSchemaStatements(): string[] {
         display_name TEXT NOT NULL,
         status TEXT NOT NULL DEFAULT 'active',
         transport_mode TEXT NOT NULL,
+        agent_id TEXT,
         app_id TEXT,
         tenant_key TEXT,
         encrypted_credentials_json JSONB NOT NULL DEFAULT '{}'::jsonb,
@@ -238,6 +239,10 @@ export function getPostgresSchemaStatements(): string[] {
         last_error TEXT,
         UNIQUE(workspace_id, provider, display_name)
       )
+    `,
+    `
+      ALTER TABLE external_integration
+        ADD COLUMN IF NOT EXISTS agent_id TEXT
     `,
     `
       CREATE TABLE IF NOT EXISTS external_user_binding (
@@ -1480,6 +1485,16 @@ export function getPostgresSchemaStatements(): string[] {
     `
       CREATE INDEX IF NOT EXISTS idx_external_integration_workspace_provider
         ON external_integration(workspace_id, provider, status, updated_at DESC)
+    `,
+    `
+      CREATE INDEX IF NOT EXISTS idx_external_integration_agent
+        ON external_integration(workspace_id, provider, agent_id, status, updated_at DESC)
+        WHERE agent_id IS NOT NULL
+    `,
+    `
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_external_integration_active_agent
+        ON external_integration(workspace_id, provider, agent_id)
+        WHERE agent_id IS NOT NULL AND status <> 'disabled'
     `,
     `
       CREATE UNIQUE INDEX IF NOT EXISTS idx_external_integration_provider_app_tenant

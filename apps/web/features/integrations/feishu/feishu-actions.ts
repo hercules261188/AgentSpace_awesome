@@ -28,7 +28,10 @@ import {
   FEISHU_EVENT_CALLBACK_PATH,
   FEISHU_PROVIDER_ID,
   checkFeishuIntegrationHealth,
+  createFeishuAgentBotBindingSync,
+  disableFeishuAgentBotBindingSync,
   resolveFeishuResourceDescriptorForType,
+  rotateFeishuAgentBotCredentialsSync,
   tryRecordWorkspaceAuditEventSync,
   upsertFeishuExternalChannelDocumentSync,
   upsertFeishuExternalDataTableSync,
@@ -52,11 +55,13 @@ import {
 import { assertCanManageFeishuUserBindingTarget } from "./feishu-user-binding-permissions";
 import type {
   CreateFeishuChannelBindingInput,
+  CreateFeishuAgentBotBindingInput,
   CreateFeishuIntegrationInput,
   CreateFeishuResourceBindingInput,
   CreateFeishuUserBindingInput,
   DeletedFeishuIntegrationResult,
   FeishuIntegrationSettingsItem,
+  RotateFeishuAgentBotCredentialsInput,
   RotateFeishuIntegrationSecretInput,
   TestFeishuIntegrationConnectionInput,
   TestFeishuIntegrationConnectionResult,
@@ -201,6 +206,58 @@ export async function createFeishuIntegrationAction(
   });
 }
 
+export async function createFeishuAgentBotBindingAction(
+  input: CreateFeishuAgentBotBindingInput,
+): Promise<FeishuIntegrationSettingsItem> {
+  const workspaceContext = await requireCurrentWorkspaceContext();
+  assertWorkspaceRoleForContext(workspaceContext, "admin");
+
+  let integration: ReturnType<typeof createFeishuAgentBotBindingSync>;
+  try {
+    integration = createFeishuAgentBotBindingSync({
+      workspaceId: workspaceContext.currentWorkspace.id,
+      agentId: input.agentId,
+      displayName: input.displayName,
+      transportMode: input.transportMode,
+      appId: input.appId,
+      appSecret: input.appSecret,
+      verificationToken: input.verificationToken,
+      encryptKey: input.encryptKey,
+      tenantKey: input.tenantKey,
+      createdByUserId: workspaceContext.currentUser.id,
+    });
+  } catch (error) {
+    throw normalizeFeishuAgentBotBindingWriteError(error);
+  }
+
+  tryRecordWorkspaceAuditEventSync({
+    workspaceId: workspaceContext.currentWorkspace.id,
+    title: "Feishu agent bot binding created",
+    note: `${workspaceContext.currentUser.displayName} connected Feishu bot "${integration.displayName}" to agent "${integration.agentId}".`,
+    code: "workspace.external_integration_created",
+    data: {
+      actorType: "session_user",
+      resourceType: "external_integration",
+      resourceId: integration.id,
+      provider: FEISHU_PROVIDER_ID,
+      agentId: integration.agentId,
+      transportMode: integration.transportMode,
+      secretRedacted: true,
+    },
+  });
+  revalidateWorkspacePaths(workspaceContext.currentWorkspace.slug, SETTINGS_REVALIDATE_PATHS);
+
+  return requireFeishuIntegrationSettingsItem({
+    workspaceId: workspaceContext.currentWorkspace.id,
+    integrationId: integration.id,
+    appUrl: readPublicAppUrl(),
+    viewer: {
+      role: workspaceContext.currentMembership.role,
+      userId: workspaceContext.currentUser.id,
+    },
+  });
+}
+
 export async function disableFeishuIntegrationAction(
   integrationId: string,
 ): Promise<FeishuIntegrationSettingsItem> {
@@ -240,6 +297,50 @@ export async function disableFeishuIntegrationAction(
     workspaceId: workspaceContext.currentWorkspace.id,
     integrationId: updated.id,
     appUrl: readPublicAppUrl(),
+  });
+}
+
+export async function disableFeishuAgentBotBindingAction(
+  integrationId: string,
+): Promise<FeishuIntegrationSettingsItem> {
+  const workspaceContext = await requireCurrentWorkspaceContext();
+  assertWorkspaceRoleForContext(workspaceContext, "admin");
+
+  let integration: ReturnType<typeof disableFeishuAgentBotBindingSync>;
+  try {
+    integration = disableFeishuAgentBotBindingSync({
+      workspaceId: workspaceContext.currentWorkspace.id,
+      integrationId,
+      updatedByUserId: workspaceContext.currentUser.id,
+    });
+  } catch (error) {
+    throw normalizeFeishuAgentBotBindingWriteError(error);
+  }
+
+  tryRecordWorkspaceAuditEventSync({
+    workspaceId: workspaceContext.currentWorkspace.id,
+    title: "Feishu agent bot binding disabled",
+    note: `${workspaceContext.currentUser.displayName} disabled Feishu bot "${integration.displayName}" for agent "${integration.agentId}".`,
+    code: "workspace.external_integration_disabled",
+    data: {
+      actorType: "session_user",
+      resourceType: "external_integration",
+      resourceId: integration.id,
+      provider: FEISHU_PROVIDER_ID,
+      agentId: integration.agentId,
+      secretRedacted: true,
+    },
+  });
+  revalidateWorkspacePaths(workspaceContext.currentWorkspace.slug, SETTINGS_REVALIDATE_PATHS);
+
+  return requireFeishuIntegrationSettingsItem({
+    workspaceId: workspaceContext.currentWorkspace.id,
+    integrationId: integration.id,
+    appUrl: readPublicAppUrl(),
+    viewer: {
+      role: workspaceContext.currentMembership.role,
+      userId: workspaceContext.currentUser.id,
+    },
   });
 }
 
@@ -400,6 +501,55 @@ export async function rotateFeishuIntegrationSecretAction(
   });
 }
 
+export async function rotateFeishuAgentBotCredentialsAction(
+  input: RotateFeishuAgentBotCredentialsInput,
+): Promise<FeishuIntegrationSettingsItem> {
+  const workspaceContext = await requireCurrentWorkspaceContext();
+  assertWorkspaceRoleForContext(workspaceContext, "admin");
+
+  let updated: ReturnType<typeof rotateFeishuAgentBotCredentialsSync>;
+  try {
+    updated = rotateFeishuAgentBotCredentialsSync({
+      workspaceId: workspaceContext.currentWorkspace.id,
+      integrationId: input.integrationId,
+      appId: input.appId,
+      appSecret: input.appSecret,
+      verificationToken: input.verificationToken,
+      encryptKey: input.encryptKey,
+      tenantKey: input.tenantKey,
+      updatedByUserId: workspaceContext.currentUser.id,
+    });
+  } catch (error) {
+    throw normalizeFeishuAgentBotBindingWriteError(error);
+  }
+
+  tryRecordWorkspaceAuditEventSync({
+    workspaceId: workspaceContext.currentWorkspace.id,
+    title: "Feishu agent bot credentials rotated",
+    note: `${workspaceContext.currentUser.displayName} rotated credentials for Feishu bot "${updated.displayName}".`,
+    code: "workspace.external_integration_credentials_rotated",
+    data: {
+      actorType: "session_user",
+      resourceType: "external_integration",
+      resourceId: updated.id,
+      provider: FEISHU_PROVIDER_ID,
+      agentId: updated.agentId,
+      secretRedacted: true,
+    },
+  });
+  revalidateWorkspacePaths(workspaceContext.currentWorkspace.slug, SETTINGS_REVALIDATE_PATHS);
+
+  return requireFeishuIntegrationSettingsItem({
+    workspaceId: workspaceContext.currentWorkspace.id,
+    integrationId: updated.id,
+    appUrl: readPublicAppUrl(),
+    viewer: {
+      role: workspaceContext.currentMembership.role,
+      userId: workspaceContext.currentUser.id,
+    },
+  });
+}
+
 export async function checkFeishuIntegrationHealthAction(
   integrationId: string,
 ): Promise<FeishuIntegrationSettingsItem> {
@@ -487,6 +637,14 @@ function normalizeFeishuIntegrationWriteError(error: unknown): Error {
   }
   if (message === "AGENT_SPACE_FEISHU_CREDENTIAL_ENCRYPTION_KEY must be a base64-encoded 32-byte key.") {
     return new Error("feishu.integration.credential_encryption_key_invalid");
+  }
+  return error instanceof Error ? error : new Error(message);
+}
+
+function normalizeFeishuAgentBotBindingWriteError(error: unknown): Error {
+  const message = error instanceof Error ? error.message : String(error);
+  if (message.startsWith("feishu.agent_bot_binding.placeholder_value:")) {
+    return new Error("feishu.agent_bot_binding.placeholder_value");
   }
   return error instanceof Error ? error : new Error(message);
 }

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
+  mockListActiveEmployeesSync,
   mockListExternalChannelBindingsSync,
   mockListExternalDataOperationRunsSync,
   mockListExternalIntegrationEventsSync,
@@ -11,6 +12,7 @@ const {
   mockListStoredChannelsSync,
   mockListWorkspaceMemberUsersSync,
 } = vi.hoisted(() => ({
+  mockListActiveEmployeesSync: vi.fn(),
   mockListExternalChannelBindingsSync: vi.fn(),
   mockListExternalDataOperationRunsSync: vi.fn(),
   mockListExternalIntegrationEventsSync: vi.fn(),
@@ -70,6 +72,7 @@ vi.mock("@agent-space/services", () => ({
   FEISHU_PROVIDER_ID: "feishu",
   FEISHU_REQUIRED_CREDENTIAL_FIELDS: ["app_id", "app_secret", "verification_token", "encrypt_key"],
   FEISHU_REQUIRED_EVENTS: ["im.message.receive_v1", "card.action.trigger"],
+  listActiveEmployeesSync: mockListActiveEmployeesSync,
   summarizeFeishuStoredCredentials: () => ({
     hasAppSecret: true,
     hasEncryptKey: true,
@@ -93,11 +96,13 @@ vi.mock("@/features/auth/workspace-permissions", () => ({
 
 import {
   buildFeishuIntegrationCreationGuide,
+  listFeishuAvailableAgents,
   listFeishuIntegrationSettingsItems,
 } from "./feishu-settings-data";
 
 describe("Feishu settings data", () => {
   beforeEach(() => {
+    mockListActiveEmployeesSync.mockReset();
     mockListExternalChannelBindingsSync.mockReset();
     mockListExternalDataOperationRunsSync.mockReset();
     mockListExternalIntegrationEventsSync.mockReset();
@@ -109,6 +114,7 @@ describe("Feishu settings data", () => {
     mockListWorkspaceMemberUsersSync.mockReset();
 
     mockListExternalIntegrationsSync.mockReturnValue([buildIntegration()]);
+    mockListActiveEmployeesSync.mockReturnValue([]);
     mockListExternalUserBindingsSync.mockReturnValue([
       buildUserBinding("binding-1", "user-1", "ou_mina"),
       buildUserBinding("binding-2", "user-2", "ou_alex"),
@@ -613,6 +619,35 @@ describe("Feishu settings data", () => {
         required: "processed_approval_card_action",
       },
     ]));
+  });
+
+  it("lists active AgentSpace agents for Feishu bot binding forms", () => {
+    mockListActiveEmployeesSync.mockReturnValue([
+      {
+        name: "Codex",
+        role: "Engineer",
+        remarkName: "code",
+      },
+      {
+        name: "HermesAgent",
+        role: "Researcher",
+      },
+    ]);
+
+    expect(listFeishuAvailableAgents({ workspaceId: "workspace-1" })).toEqual([
+      {
+        id: "Codex",
+        name: "Codex",
+        role: "Engineer",
+        remarkName: "code",
+      },
+      {
+        id: "HermesAgent",
+        name: "HermesAgent",
+        role: "Researcher",
+        remarkName: undefined,
+      },
+    ]);
   });
 });
 

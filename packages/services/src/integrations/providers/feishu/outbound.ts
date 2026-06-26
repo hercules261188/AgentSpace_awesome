@@ -367,15 +367,16 @@ export function queueFeishuOutboundMessageSync(input: {
 export function queueFeishuChannelReplyOutboxSync(input: {
   workspaceId: string;
   channelName: string;
+  agentId?: string;
   text: string;
   attachments?: MessageAttachment[];
   agentSpaceMessageId?: string;
   sourceAgentSpaceMessageId?: string;
 }): ExternalMessageOutboxRecord[] {
-  const integrations = listExternalIntegrationsSync({
+  const integrations = listActiveFeishuOutboundIntegrationsSync({
     workspaceId: input.workspaceId,
-    provider: FEISHU_PROVIDER_ID,
-  }).filter((integration) => integration.status === "active");
+    agentId: input.agentId,
+  });
   const outboxItems: ExternalMessageOutboxRecord[] = [];
 
   for (const integration of integrations) {
@@ -421,6 +422,7 @@ export function queueFeishuChannelReplyOutboxSync(input: {
 export function queueFeishuAgentStatusCardOutboxSync(input: {
   workspaceId: string;
   channelName: string;
+  agentId?: string;
   status: FeishuAgentStatusCardStatus;
   agentNames: string[];
   message?: string;
@@ -429,10 +431,10 @@ export function queueFeishuAgentStatusCardOutboxSync(input: {
   sourceAgentSpaceMessageId?: string;
   approvalAction?: FeishuApprovalCardActionPayload;
 }): ExternalMessageOutboxRecord[] {
-  const integrations = listExternalIntegrationsSync({
+  const integrations = listActiveFeishuOutboundIntegrationsSync({
     workspaceId: input.workspaceId,
-    provider: FEISHU_PROVIDER_ID,
-  }).filter((integration) => integration.status === "active");
+    agentId: input.agentId ?? resolveSingleAgentName(input.agentNames),
+  });
   const outboxItems: ExternalMessageOutboxRecord[] = [];
 
   for (const integration of integrations) {
@@ -477,6 +479,34 @@ export function queueFeishuAgentStatusCardOutboxSync(input: {
   }
 
   return outboxItems;
+}
+
+function listActiveFeishuOutboundIntegrationsSync(input: {
+  workspaceId: string;
+  agentId?: string;
+}): ExternalIntegrationRecord[] {
+  const agentId = input.agentId?.trim();
+  if (agentId) {
+    const agentIntegrations = listExternalIntegrationsSync({
+      workspaceId: input.workspaceId,
+      provider: FEISHU_PROVIDER_ID,
+      agentId,
+    }).filter((integration) => integration.status === "active");
+    if (agentIntegrations.length > 0) {
+      return agentIntegrations;
+    }
+  }
+
+  return listExternalIntegrationsSync({
+    workspaceId: input.workspaceId,
+    provider: FEISHU_PROVIDER_ID,
+    scope: "workspace",
+  }).filter((integration) => integration.status === "active");
+}
+
+function resolveSingleAgentName(agentNames: string[]): string | undefined {
+  const normalized = agentNames.map((name) => name.trim()).filter(Boolean);
+  return normalized.length === 1 ? normalized[0] : undefined;
 }
 
 function buildFeishuOutboundMessages(input: {

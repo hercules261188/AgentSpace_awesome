@@ -29,11 +29,13 @@ const {
   mockUpdateCurrentUserProfileAction,
   mockCheckFeishuIntegrationHealthAction,
   mockCreateFeishuChannelBindingAction,
+  mockCreateFeishuAgentBotBindingAction,
   mockCreateFeishuIntegrationAction,
   mockCreateFeishuResourceBindingAction,
   mockCreateFeishuUserBindingAction,
   mockDeleteFeishuIntegrationAction,
   mockDisableFeishuIntegrationAction,
+  mockDisableFeishuAgentBotBindingAction,
   mockPauseFeishuChannelBindingAction,
   mockPauseFeishuResourceBindingAction,
   mockResumeFeishuIntegrationAction,
@@ -44,6 +46,7 @@ const {
   mockRevokeFeishuResourceBindingAction,
   mockRevokeFeishuUserBindingAction,
   mockRotateFeishuIntegrationSecretAction,
+  mockRotateFeishuAgentBotCredentialsAction,
   mockTestFeishuIntegrationConnectionAction,
   mockUpdateWorkspaceProfileAction,
   mockUpdateWorkspaceMemberRoleAction,
@@ -60,11 +63,13 @@ const {
   mockUpdateCurrentUserProfileAction: vi.fn(),
   mockCheckFeishuIntegrationHealthAction: vi.fn(),
   mockCreateFeishuChannelBindingAction: vi.fn(),
+  mockCreateFeishuAgentBotBindingAction: vi.fn(),
   mockCreateFeishuIntegrationAction: vi.fn(),
   mockCreateFeishuResourceBindingAction: vi.fn(),
   mockCreateFeishuUserBindingAction: vi.fn(),
   mockDeleteFeishuIntegrationAction: vi.fn(),
   mockDisableFeishuIntegrationAction: vi.fn(),
+  mockDisableFeishuAgentBotBindingAction: vi.fn(),
   mockPauseFeishuChannelBindingAction: vi.fn(),
   mockPauseFeishuResourceBindingAction: vi.fn(),
   mockResumeFeishuIntegrationAction: vi.fn(),
@@ -75,6 +80,7 @@ const {
   mockRevokeFeishuResourceBindingAction: vi.fn(),
   mockRevokeFeishuUserBindingAction: vi.fn(),
   mockRotateFeishuIntegrationSecretAction: vi.fn(),
+  mockRotateFeishuAgentBotCredentialsAction: vi.fn(),
   mockTestFeishuIntegrationConnectionAction: vi.fn(),
   mockUpdateWorkspaceProfileAction: vi.fn(),
   mockUpdateWorkspaceMemberRoleAction: vi.fn(),
@@ -97,11 +103,13 @@ vi.mock("@/features/settings/actions", () => ({
 
 vi.mock("@/features/integrations/feishu/feishu-actions", () => ({
   checkFeishuIntegrationHealthAction: mockCheckFeishuIntegrationHealthAction,
+  createFeishuAgentBotBindingAction: mockCreateFeishuAgentBotBindingAction,
   createFeishuChannelBindingAction: mockCreateFeishuChannelBindingAction,
   createFeishuIntegrationAction: mockCreateFeishuIntegrationAction,
   createFeishuResourceBindingAction: mockCreateFeishuResourceBindingAction,
   createFeishuUserBindingAction: mockCreateFeishuUserBindingAction,
   deleteFeishuIntegrationAction: mockDeleteFeishuIntegrationAction,
+  disableFeishuAgentBotBindingAction: mockDisableFeishuAgentBotBindingAction,
   disableFeishuIntegrationAction: mockDisableFeishuIntegrationAction,
   pauseFeishuChannelBindingAction: mockPauseFeishuChannelBindingAction,
   pauseFeishuResourceBindingAction: mockPauseFeishuResourceBindingAction,
@@ -112,6 +120,7 @@ vi.mock("@/features/integrations/feishu/feishu-actions", () => ({
   revokeFeishuChannelBindingAction: mockRevokeFeishuChannelBindingAction,
   revokeFeishuResourceBindingAction: mockRevokeFeishuResourceBindingAction,
   revokeFeishuUserBindingAction: mockRevokeFeishuUserBindingAction,
+  rotateFeishuAgentBotCredentialsAction: mockRotateFeishuAgentBotCredentialsAction,
   rotateFeishuIntegrationSecretAction: mockRotateFeishuIntegrationSecretAction,
   testFeishuIntegrationConnectionAction: mockTestFeishuIntegrationConnectionAction,
 }));
@@ -178,11 +187,13 @@ describe("SettingsPageClient", () => {
     mockTransferWorkspaceOwnershipAction.mockReset();
     mockUpdateCurrentUserProfileAction.mockReset();
     mockCheckFeishuIntegrationHealthAction.mockReset();
+    mockCreateFeishuAgentBotBindingAction.mockReset();
     mockCreateFeishuChannelBindingAction.mockReset();
     mockCreateFeishuIntegrationAction.mockReset();
     mockCreateFeishuResourceBindingAction.mockReset();
     mockCreateFeishuUserBindingAction.mockReset();
     mockDeleteFeishuIntegrationAction.mockReset();
+    mockDisableFeishuAgentBotBindingAction.mockReset();
     mockDisableFeishuIntegrationAction.mockReset();
     mockPauseFeishuChannelBindingAction.mockReset();
     mockPauseFeishuResourceBindingAction.mockReset();
@@ -193,6 +204,7 @@ describe("SettingsPageClient", () => {
     mockRevokeFeishuChannelBindingAction.mockReset();
     mockRevokeFeishuResourceBindingAction.mockReset();
     mockRevokeFeishuUserBindingAction.mockReset();
+    mockRotateFeishuAgentBotCredentialsAction.mockReset();
     mockRotateFeishuIntegrationSecretAction.mockReset();
     mockTestFeishuIntegrationConnectionAction.mockReset();
     mockUpdateWorkspaceProfileAction.mockReset();
@@ -788,6 +800,47 @@ describe("SettingsPageClient", () => {
     expect(screen.getByLabelText("结果预览")).toHaveTextContent("Sheet1!A1:B2");
   });
 
+  it("creates an agent-scoped Feishu bot binding from integrations settings", async () => {
+    const user = userEvent.setup();
+    mockCreateFeishuAgentBotBindingAction.mockResolvedValue(buildFeishuIntegration({
+      id: "agent-bot-codex",
+      displayName: "Codex Feishu Bot",
+      agentId: "Codex",
+      transportMode: "websocket_worker",
+      appId: "cli_codex_bot",
+    }));
+
+    renderSettingsPage({
+      currentMembershipRole: "admin",
+      feishuAvailableAgents: [
+        { id: "Codex", name: "Codex", role: "Engineer" },
+      ],
+      feishuAvailableChannels: [],
+      feishuAvailableUsers: [],
+      feishuIntegrations: [],
+      initialSection: "integrations",
+    });
+
+    await user.selectOptions(screen.getByRole("combobox", { name: "Agent" }), "Codex");
+    await user.type(screen.getAllByLabelText("App ID")[0], "cli_codex_bot");
+    await user.type(screen.getAllByLabelText("App Secret")[0], "secret_codex_bot");
+    await user.click(screen.getByRole("button", { name: "绑定 Bot" }));
+
+    await waitFor(() => {
+      expect(mockCreateFeishuAgentBotBindingAction).toHaveBeenCalledWith({
+        agentId: "Codex",
+        displayName: "",
+        transportMode: "websocket_worker",
+        appId: "cli_codex_bot",
+        appSecret: "secret_codex_bot",
+        verificationToken: "",
+        encryptKey: "",
+        tenantKey: "",
+      });
+    });
+    expect(await screen.findByText("Agent 飞书 Bot 已绑定。")).toBeInTheDocument();
+  });
+
   it("renders Feishu smoke readiness checks in the integration guide", () => {
     renderSettingsPage({
       currentMembershipRole: "admin",
@@ -863,8 +916,9 @@ describe("SettingsPageClient", () => {
       initialSection: "integrations",
     });
 
-    await user.type(screen.getByLabelText("App ID"), "cli_test");
-    await user.type(screen.getByLabelText("App Secret"), "secret_test");
+    const createPanel = screen.getByLabelText("创建工作区级飞书集成");
+    await user.type(within(createPanel).getByLabelText("App ID"), "cli_test");
+    await user.type(within(createPanel).getByLabelText("App Secret"), "secret_test");
     await user.click(screen.getByRole("button", { name: "测试连接" }));
 
     await waitFor(() => {
@@ -941,14 +995,15 @@ describe("SettingsPageClient", () => {
     expect(within(setupSummary).getByText("custom.integration.event")).toBeInTheDocument();
     expect(within(setupSummary).getByText("custom.integration.scope")).toBeInTheDocument();
 
-    await user.clear(screen.getByLabelText("名称"));
-    await user.type(screen.getByLabelText("名称"), "Launch Feishu");
-    await user.type(screen.getByLabelText("App ID"), "cli_launch");
-    await user.click(screen.getByText("自定义高级功能"));
-    await user.type(screen.getByLabelText("Tenant Key"), "tenant_launch");
-    await user.type(screen.getByLabelText("App Secret"), "secret_launch");
-    await user.type(screen.getByLabelText("Verification Token"), "verify_launch");
-    await user.type(screen.getByLabelText("Encrypt Key"), "encrypt_launch");
+    const createPanel = screen.getByLabelText("创建工作区级飞书集成");
+    await user.clear(within(createPanel).getByLabelText("名称"));
+    await user.type(within(createPanel).getByLabelText("名称"), "Launch Feishu");
+    await user.type(within(createPanel).getByLabelText("App ID"), "cli_launch");
+    await user.click(within(createPanel).getByText("自定义高级功能"));
+    await user.type(within(createPanel).getByLabelText("Tenant Key"), "tenant_launch");
+    await user.type(within(createPanel).getByLabelText("App Secret"), "secret_launch");
+    await user.type(within(createPanel).getByLabelText("Verification Token"), "verify_launch");
+    await user.type(within(createPanel).getByLabelText("Encrypt Key"), "encrypt_launch");
     await user.click(screen.getByRole("button", { name: "创建集成" }));
 
     await waitFor(() => {
@@ -965,9 +1020,9 @@ describe("SettingsPageClient", () => {
     expect(await screen.findByText(
       "飞书集成已创建。请在下方集成卡片继续执行健康检查、生成联调环境、检查联调环境、严格实测、OpenAPI 证据校验和最终证据命令。",
     )).toBeInTheDocument();
-    expect(screen.getByLabelText("App Secret")).toHaveValue("");
-    expect(screen.getByLabelText("Verification Token")).toHaveValue("");
-    expect(screen.getByLabelText("Encrypt Key")).toHaveValue("");
+    expect(within(createPanel).getByLabelText("App Secret")).toHaveValue("");
+    expect(within(createPanel).getByLabelText("Verification Token")).toHaveValue("");
+    expect(within(createPanel).getByLabelText("Encrypt Key")).toHaveValue("");
     expect(screen.getAllByText("Launch Feishu").length).toBeGreaterThan(0);
     expect(screen.getByText("cli_launch")).toBeInTheDocument();
     const checklist = screen.getByLabelText("飞书联调清单");
@@ -1000,9 +1055,10 @@ describe("SettingsPageClient", () => {
       initialSection: "integrations",
     });
 
-    await user.type(screen.getByLabelText("App ID"), "cli_launch");
-    await user.type(screen.getByLabelText("App Secret"), "secret_launch");
-    await user.type(screen.getByLabelText("Verification Token"), "verify_launch");
+    const createPanel = screen.getByLabelText("创建工作区级飞书集成");
+    await user.type(within(createPanel).getByLabelText("App ID"), "cli_launch");
+    await user.type(within(createPanel).getByLabelText("App Secret"), "secret_launch");
+    await user.type(within(createPanel).getByLabelText("Verification Token"), "verify_launch");
     await user.click(screen.getByRole("button", { name: "创建集成" }));
 
     expect(await screen.findByText(

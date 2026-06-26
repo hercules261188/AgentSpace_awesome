@@ -128,6 +128,7 @@ export interface ExternalIntegrationRecord {
   displayName: string;
   status: ExternalIntegrationStatus;
   transportMode: ExternalIntegrationTransportMode;
+  agentId?: string;
   appId?: string;
   tenantKey?: string;
   encryptedCredentialsJson: string;

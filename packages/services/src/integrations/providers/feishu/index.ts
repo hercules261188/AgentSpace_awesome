@@ -21,6 +21,21 @@ export {
   FEISHU_REQUIRED_EVENTS,
 } from "./constants.ts";
 export {
+  checkFeishuAgentBotHealth,
+  createFeishuAgentBotBindingSync,
+  disableFeishuAgentBotBindingSync,
+  isFeishuAgentBotBinding,
+  listFeishuAgentBotBindingsSync,
+  readFeishuAgentBotBindingByAgentSync,
+  resolveFeishuAgentBotBindingSync,
+  rotateFeishuAgentBotCredentialsSync,
+  type CreateFeishuAgentBotBindingInput,
+  type DisableFeishuAgentBotBindingInput,
+  type FeishuAgentBotBinding,
+  type FeishuAgentBotHealthCheckResult,
+  type RotateFeishuAgentBotCredentialsInput,
+} from "./agent-bot-bindings.ts";
+export {
   createFeishuApiClient,
   fetchFeishuTenantAccessToken,
   type FeishuApiClient,

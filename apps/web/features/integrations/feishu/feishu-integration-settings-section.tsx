@@ -5,6 +5,7 @@ import type { WorkspaceRole } from "@agent-space/db";
 import { SettingsSectionShell } from "@/features/settings/components/settings-chrome";
 import type { SettingsSectionMeta } from "@/features/settings/settings-meta";
 import type { SettingsTx } from "@/features/settings/settings-types";
+import { FeishuAgentBotsPanel } from "./feishu-agent-bots-panel";
 import { FeishuChannelBindingsPanel } from "./feishu-channel-bindings-panel";
 import { FeishuCreateIntegrationDialog } from "./feishu-create-integration-dialog";
 import { FeishuHealthPanel } from "./feishu-health-panel";
@@ -13,6 +14,7 @@ import { FeishuResourceBindingsPanel } from "./feishu-resource-bindings-panel";
 import { FeishuUserBindingsPanel } from "./feishu-user-bindings-panel";
 import type {
   FeishuAvailableChannelItem,
+  FeishuAvailableAgentItem,
   FeishuAvailableUserItem,
   FeishuIntegrationCreationGuide,
   FeishuIntegrationSettingsItem,
@@ -20,6 +22,7 @@ import type {
 
 export function SettingsIntegrationsSection({
   availableChannels,
+  availableAgents,
   availableUsers,
   currentMembershipRole,
   currentUserId,
@@ -32,6 +35,7 @@ export function SettingsIntegrationsSection({
   tx,
 }: {
   availableChannels: FeishuAvailableChannelItem[];
+  availableAgents: FeishuAvailableAgentItem[];
   availableUsers: FeishuAvailableUserItem[];
   currentMembershipRole: WorkspaceRole;
   currentUserId?: string;
@@ -105,14 +109,26 @@ export function SettingsIntegrationsSection({
       </div>
 
       {canManageIntegrations ? (
-        <FeishuCreateIntegrationDialog
-          creationGuide={feishuIntegrationCreationGuide}
-          isPending={isPending}
-          onCreated={mergeIntegration}
-          setFeedback={setFeedback}
-          startTransition={startTransition}
-          tx={tx}
-        />
+        <>
+          <FeishuAgentBotsPanel
+            availableAgents={availableAgents}
+            integrations={integrations}
+            isPending={isPending}
+            onUpdated={mergeIntegration}
+            setFeedback={setFeedback}
+            startTransition={startTransition}
+            tx={tx}
+          />
+
+          <FeishuCreateIntegrationDialog
+            creationGuide={feishuIntegrationCreationGuide}
+            isPending={isPending}
+            onCreated={mergeIntegration}
+            setFeedback={setFeedback}
+            startTransition={startTransition}
+            tx={tx}
+          />
+        </>
       ) : null}
 
       {feedback ? <p aria-live="polite" className="settings-feedback" role="status">{feedback}</p> : null}

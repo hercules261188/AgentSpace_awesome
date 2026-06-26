@@ -751,6 +751,7 @@ function canAgentCreateGoogleSheet(input: {
 function enqueueFeishuReplyOutboxBestEffort(input: {
   workspaceId: string;
   channelName: string;
+  agentId?: string;
   text: string;
   attachments?: MessageAttachment[];
   agentSpaceMessageId?: string;
@@ -767,6 +768,7 @@ function enqueueFeishuReplyOutboxBestEffort(input: {
       ? queueFeishuAgentStatusCardOutboxSync({
           workspaceId: input.workspaceId,
           channelName: input.channelName,
+          agentId: input.agentId,
           status: input.statusCard.status,
           agentNames: input.statusCard.agentNames,
           message: input.statusCard.message,
@@ -1244,6 +1246,7 @@ async function executeQueuedTask(runtime: AgentRuntimeRecord, queuedTask: Queued
       for (const statusMessage of enqueueFeishuReplyOutboxBestEffort({
         workspaceId: task.workspaceId,
         channelName: payload.channel,
+        agentId: agentName,
         text: outputEnvelope.text,
         attachments: outputEnvelope.attachments,
         agentSpaceMessageId: replyResult.message.id,
@@ -1304,6 +1307,7 @@ async function executeQueuedTask(runtime: AgentRuntimeRecord, queuedTask: Queued
       for (const statusMessage of enqueueFeishuReplyOutboxBestEffort({
         workspaceId: task.workspaceId,
         channelName: payload.channel,
+        agentId: agentName,
         text: outputEnvelope.text,
         attachments: outputEnvelope.attachments,
         agentSpaceMessageId: replyResult.message.id,

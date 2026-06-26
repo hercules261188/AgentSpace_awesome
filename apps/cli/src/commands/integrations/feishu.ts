@@ -35,6 +35,8 @@ import {
   checkFeishuIntegrationHealth,
   buildEncryptedFeishuCredentials,
   createFeishuApiClient,
+  createFeishuAgentBotBindingSync,
+  disableFeishuAgentBotBindingSync,
   drainFeishuOutboxMessages,
   executeBoundFeishuReadDataOperation,
   fetchFeishuTenantAccessToken,
@@ -61,6 +63,7 @@ import {
   startFeishuWebSocketWorker,
   summarizeFeishuStoredCredentials,
   tryRecordWorkspaceAuditEventSync,
+  rotateFeishuAgentBotCredentialsSync,
   upsertFeishuExternalChannelDocumentSync,
   upsertFeishuExternalDataTableSync,
   validateFeishuResourceDescriptorForBinding,
@@ -68,6 +71,7 @@ import {
   type ExternalDataOperationRequest,
   type ExternalDataOperationResult,
   type FeishuDataOperationApprovalContext,
+  type FeishuAgentBotBinding,
   type FeishuApiClient,
   type FeishuApiRequest,
   type FeishuHealthCheckResult,
@@ -307,6 +311,40 @@ export interface FeishuIntegrationCreateCliInput {
   tenantKey?: string;
   createdByUserId?: string;
   appUrl?: string;
+}
+
+export interface FeishuAgentBotCliInput {
+  workspaceId: string;
+  agentId?: string;
+  integrationId?: string;
+  displayName?: string;
+  transportMode?: string;
+  appId?: string;
+  appSecret?: string;
+  verificationToken?: string;
+  encryptKey?: string;
+  tenantKey?: string;
+  actorUserId?: string;
+}
+
+export interface FeishuAgentBotCliResult {
+  ok: true;
+  kind: "agent_bot";
+  operation: "created" | "rotated" | "disabled";
+  workspaceId: string;
+  integrationId: string;
+  agentId: string;
+  displayName: string;
+  status: string;
+  transportMode: string;
+  appId: string;
+  tenantKeyConfigured: boolean;
+  credentials: {
+    hasAppSecret: boolean;
+    hasVerificationToken: boolean;
+    hasEncryptKey: boolean;
+  };
+  secretRedacted: true;
 }
 
 export interface FeishuBindingCliResult {
@@ -575,6 +613,13 @@ export async function runFeishuIntegrationCommand(args: string[], format: Output
     printFeishuIntegrationHelp();
     return 0;
   }
+  if (
+    (subcommand === "bind-agent-bot" || subcommand === "disable-agent-bot" || subcommand === "rotate-agent-bot-secret") &&
+    hasHelpFlag(parsed.flags)
+  ) {
+    printFeishuIntegrationHelp();
+    return 0;
+  }
   if (subcommand === "readiness" && hasHelpFlag(parsed.flags)) {
     printFeishuIntegrationHelp();
     return 0;
@@ -614,6 +659,9 @@ export async function runFeishuIntegrationCommand(args: string[], format: Output
   if (
     subcommand !== "worker" &&
     subcommand !== "create" &&
+    subcommand !== "bind-agent-bot" &&
+    subcommand !== "disable-agent-bot" &&
+    subcommand !== "rotate-agent-bot-secret" &&
     subcommand !== "readiness" &&
     subcommand !== "smoke-plan" &&
     subcommand !== "smoke-env" &&
@@ -679,6 +727,107 @@ export async function runFeishuIntegrationCommand(args: string[], format: Output
       return 0;
     } catch (error) {
       const report = buildFeishuCliCreateErrorReport(error);
+      if (!report) {
+        throw error;
+      }
+      writeData(format, report);
+      return 1;
+    }
+  }
+
+  if (subcommand === "bind-agent-bot") {
+    try {
+      const report = createFeishuAgentBotBindingForCli(buildFeishuAgentBotCliInputFromFlags({
+        workspaceId,
+        flags: parsed.flags,
+        actorUserId: createdByUserId,
+        env: readFeishuCreateCliEnv({
+          envFilePath: getStringFlag(parsed.flags, "env-file"),
+        }),
+      }));
+      writeData(format, report);
+      return 0;
+    } catch (error) {
+      const report = buildFeishuCliAgentBotErrorReport(error);
+      if (!report) {
+        throw error;
+      }
+      writeData(format, report);
+      return 1;
+    }
+  }
+
+  if (subcommand === "disable-agent-bot") {
+    try {
+      const report = disableFeishuAgentBotForCli({
+        workspaceId,
+        integrationId,
+        agentId: getStringFlag(parsed.flags, "agent") ?? getStringFlag(parsed.flags, "agent-id") ?? getStringFlag(parsed.flags, "agent-name"),
+        actorUserId: createdByUserId,
+      });
+      writeData(format, report);
+      return 0;
+    } catch (error) {
+      const report = buildFeishuCliAgentBotErrorReport(error);
+      if (!report) {
+        throw error;
+      }
+      writeData(format, report);
+      return 1;
+    }
+  }
+
+  if (subcommand === "rotate-agent-bot-secret") {
+    try {
+      const env = readFeishuCreateCliEnv({
+        envFilePath: getStringFlag(parsed.flags, "env-file"),
+      });
+      const report = rotateFeishuAgentBotCredentialsForCli({
+        workspaceId,
+        integrationId,
+        agentId: getStringFlag(parsed.flags, "agent") ?? getStringFlag(parsed.flags, "agent-id") ?? getStringFlag(parsed.flags, "agent-name"),
+        appId: validateOptionalFeishuAgentBotValue("app_id", readStringFlagOrEnv({
+          flags: parsed.flags,
+          flagKeys: ["app-id", "app_id"],
+          envFlagKeys: ["app-id-env", "app_id_env"],
+          defaultEnvNames: [],
+          env,
+        })),
+        appSecret: requireNonPlaceholderFeishuAgentBotValue("app_secret", requireStringFlagOrEnv({
+          flags: parsed.flags,
+          flagKeys: ["app-secret", "app_secret"],
+          envFlagKeys: ["app-secret-env", "app_secret_env"],
+          defaultEnvNames: ["FEISHU_APP_SECRET", "AGENT_SPACE_FEISHU_APP_SECRET"],
+          missingCode: "feishu.agent_bot_binding.missing_app_secret",
+          env,
+        })),
+        verificationToken: validateOptionalFeishuAgentBotValue("verification_token", readStringFlagOrEnv({
+          flags: parsed.flags,
+          flagKeys: ["verification-token", "verification_token"],
+          envFlagKeys: ["verification-token-env", "verification_token_env"],
+          defaultEnvNames: ["FEISHU_VERIFICATION_TOKEN", "AGENT_SPACE_FEISHU_VERIFICATION_TOKEN"],
+          env,
+        })),
+        encryptKey: validateOptionalFeishuAgentBotValue("encrypt_key", readStringFlagOrEnv({
+          flags: parsed.flags,
+          flagKeys: ["encrypt-key", "encrypt_key"],
+          envFlagKeys: ["encrypt-key-env", "encrypt_key_env"],
+          defaultEnvNames: ["FEISHU_ENCRYPT_KEY", "AGENT_SPACE_FEISHU_ENCRYPT_KEY"],
+          env,
+        })),
+        tenantKey: validateOptionalFeishuAgentBotValue("tenant_key", readStringFlagOrEnv({
+          flags: parsed.flags,
+          flagKeys: ["tenant-key", "tenant_key"],
+          envFlagKeys: ["tenant-key-env", "tenant_key_env"],
+          defaultEnvNames: [],
+          env,
+        })),
+        actorUserId: createdByUserId,
+      });
+      writeData(format, report);
+      return 0;
+    } catch (error) {
+      const report = buildFeishuCliAgentBotErrorReport(error);
       if (!report) {
         throw error;
       }
@@ -1031,6 +1180,86 @@ export function createFeishuIntegrationForCli(
   };
 }
 
+export function createFeishuAgentBotBindingForCli(
+  input: FeishuAgentBotCliInput,
+  deps: {
+    createBinding?: typeof createFeishuAgentBotBindingSync;
+  } = {},
+): FeishuAgentBotCliResult {
+  const createBinding = deps.createBinding ?? createFeishuAgentBotBindingSync;
+  const binding = createBinding({
+    workspaceId: input.workspaceId,
+    agentId: requireNonEmpty(input.agentId, "feishu.agent_bot_binding.missing_agent_id"),
+    displayName: normalizeOptionalText(input.displayName),
+    transportMode: parseFeishuAgentBotCliTransportMode(input.transportMode),
+    appId: requireNonEmpty(input.appId, "feishu.agent_bot_binding.missing_app_id"),
+    appSecret: requireNonEmpty(input.appSecret, "feishu.agent_bot_binding.missing_app_secret"),
+    tenantKey: normalizeOptionalText(input.tenantKey),
+    verificationToken: normalizeOptionalText(input.verificationToken),
+    encryptKey: normalizeOptionalText(input.encryptKey),
+    createdByUserId: normalizeOptionalText(input.actorUserId),
+  });
+  return buildFeishuAgentBotCliResult("created", binding);
+}
+
+export function rotateFeishuAgentBotCredentialsForCli(
+  input: FeishuAgentBotCliInput,
+  deps: {
+    rotateCredentials?: typeof rotateFeishuAgentBotCredentialsSync;
+  } = {},
+): FeishuAgentBotCliResult {
+  const rotateCredentials = deps.rotateCredentials ?? rotateFeishuAgentBotCredentialsSync;
+  const binding = rotateCredentials({
+    workspaceId: input.workspaceId,
+    integrationId: normalizeOptionalText(input.integrationId),
+    agentId: normalizeOptionalText(input.agentId),
+    appId: normalizeOptionalText(input.appId),
+    appSecret: requireNonEmpty(input.appSecret, "feishu.agent_bot_binding.missing_app_secret"),
+    tenantKey: normalizeOptionalText(input.tenantKey),
+    verificationToken: normalizeOptionalText(input.verificationToken),
+    encryptKey: normalizeOptionalText(input.encryptKey),
+    updatedByUserId: normalizeOptionalText(input.actorUserId),
+  });
+  return buildFeishuAgentBotCliResult("rotated", binding);
+}
+
+export function disableFeishuAgentBotForCli(
+  input: FeishuAgentBotCliInput,
+  deps: {
+    disableBinding?: typeof disableFeishuAgentBotBindingSync;
+  } = {},
+): FeishuAgentBotCliResult {
+  const disableBinding = deps.disableBinding ?? disableFeishuAgentBotBindingSync;
+  const binding = disableBinding({
+    workspaceId: input.workspaceId,
+    integrationId: normalizeOptionalText(input.integrationId),
+    agentId: normalizeOptionalText(input.agentId),
+    updatedByUserId: normalizeOptionalText(input.actorUserId),
+  });
+  return buildFeishuAgentBotCliResult("disabled", binding);
+}
+
+function buildFeishuAgentBotCliResult(
+  operation: FeishuAgentBotCliResult["operation"],
+  binding: FeishuAgentBotBinding,
+): FeishuAgentBotCliResult {
+  return {
+    ok: true,
+    kind: "agent_bot",
+    operation,
+    workspaceId: binding.workspaceId,
+    integrationId: binding.id,
+    agentId: binding.agentId,
+    displayName: binding.displayName,
+    status: binding.status,
+    transportMode: binding.transportMode,
+    appId: binding.appId,
+    tenantKeyConfigured: Boolean(binding.tenantKey),
+    credentials: summarizeFeishuStoredCredentials(binding),
+    secretRedacted: true,
+  };
+}
+
 export function buildFeishuCreateCliInputFromFlags(input: {
   workspaceId: string;
   flags: Record<string, string | boolean>;
@@ -1087,6 +1316,68 @@ export function buildFeishuCreateCliInputFromFlags(input: {
     tenantKey,
     createdByUserId: input.createdByUserId,
     appUrl: input.appUrl,
+  };
+}
+
+export function buildFeishuAgentBotCliInputFromFlags(input: {
+  workspaceId: string;
+  flags: Record<string, string | boolean>;
+  actorUserId?: string;
+  env?: Record<string, string | undefined>;
+}): FeishuAgentBotCliInput {
+  const agentId = requireNonPlaceholderFeishuAgentBotValue("agent_id", requireStringFlagValue({
+    flags: input.flags,
+    keys: ["agent", "agent-id", "agent-name"],
+    missingCode: "feishu.agent_bot_binding.missing_agent_id",
+  }));
+  const appId = requireNonPlaceholderFeishuAgentBotValue("app_id", requireStringFlagOrEnv({
+    flags: input.flags,
+    flagKeys: ["app-id", "app_id"],
+    envFlagKeys: ["app-id-env", "app_id_env"],
+    defaultEnvNames: ["FEISHU_APP_ID", "AGENT_SPACE_FEISHU_APP_ID"],
+    missingCode: "feishu.agent_bot_binding.missing_app_id",
+    env: input.env,
+  }));
+  const appSecret = requireNonPlaceholderFeishuAgentBotValue("app_secret", requireStringFlagOrEnv({
+    flags: input.flags,
+    flagKeys: ["app-secret", "app_secret"],
+    envFlagKeys: ["app-secret-env", "app_secret_env"],
+    defaultEnvNames: ["FEISHU_APP_SECRET", "AGENT_SPACE_FEISHU_APP_SECRET"],
+    missingCode: "feishu.agent_bot_binding.missing_app_secret",
+    env: input.env,
+  }));
+  const verificationToken = validateOptionalFeishuAgentBotValue("verification_token", readStringFlagOrEnv({
+    flags: input.flags,
+    flagKeys: ["verification-token", "verification_token"],
+    envFlagKeys: ["verification-token-env", "verification_token_env"],
+    defaultEnvNames: ["FEISHU_VERIFICATION_TOKEN", "AGENT_SPACE_FEISHU_VERIFICATION_TOKEN"],
+    env: input.env,
+  }));
+  const encryptKey = validateOptionalFeishuAgentBotValue("encrypt_key", readStringFlagOrEnv({
+    flags: input.flags,
+    flagKeys: ["encrypt-key", "encrypt_key"],
+    envFlagKeys: ["encrypt-key-env", "encrypt_key_env"],
+    defaultEnvNames: ["FEISHU_ENCRYPT_KEY", "AGENT_SPACE_FEISHU_ENCRYPT_KEY"],
+    env: input.env,
+  }));
+  const tenantKey = validateOptionalFeishuAgentBotValue("tenant_key", readStringFlagOrEnv({
+    flags: input.flags,
+    flagKeys: ["tenant-key", "tenant_key"],
+    envFlagKeys: ["tenant-key-env", "tenant_key_env"],
+    defaultEnvNames: ["FEISHU_TENANT_KEY", "AGENT_SPACE_FEISHU_TENANT_KEY"],
+    env: input.env,
+  }));
+  return {
+    workspaceId: input.workspaceId,
+    agentId,
+    displayName: getStringFlag(input.flags, "name") ?? getStringFlag(input.flags, "display-name"),
+    transportMode: getStringFlag(input.flags, "transport") ?? getStringFlag(input.flags, "mode") ?? "websocket_worker",
+    appId,
+    appSecret,
+    verificationToken,
+    encryptKey,
+    tenantKey,
+    actorUserId: input.actorUserId,
   };
 }
 
@@ -2337,6 +2628,20 @@ function requireCliIntegrationId(value: string | undefined): string {
   return requireNonEmpty(value, "feishu.integration.missing_integration_id");
 }
 
+function requireStringFlagValue(input: {
+  flags: Record<string, string | boolean>;
+  keys: string[];
+  missingCode: string;
+}): string {
+  for (const key of input.keys) {
+    const value = normalizeOptionalText(getStringFlag(input.flags, key));
+    if (value) {
+      return value;
+    }
+  }
+  throw new Error(input.missingCode);
+}
+
 function requireStringFlag(flags: Record<string, string | boolean>, key: string): string {
   return requireNonEmpty(getStringFlag(flags, key), `feishu.cli.missing_${key.replace(/-/g, "_")}`);
 }
@@ -2458,6 +2763,13 @@ function requireNonPlaceholderFeishuCreateValue(field: string, value: string): s
   return value;
 }
 
+function requireNonPlaceholderFeishuAgentBotValue(field: string, value: string): string {
+  if (isFeishuCliPlaceholderValue(value)) {
+    throw new Error(`feishu.agent_bot_binding.placeholder_value:${field}`);
+  }
+  return value;
+}
+
 function requireNonPlaceholderFeishuBindingValue(value: string, errorCode: string): string {
   if (isFeishuCliPlaceholderValue(value)) {
     throw new Error(errorCode);
@@ -2476,6 +2788,13 @@ function validateOptionalFeishuBindingValue(value: string | undefined, errorCode
 function validateOptionalFeishuCreateValue(field: string, value: string | undefined): string | undefined {
   if (value && isFeishuCreatePlaceholderValue(value)) {
     throw new Error(`feishu.create.placeholder_value:${field}`);
+  }
+  return value;
+}
+
+function validateOptionalFeishuAgentBotValue(field: string, value: string | undefined): string | undefined {
+  if (value && isFeishuCliPlaceholderValue(value)) {
+    throw new Error(`feishu.agent_bot_binding.placeholder_value:${field}`);
   }
   return value;
 }
@@ -2597,6 +2916,124 @@ function buildFeishuCliCreateErrorReport(error: unknown): FeishuCliErrorReport |
       ok: false,
       errorCode: "feishu.create.invalid_env_file",
       errorMessage: "Feishu create env file contains an unterminated quoted value.",
+    };
+  }
+
+  return undefined;
+}
+
+export function buildFeishuCliAgentBotErrorReport(error: unknown): FeishuCliErrorReport | undefined {
+  const message = error instanceof Error ? error.message : String(error);
+  switch (message) {
+    case "AGENT_SPACE_FEISHU_CREDENTIAL_ENCRYPTION_KEY is required to store Feishu credentials.":
+    case "feishu.agent_bot_binding.credential_encryption_key_missing":
+      return {
+        ok: false,
+        errorCode: "feishu.agent_bot_binding.credential_encryption_key_missing",
+        errorMessage: "AgentSpace credential encryption key is missing.",
+        nextStep: "export AGENT_SPACE_FEISHU_CREDENTIAL_ENCRYPTION_KEY=$(openssl rand -base64 32)",
+      };
+    case "AGENT_SPACE_FEISHU_CREDENTIAL_ENCRYPTION_KEY must be a base64-encoded 32-byte key.":
+    case "feishu.agent_bot_binding.credential_encryption_key_invalid":
+      return {
+        ok: false,
+        errorCode: "feishu.agent_bot_binding.credential_encryption_key_invalid",
+        errorMessage: "AgentSpace credential encryption key must be a base64-encoded 32-byte key.",
+        nextStep: "export AGENT_SPACE_FEISHU_CREDENTIAL_ENCRYPTION_KEY=$(openssl rand -base64 32)",
+      };
+    case "feishu.agent_bot_binding.duplicate_app_tenant":
+      return {
+        ok: false,
+        errorCode: message,
+        errorMessage: "This Feishu App ID and Tenant Key are already connected to an AgentSpace bot binding.",
+      };
+    case "feishu.agent_bot_binding.duplicate_agent":
+      return {
+        ok: false,
+        errorCode: message,
+        errorMessage: "This AgentSpace agent already has an active Feishu bot binding.",
+        nextStep: "Disable or rotate the existing agent bot binding instead of creating a second active binding.",
+      };
+    case "feishu.agent_bot_binding.missing_agent_id":
+      return {
+        ok: false,
+        errorCode: message,
+        errorMessage: "AgentSpace agent id or name is required.",
+        nextStep: "Set --agent <agent-id-or-name>.",
+      };
+    case "feishu.agent_bot_binding.missing_app_id":
+      return {
+        ok: false,
+        errorCode: message,
+        errorMessage: "Feishu App ID is required.",
+        nextStep: "Set --app-id or --app-id-env FEISHU_APP_ID.",
+      };
+    case "feishu.agent_bot_binding.missing_app_secret":
+      return {
+        ok: false,
+        errorCode: message,
+        errorMessage: "Feishu App Secret is required.",
+        nextStep: "Set --app-secret or --app-secret-env FEISHU_APP_SECRET.",
+      };
+    case "feishu.agent_bot_binding.missing_verification_token":
+      return {
+        ok: false,
+        errorCode: message,
+        errorMessage: "Feishu Verification Token is required for EventCallback mode.",
+        nextStep: "Use default WebSocket worker mode or set --verification-token.",
+      };
+    case "feishu.agent_bot_binding.invalid_transport_mode":
+      return {
+        ok: false,
+        errorCode: message,
+        errorMessage: "Feishu agent bot transport must be http_webhook or websocket_worker.",
+      };
+    case "feishu.agent_bot_binding.not_found":
+      return {
+        ok: false,
+        errorCode: message,
+        errorMessage: "Feishu agent bot binding was not found.",
+        nextStep: "Pass --agent <agent-id-or-name> or --integration <integration-id> for an existing agent bot binding.",
+      };
+  }
+
+  if (message.startsWith("feishu.cli.missing_env_value:")) {
+    const envName = message.slice("feishu.cli.missing_env_value:".length);
+    return {
+      ok: false,
+      errorCode: "feishu.agent_bot_binding.missing_env_value",
+      errorMessage: `Environment variable ${envName} is not set.`,
+      nextStep: `Set ${envName} or choose a different --*-env variable.`,
+    };
+  }
+  if (message.startsWith("feishu.agent_bot_binding.placeholder_value:")) {
+    const fieldName = message.slice("feishu.agent_bot_binding.placeholder_value:".length);
+    return {
+      ok: false,
+      errorCode: "feishu.agent_bot_binding.placeholder_value",
+      errorMessage: `Feishu agent bot input contains a placeholder value for ${fieldName}.`,
+      nextStep: `Replace ${fieldName} with the real value from Feishu Open Platform before binding the bot.`,
+    };
+  }
+  if (message.startsWith("feishu.cli.invalid_env_file_line:")) {
+    return {
+      ok: false,
+      errorCode: "feishu.agent_bot_binding.invalid_env_file",
+      errorMessage: "Feishu agent bot env file contains a line that is not KEY=value.",
+    };
+  }
+  if (message.startsWith("feishu.cli.invalid_env_name:")) {
+    return {
+      ok: false,
+      errorCode: "feishu.agent_bot_binding.invalid_env_file",
+      errorMessage: "Feishu agent bot env file contains an invalid environment variable name.",
+    };
+  }
+  if (message.startsWith("feishu.cli.invalid_env_file_quote:")) {
+    return {
+      ok: false,
+      errorCode: "feishu.agent_bot_binding.invalid_env_file",
+      errorMessage: "Feishu agent bot env file contains an unterminated quoted value.",
     };
   }
 
@@ -2810,6 +3247,18 @@ function parseFeishuCliTransportMode(value: string | undefined): ExternalIntegra
     return "websocket_worker";
   }
   throw new Error("feishu.create.invalid_transport_mode");
+}
+
+function parseFeishuAgentBotCliTransportMode(value: string | undefined): ExternalIntegrationTransportMode {
+  try {
+    return parseFeishuCliTransportMode(value ?? "websocket_worker");
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (message === "feishu.create.invalid_transport_mode") {
+      throw new Error("feishu.agent_bot_binding.invalid_transport_mode");
+    }
+    throw error;
+  }
 }
 
 function normalizeOptionalText(value: string | undefined): string | undefined {
@@ -5426,6 +5875,9 @@ function waitForShutdownSignal(): Promise<void> {
 function printFeishuIntegrationHelp(): void {
   console.log(`Usage:
   agent-space integrations feishu create --workspace-id <id> [--env-file scripts/feishu/.env] --app-id-env FEISHU_APP_ID --app-secret-env FEISHU_APP_SECRET --verification-token-env FEISHU_VERIFICATION_TOKEN [--encrypt-key-env FEISHU_ENCRYPT_KEY] [--tenant-key-env FEISHU_TENANT_KEY] [--name <name>] [--transport http_webhook|websocket_worker] [--app-url <url>] [--json]
+  agent-space integrations feishu bind-agent-bot --workspace-id <id> --agent <agent-id-or-name> [--env-file scripts/feishu/.env] --app-id-env FEISHU_APP_ID --app-secret-env FEISHU_APP_SECRET [--transport websocket_worker|http_webhook] [--verification-token-env FEISHU_VERIFICATION_TOKEN] [--encrypt-key-env FEISHU_ENCRYPT_KEY] [--tenant-key-env FEISHU_TENANT_KEY] [--json]
+  agent-space integrations feishu rotate-agent-bot-secret --workspace-id <id> (--agent <agent-id-or-name>|--integration <id>) [--env-file scripts/feishu/.env] --app-secret-env FEISHU_APP_SECRET [--app-id-env FEISHU_APP_ID] [--json]
+  agent-space integrations feishu disable-agent-bot --workspace-id <id> (--agent <agent-id-or-name>|--integration <id>) [--json]
   agent-space integrations feishu worker [--workspace-id <id>] [--integration <id>] [--limit <n>] [--base-url <url>] [--domain <host>] [--locked-by <id>] [--dry-run] [--include-webhook] [--drain-outbox|--once] [--json]
   agent-space integrations feishu readiness [--workspace-id <id>] [--integration <id>] [--strict] [--require bot|data-plane|worker] [--json]
   agent-space integrations feishu smoke-plan [--workspace-id <id>] [--integration <id>] [--app-url <url>] [--strict] [--require bot|data-plane|worker] [--json]
@@ -5441,15 +5893,16 @@ function printFeishuIntegrationHelp(): void {
 Options:
   --workspace-id <id>      AgentSpace workspace id; defaults to AGENT_SPACE_WORKSPACE_ID or default
   --integration <id>       Limit the worker or drain run to one Feishu integration
+  --agent <id-or-name>     Agent bot commands: AgentSpace agent id/name to bind to a Feishu bot
   --env-file <path>        Create: read FEISHU_* credentials from a local KEY=value file; process env wins
-  --app-id-env <name>      Create: read Feishu app id from an env var; defaults also check FEISHU_APP_ID
-  --app-secret-env <name>  Create: read Feishu app secret from an env var; defaults also check FEISHU_APP_SECRET
-  --verification-token-env <name> Create: read verification token from an env var; defaults also check FEISHU_VERIFICATION_TOKEN
-  --encrypt-key-env <name> Create: read encrypt key from an env var; defaults also check FEISHU_ENCRYPT_KEY
-  --app-id <id>            Create fallback for Feishu app id
-  --app-secret <secret>    Create fallback for Feishu app secret; env input is preferred
-  --verification-token <token> Create fallback for event verification token; env input is preferred
-  --encrypt-key <key>      Create fallback for event encrypt key; env input is preferred
+  --app-id-env <name>      Create/bind: read Feishu app id from an env var; defaults also check FEISHU_APP_ID
+  --app-secret-env <name>  Create/bind/rotate: read Feishu app secret from an env var; defaults also check FEISHU_APP_SECRET
+  --verification-token-env <name> Create/bind: read verification token from an env var; defaults also check FEISHU_VERIFICATION_TOKEN
+  --encrypt-key-env <name> Create/bind: read encrypt key from an env var; defaults also check FEISHU_ENCRYPT_KEY
+  --app-id <id>            Create/bind fallback for Feishu app id
+  --app-secret <secret>    Create/bind/rotate fallback for Feishu app secret; env input is preferred
+  --verification-token <token> Create/bind fallback for event verification token; env input is preferred
+  --encrypt-key <key>      Create/bind fallback for event encrypt key; env input is preferred
   --limit <n>              Outbox drain batch size; defaults to 50
   --base-url <url>         Feishu OpenAPI base URL; defaults to AGENT_SPACE_FEISHU_API_BASE_URL
   --app-url <url>          Public AgentSpace URL used by smoke-plan/smoke-env callback values
@@ -5471,7 +5924,10 @@ Options:
   --dry-run                Validate WebSocket worker config without opening live connections
   --include-webhook        Include http_webhook integrations in dry-run/start selection
   --drain-outbox, --once   Drain due Feishu outbox messages once without opening WebSocket connections
-  create                   Create an AgentSpace Feishu integration with encrypted credentials
+  create                   Create a workspace-level AgentSpace Feishu integration with encrypted credentials
+  bind-agent-bot           Bind one AgentSpace agent to one Feishu bot; default transport only needs App ID + App Secret
+  rotate-agent-bot-secret  Rotate an existing agent bot binding secret without exposing it in output
+  disable-agent-bot        Disable an existing agent bot binding
   readiness                Summarize local AgentSpace-side prerequisites for Feishu manual smoke
   smoke-plan               Generate the live Feishu manual smoke checklist from current local readiness
   smoke-env                Print a safe scripts/feishu/.env template with placeholders for secrets/resources

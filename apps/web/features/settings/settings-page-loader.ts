@@ -12,6 +12,7 @@ import { readPublicAppUrl } from "@/features/auth/public-app-url";
 import {
   buildFeishuIntegrationCreationGuide,
   canManageFeishuIntegrations,
+  listFeishuAvailableAgents,
   listFeishuAvailableChannels,
   listFeishuAvailableUsers,
   listFeishuIntegrationSettingsItems,
@@ -26,6 +27,7 @@ import {
 import type {
   SettingsChannelAccessRequestItem,
   SettingsChannelInvitationItem,
+  SettingsFeishuAvailableAgentItem,
   SettingsFeishuAvailableChannelItem,
   SettingsFeishuAvailableUserItem,
   SettingsFeishuIntegrationCreationGuide,
@@ -50,6 +52,7 @@ export interface SettingsPageData {
   invitations: SettingsWorkspaceInvitationItem[];
   channelAccessRequests: SettingsChannelAccessRequestItem[];
   channelInvitations: SettingsChannelInvitationItem[];
+  feishuAvailableAgents: SettingsFeishuAvailableAgentItem[];
   feishuAvailableChannels: SettingsFeishuAvailableChannelItem[];
   feishuAvailableUsers: SettingsFeishuAvailableUserItem[];
   feishuIntegrationCreationGuide?: SettingsFeishuIntegrationCreationGuide;
@@ -155,6 +158,11 @@ export function loadSettingsPageData(input: {
     feishuAvailableChannels: shouldLoadIntegrations
       ? canManageIntegrations
         ? listFeishuAvailableChannels({ workspaceId })
+        : []
+      : [],
+    feishuAvailableAgents: shouldLoadIntegrations
+      ? canManageIntegrations
+        ? listFeishuAvailableAgents({ workspaceId })
         : []
       : [],
     feishuAvailableUsers,

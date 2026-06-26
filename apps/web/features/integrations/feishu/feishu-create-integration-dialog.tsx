@@ -51,10 +51,13 @@ export function FeishuCreateIntegrationDialog({
   const setupSteps = creationGuide?.openPlatformSetupSteps ?? [];
 
   return (
-    <section className="page-panel">
+    <section
+      aria-label={tx("创建工作区级飞书集成", "Create Workspace-Level Feishu Integration")}
+      className="page-panel"
+    >
       <div className="panel-header">
         <div>
-          <h3>{tx("创建飞书集成", "Create Feishu Integration")}</h3>
+          <h3>{tx("创建工作区级飞书集成", "Create Workspace-Level Feishu Integration")}</h3>
           <p className="settings-panel-note">
             {tx("快速开始只需要飞书自建应用的 App ID 和 App Secret。", "Quick start only needs the self-built app App ID and App Secret.")}
           </p>

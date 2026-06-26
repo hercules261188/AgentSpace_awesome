@@ -142,6 +142,43 @@ export function translateSettingsActionError(error: unknown, tx: SettingsTx): st
         "请将飞书配置里的模板占位值替换为开放平台中的真实值。",
         "Replace Feishu setup placeholders with real values from the developer console.",
       );
+    case "feishu.agent_bot_binding.missing_agent_id":
+      return tx("请选择要绑定的 Agent。", "Select an agent to bind.");
+    case "feishu.agent_bot_binding.missing_app_id":
+      return tx("请填写飞书 Bot 的 App ID。", "Feishu bot App ID is required.");
+    case "feishu.agent_bot_binding.missing_app_secret":
+      return tx("请填写飞书 Bot 的 App Secret。", "Feishu bot App Secret is required.");
+    case "feishu.agent_bot_binding.missing_verification_token":
+      return tx("事件回调模式需要填写 Verification Token。", "Event callback mode requires a Verification Token.");
+    case "feishu.agent_bot_binding.invalid_transport_mode":
+      return tx("请选择有效的飞书 Bot 连接方式。", "Select a valid Feishu bot transport.");
+    case "feishu.agent_bot_binding.duplicate_agent":
+      return tx(
+        "这个 Agent 已经有一个启用中的飞书 Bot。",
+        "This agent already has an active Feishu bot.",
+      );
+    case "feishu.agent_bot_binding.duplicate_app_tenant":
+      return tx(
+        "这个飞书 App ID 和 Tenant Key 已经绑定到其他 Agent。",
+        "This Feishu App ID and Tenant Key are already bound to another agent.",
+      );
+    case "feishu.agent_bot_binding.not_found":
+      return tx("未找到该 Agent 的飞书 Bot 绑定。", "Feishu bot binding for this agent was not found.");
+    case "feishu.agent_bot_binding.placeholder_value":
+      return tx(
+        "请将飞书 Bot 配置里的模板占位值替换为开放平台中的真实值。",
+        "Replace Feishu bot setup placeholders with real values from the developer console.",
+      );
+    case "feishu.agent_bot_binding.credential_encryption_key_missing":
+      return tx(
+        "AgentSpace 未配置飞书凭据加密密钥。请设置 AGENT_SPACE_FEISHU_CREDENTIAL_ENCRYPTION_KEY。",
+        "AgentSpace is missing the Feishu credential encryption key. Set AGENT_SPACE_FEISHU_CREDENTIAL_ENCRYPTION_KEY.",
+      );
+    case "feishu.agent_bot_binding.credential_encryption_key_invalid":
+      return tx(
+        "AgentSpace 飞书凭据加密密钥无效。请使用 base64 编码的 32 字节密钥。",
+        "AgentSpace Feishu credential encryption key is invalid. Use a base64-encoded 32-byte key.",
+      );
     case "feishu.credentials_missing":
       return tx("飞书 App ID 或 App Secret 不完整。", "Feishu App ID or App Secret is incomplete.");
     case "feishu.channel_binding.missing_channel":

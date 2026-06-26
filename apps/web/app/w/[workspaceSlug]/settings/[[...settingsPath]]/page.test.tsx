@@ -26,11 +26,13 @@ const {
 
 const {
   mockBuildFeishuIntegrationCreationGuide,
+  mockListFeishuAvailableAgents,
   mockListFeishuAvailableChannels,
   mockListFeishuAvailableUsers,
   mockListFeishuIntegrationSettingsItems,
 } = vi.hoisted(() => ({
   mockBuildFeishuIntegrationCreationGuide: vi.fn(),
+  mockListFeishuAvailableAgents: vi.fn(),
   mockListFeishuAvailableChannels: vi.fn(),
   mockListFeishuAvailableUsers: vi.fn(),
   mockListFeishuIntegrationSettingsItems: vi.fn(),
@@ -88,6 +90,7 @@ vi.mock("@/features/integrations/feishu/feishu-settings-data", () => ({
   buildFeishuIntegrationCreationGuide: mockBuildFeishuIntegrationCreationGuide,
   canManageFeishuIntegrations: (role?: "owner" | "admin" | "member") =>
     role === undefined || role === "owner" || role === "admin",
+  listFeishuAvailableAgents: mockListFeishuAvailableAgents,
   listFeishuAvailableChannels: mockListFeishuAvailableChannels,
   listFeishuAvailableUsers: mockListFeishuAvailableUsers,
   listFeishuIntegrationSettingsItems: mockListFeishuIntegrationSettingsItems,
@@ -113,6 +116,7 @@ describe("workspace settings route", () => {
     mockListSessionsForUserSync.mockReset();
     mockListWorkspaceInvitationsSync.mockReset();
     mockListWorkspaceMemberUsersSync.mockReset();
+    mockListFeishuAvailableAgents.mockReset();
     mockListFeishuAvailableChannels.mockReset();
     mockListFeishuAvailableUsers.mockReset();
     mockListFeishuIntegrationSettingsItems.mockReset();
@@ -144,6 +148,7 @@ describe("workspace settings route", () => {
     mockListChannelInvitationsSync.mockReturnValue([]);
     mockListWorkspaceInvitationsSync.mockReturnValue([{ id: "invite-1" }]);
     mockListWorkspaceMemberUsersSync.mockReturnValue([{ userId: "user-1" }]);
+    mockListFeishuAvailableAgents.mockReturnValue([{ id: "Codex", name: "Codex", role: "Engineer" }]);
     mockListFeishuAvailableChannels.mockReturnValue([{ name: "general", kind: "group" }]);
     mockListFeishuAvailableUsers.mockReturnValue([{ userId: "user-1", displayName: "Mina", role: "owner" }]);
     mockListFeishuIntegrationSettingsItems.mockReturnValue([{ id: "feishu-1" }]);
@@ -275,6 +280,7 @@ describe("workspace settings route", () => {
 
     const data = getSettingsPageData(page);
     expect(data.initialSection).toBe("integrations");
+    expect(data.feishuAvailableAgents).toEqual([{ id: "Codex", name: "Codex", role: "Engineer" }]);
     expect(data.feishuAvailableChannels).toEqual([{ name: "general", kind: "group" }]);
     expect(data.feishuAvailableUsers).toEqual([{ userId: "user-1", displayName: "Mina", role: "owner" }]);
     expect(data.feishuIntegrationCreationGuide).toEqual({
@@ -296,6 +302,9 @@ describe("workspace settings route", () => {
     expect(data.invitations).toEqual([]);
     expect(data.sessions).toEqual([]);
     expect(mockListFeishuAvailableChannels).toHaveBeenCalledWith({
+      workspaceId: "workspace-mars",
+    });
+    expect(mockListFeishuAvailableAgents).toHaveBeenCalledWith({
       workspaceId: "workspace-mars",
     });
     expect(mockListFeishuAvailableUsers).toHaveBeenCalledWith({

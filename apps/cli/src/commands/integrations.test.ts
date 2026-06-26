@@ -7,11 +7,16 @@ import test from "node:test";
 import {
   buildFeishuEvidenceReport,
   buildFeishuReadinessReport,
+  buildFeishuAgentBotCliInputFromFlags,
   buildFeishuCreateCliInputFromFlags,
   buildFeishuCliDataOperationParameters,
   buildFeishuCliBindingErrorReport,
+  buildFeishuCliAgentBotErrorReport,
+  createFeishuAgentBotBindingForCli,
   createFeishuIntegrationForCli,
+  disableFeishuAgentBotForCli,
   readFeishuCreateCliEnv,
+  rotateFeishuAgentBotCredentialsForCli,
   createFeishuChannelBindingForCli,
   createFeishuResourceBindingForCli,
   createFeishuUserBindingForCli,
@@ -51,6 +56,9 @@ test("integrations help documents Feishu worker deployment controls", async () =
 
   assert.match(output, /integrations feishu worker/);
   assert.match(output, /integrations feishu create/);
+  assert.match(output, /integrations feishu bind-agent-bot/);
+  assert.match(output, /integrations feishu rotate-agent-bot-secret/);
+  assert.match(output, /integrations feishu disable-agent-bot/);
   assert.match(output, /integrations feishu readiness/);
   assert.match(output, /integrations feishu smoke-plan/);
   assert.match(output, /integrations feishu smoke-env/);
@@ -96,6 +104,9 @@ test("feishu worker --help prints usage without starting the worker", async () =
   assert.match(output, /Usage:/);
   assert.match(output, /agent-space integrations feishu worker/);
   assert.match(output, /agent-space integrations feishu create/);
+  assert.match(output, /agent-space integrations feishu bind-agent-bot/);
+  assert.match(output, /agent-space integrations feishu rotate-agent-bot-secret/);
+  assert.match(output, /agent-space integrations feishu disable-agent-bot/);
   assert.match(output, /agent-space integrations feishu readiness/);
   assert.match(output, /agent-space integrations feishu smoke-plan/);
   assert.match(output, /agent-space integrations feishu smoke-env/);
@@ -110,7 +121,8 @@ test("feishu worker --help prints usage without starting the worker", async () =
   assert.match(output, /Refresh saved Feishu health/);
   assert.match(output, /AgentSpace-side Feishu live smoke evidence/);
   assert.match(output, /health-check: require all healthy/);
-  assert.match(output, /Create an AgentSpace Feishu integration with encrypted credentials/);
+  assert.match(output, /Create a workspace-level AgentSpace Feishu integration with encrypted credentials/);
+  assert.match(output, /Bind one AgentSpace agent to one Feishu bot/);
   assert.match(output, /Validate WebSocket worker config/);
   assert.match(output, /live Feishu manual smoke checklist/);
   assert.match(output, /safe scripts\/feishu\/\.env template/);
@@ -275,6 +287,143 @@ test("Feishu create CLI stores encrypted credentials and returns redacted setup 
   assert.match(serialized, /eventCallbackPath/);
   assert.match(serialized, /im:message/);
   assert.match(serialized, /bitable:app/);
+});
+
+test("Feishu agent bot CLI defaults to websocket worker and redacts credentials", () => {
+  const input = buildFeishuAgentBotCliInputFromFlags({
+    workspaceId: "workspace-1",
+    flags: {
+      "agent": "Codex",
+      "app-id": "cli_codex_bot",
+      "app-secret": "secret_codex_bot",
+    },
+    actorUserId: "admin-1",
+    env: {},
+  });
+  const createInputs: unknown[] = [];
+
+  const report = createFeishuAgentBotBindingForCli(input, {
+    createBinding: (createInput) => {
+      createInputs.push(createInput);
+      return buildIntegrationRecord({
+        id: "agent-bot-codex",
+        displayName: createInput.displayName ?? "Codex Feishu Bot",
+        transportMode: createInput.transportMode,
+        agentId: createInput.agentId,
+        appId: createInput.appId,
+        tenantKey: createInput.tenantKey,
+        encryptedCredentialsJson: JSON.stringify({ appSecret: "encrypted-app-secret" }),
+      });
+    },
+  });
+
+  assert.equal(input.transportMode, "websocket_worker");
+  assert.equal(report.kind, "agent_bot");
+  assert.equal(report.operation, "created");
+  assert.equal(report.integrationId, "agent-bot-codex");
+  assert.equal(report.agentId, "Codex");
+  assert.equal(report.transportMode, "websocket_worker");
+  assert.deepEqual(report.credentials, {
+    hasAppSecret: true,
+    hasVerificationToken: false,
+    hasEncryptKey: false,
+  });
+  assert.equal(report.secretRedacted, true);
+  assert.doesNotMatch(JSON.stringify(report), /secret_codex_bot/);
+  assert.deepEqual(createInputs, [{
+    workspaceId: "workspace-1",
+    agentId: "Codex",
+    displayName: undefined,
+    transportMode: "websocket_worker",
+    appId: "cli_codex_bot",
+    appSecret: "secret_codex_bot",
+    tenantKey: undefined,
+    verificationToken: undefined,
+    encryptKey: undefined,
+    createdByUserId: "admin-1",
+  }]);
+});
+
+test("Feishu agent bot CLI rotates and disables existing bindings", () => {
+  const rotated = rotateFeishuAgentBotCredentialsForCli({
+    workspaceId: "workspace-1",
+    integrationId: "agent-bot-codex",
+    agentId: "Codex",
+    appSecret: "second-secret",
+  }, {
+    rotateCredentials: (input) => {
+      assert.deepEqual(input, {
+        workspaceId: "workspace-1",
+        integrationId: "agent-bot-codex",
+        agentId: "Codex",
+        appId: undefined,
+        appSecret: "second-secret",
+        tenantKey: undefined,
+        verificationToken: undefined,
+        encryptKey: undefined,
+        updatedByUserId: undefined,
+      });
+      return buildIntegrationRecord({
+        id: "agent-bot-codex",
+        displayName: "Codex Feishu Bot",
+        transportMode: "websocket_worker",
+        agentId: "Codex",
+        appId: "cli_codex_bot",
+        encryptedCredentialsJson: JSON.stringify({ appSecret: "encrypted-second-secret" }),
+      });
+    },
+  });
+  const disabled = disableFeishuAgentBotForCli({
+    workspaceId: "workspace-1",
+    agentId: "Codex",
+  }, {
+    disableBinding: (input) => {
+      assert.deepEqual(input, {
+        workspaceId: "workspace-1",
+        integrationId: undefined,
+        agentId: "Codex",
+        updatedByUserId: undefined,
+      });
+      return buildIntegrationRecord({
+        id: "agent-bot-codex",
+        displayName: "Codex Feishu Bot",
+        status: "disabled",
+        transportMode: "websocket_worker",
+        agentId: "Codex",
+        appId: "cli_codex_bot",
+        encryptedCredentialsJson: JSON.stringify({ appSecret: "encrypted-second-secret" }),
+      });
+    },
+  });
+
+  assert.equal(rotated.operation, "rotated");
+  assert.equal(rotated.secretRedacted, true);
+  assert.equal(disabled.operation, "disabled");
+  assert.equal(disabled.status, "disabled");
+});
+
+test("Feishu agent bot CLI reports placeholders and duplicate ownership", () => {
+  assert.throws(() => buildFeishuAgentBotCliInputFromFlags({
+    workspaceId: "workspace-1",
+    flags: {
+      "agent": "Codex",
+      "app-id": "CHANGE_ME_APP_ID",
+      "app-secret": "secret",
+    },
+    env: {},
+  }), /feishu\.agent_bot_binding\.placeholder_value:app_id/);
+  assert.deepEqual(buildFeishuCliAgentBotErrorReport(new Error("feishu.agent_bot_binding.duplicate_agent")), {
+    ok: false,
+    errorCode: "feishu.agent_bot_binding.duplicate_agent",
+    errorMessage: "This AgentSpace agent already has an active Feishu bot binding.",
+    nextStep: "Disable or rotate the existing agent bot binding instead of creating a second active binding.",
+  });
+  assert.deepEqual(buildFeishuCliAgentBotErrorReport(new Error("feishu.agent_bot_binding.placeholder_value:app_id")), {
+    ok: false,
+    errorCode: "feishu.agent_bot_binding.placeholder_value",
+    errorMessage: "Feishu agent bot input contains a placeholder value for app_id.",
+    nextStep: "Replace app_id with the real value from Feishu Open Platform before binding the bot.",
+  });
 });
 
 test("Feishu create CLI normalizes setup errors before writing integration state", () => {

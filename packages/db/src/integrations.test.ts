@@ -25,6 +25,7 @@ import {
   markExternalMessageOutboxLockedSync,
   readExternalChannelBindingByExternalChatSync,
   readExternalDataOperationRunSync,
+  readExternalIntegrationByAgentSync,
   readExternalMessageMappingByExternalMessageSync,
   readExternalResourceBindingByKeySync,
   readExternalUserBindingByExternalUserSync,
@@ -32,6 +33,7 @@ import {
   updateExternalDataOperationRunStatusSync,
   updateExternalIntegrationCredentialsSync,
   updateExternalIntegrationEventStatusSync,
+  updateExternalIntegrationStatusSync,
   upsertExternalChannelBindingSync,
   upsertExternalResourceBindingSync,
   upsertExternalUserBindingSync,
@@ -176,6 +178,73 @@ test("external integrations are unique by workspace provider tenant and app", {
   assert.equal(updated.tenantKey, undefined);
   assert.equal(differentTenant.tenantKey, "tenant-2");
   assert.equal(emptyTenant.tenantKey, undefined);
+});
+
+test("external integrations can be scoped to agent bot bindings", {
+  skip: runIntegrationDbTests
+    ? false
+    : "Set AGENT_SPACE_DB_INTEGRATIONS_TESTS=1 with AGENT_SPACE_TEST_DATABASE_URL to run external integration DB tests.",
+}, () => {
+  const workspace = createWorkspaceSync({
+    slug: "integrations-agent-bots",
+    name: "Integrations Agent Bots",
+    createdBy: "system",
+  });
+  const codexBot = createExternalIntegrationSync({
+    workspaceId: workspace.id,
+    provider: "feishu",
+    displayName: "Codex Feishu Bot",
+    transportMode: "websocket_worker",
+    agentId: " Codex ",
+    appId: "codex_bot_app",
+  });
+  const workspaceLevel = createExternalIntegrationSync({
+    workspaceId: workspace.id,
+    provider: "feishu",
+    displayName: "Workspace Feishu",
+    transportMode: "http_webhook",
+    appId: "workspace_app",
+  });
+
+  assert.equal(codexBot.agentId, "Codex");
+  assert.equal(readExternalIntegrationByAgentSync({
+    workspaceId: workspace.id,
+    provider: "feishu",
+    agentId: "Codex",
+  })?.id, codexBot.id);
+  assert.deepEqual(listExternalIntegrationsSync({
+    workspaceId: workspace.id,
+    provider: "feishu",
+    scope: "agent",
+  }).map((integration) => integration.id), [codexBot.id]);
+  assert.deepEqual(listExternalIntegrationsSync({
+    workspaceId: workspace.id,
+    provider: "feishu",
+    scope: "workspace",
+  }).map((integration) => integration.id), [workspaceLevel.id]);
+  assert.throws(() => createExternalIntegrationSync({
+    workspaceId: workspace.id,
+    provider: "feishu",
+    displayName: "Codex Feishu Bot Duplicate",
+    transportMode: "websocket_worker",
+    agentId: "Codex",
+    appId: "codex_bot_app_2",
+  }), /External integration agent is already connected/);
+
+  updateExternalIntegrationStatusSync({
+    workspaceId: workspace.id,
+    integrationId: codexBot.id,
+    status: "disabled",
+  });
+  const replacement = createExternalIntegrationSync({
+    workspaceId: workspace.id,
+    provider: "feishu",
+    displayName: "Codex Feishu Bot Replacement",
+    transportMode: "websocket_worker",
+    agentId: "Codex",
+    appId: "codex_bot_app_3",
+  });
+  assert.equal(replacement.agentId, "Codex");
 });
 
 test("external user bindings are unique by AgentSpace user and Feishu user", {

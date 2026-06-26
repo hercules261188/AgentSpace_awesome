@@ -34,6 +34,7 @@ import type {
   SettingsSessionItem,
   SettingsChannelAccessRequestItem,
   SettingsChannelInvitationItem,
+  SettingsFeishuAvailableAgentItem,
   SettingsFeishuAvailableChannelItem,
   SettingsFeishuAvailableUserItem,
   SettingsFeishuIntegrationCreationGuide,
@@ -70,6 +71,7 @@ export function SettingsPageClient({
   invitations = [],
   channelAccessRequests = [],
   channelInvitations = [],
+  feishuAvailableAgents = [],
   feishuAvailableChannels = [],
   feishuAvailableUsers = [],
   feishuIntegrationCreationGuide,
@@ -93,6 +95,7 @@ export function SettingsPageClient({
   invitations?: SettingsWorkspaceInvitationItem[];
   channelAccessRequests?: SettingsChannelAccessRequestItem[];
   channelInvitations?: SettingsChannelInvitationItem[];
+  feishuAvailableAgents?: SettingsFeishuAvailableAgentItem[];
   feishuAvailableChannels?: SettingsFeishuAvailableChannelItem[];
   feishuAvailableUsers?: SettingsFeishuAvailableUserItem[];
   feishuIntegrationCreationGuide?: SettingsFeishuIntegrationCreationGuide;
@@ -237,6 +240,7 @@ export function SettingsPageClient({
 
           {resolvedActiveSection === "integrations" ? (
             <SettingsIntegrationsSection
+              availableAgents={feishuAvailableAgents}
               availableChannels={feishuAvailableChannels}
               availableUsers={feishuAvailableUsers}
               currentMembershipRole={currentMembershipRole}
