@@ -2120,6 +2120,10 @@ test("Feishu smoke-env template prepares callback smoke without leaking saved se
   assert.equal(readSmokeEnvEntry(report, "FEISHU_VERIFICATION_TOKEN")?.value, "CHANGE_ME_FEISHU_VERIFICATION_TOKEN");
   assert.equal(readSmokeEnvEntry(report, "FEISHU_ENCRYPT_KEY")?.secret, true);
   assert.equal(readSmokeEnvEntry(report, "FEISHU_ENCRYPT_KEY")?.required, false);
+  assert.equal(readSmokeEnvEntry(report, "FEISHU_SECOND_AGENT_APP_ID")?.value, "CHANGE_ME_SECOND_AGENT_APP_ID");
+  assert.equal(readSmokeEnvEntry(report, "FEISHU_SECOND_AGENT_APP_ID")?.required, false);
+  assert.equal(readSmokeEnvEntry(report, "FEISHU_SECOND_AGENT_APP_SECRET")?.secret, true);
+  assert.equal(readSmokeEnvEntry(report, "FEISHU_SECOND_AGENT_APP_SECRET")?.required, false);
   assert.equal(readSmokeEnvEntry(report, "FEISHU_SMOKE_DOC_PARENT_BLOCK_ID")?.required, true);
   assert.equal(readSmokeEnvEntry(report, "FEISHU_SMOKE_DOC_APPEND_BLOCKS_JSON")?.required, true);
   assert.equal(readSmokeEnvEntry(report, "FEISHU_SMOKE_SHEET_RANGE")?.required, false);
@@ -2130,6 +2134,8 @@ test("Feishu smoke-env template prepares callback smoke without leaking saved se
   const output = formatFeishuSmokeEnvCommandText(report);
   assert.equal(output.stderr, undefined);
   assert.match(output.stdout ?? "", /FEISHU_SMOKE_CALLBACK_URL=https:\/\/agentspace\.test/);
+  assert.match(output.stdout ?? "", /FEISHU_SECOND_AGENT_APP_ID=CHANGE_ME_SECOND_AGENT_APP_ID/);
+  assert.match(output.stdout ?? "", /# secret: FEISHU_SECOND_AGENT_APP_SECRET/);
 
   const serialized = JSON.stringify(report);
   assert.equal(serialized.includes("encrypted-app-secret-marker"), false);

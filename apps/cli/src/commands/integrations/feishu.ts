@@ -4007,6 +4007,22 @@ export function buildFeishuSmokeEnvTemplateReport(
         note: "Use when Feishu event encryption is enabled; create can read it via --encrypt-key-env.",
       },
       {
+        key: "FEISHU_SECOND_AGENT_APP_ID",
+        value: "CHANGE_ME_SECOND_AGENT_APP_ID",
+        secret: false,
+        required: false,
+        source: "placeholder",
+        note: "Optional TODO120 multi-agent smoke: second disposable Feishu app id for another AgentSpace agent.",
+      },
+      {
+        key: "FEISHU_SECOND_AGENT_APP_SECRET",
+        value: "CHANGE_ME_SECOND_AGENT_APP_SECRET",
+        secret: true,
+        required: false,
+        source: "placeholder",
+        note: "Optional TODO120 multi-agent smoke: second Feishu app secret used by bind-agent-bot.",
+      },
+      {
         key: "FEISHU_API_BASE_URL",
         value: process.env.AGENT_SPACE_FEISHU_API_BASE_URL?.trim() || "https://open.feishu.cn",
         secret: false,
