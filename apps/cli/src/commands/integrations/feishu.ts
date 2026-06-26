@@ -4780,12 +4780,8 @@ function buildFeishuIntegrationEvidence(input: {
   threadBindings: ExternalThreadBindingRecord[];
   dataOperations: ExternalDataOperationRunRecord[];
 }): FeishuIntegrationEvidence {
-  const processedInboundEvents = input.events.filter((event) =>
-    event.eventType === "im.message.receive_v1" && event.status === "processed"
-  ).length;
-  const processedApprovalCardActions = input.events.filter((event) =>
-    isFeishuApprovalCardActionEventType(event.eventType) && event.status === "processed"
-  ).length;
+  const processedInboundEvents = countFeishuProcessedInboundMessageEvents(input.events);
+  const processedApprovalCardActions = countFeishuProcessedApprovalCardActionEvents(input.events);
   const failedEvents = input.events.filter((event) => event.status === "failed").length;
   const inboundMessageMappings = input.messageMappings.filter((mapping) => mapping.direction === "inbound").length;
   const outboundMessageMappings = input.messageMappings.filter((mapping) => mapping.direction === "outbound").length;
@@ -5300,11 +5296,69 @@ function hasNoFeishuUserIdentity(metadata: Record<string, unknown>): boolean {
   return !hasNonEmptyString(metadata.userId) && !hasNonEmptyString(metadata.actorUserId);
 }
 
+function hasFeishuSafeInboundMessageContext(metadata: Record<string, unknown> | undefined): metadata is Record<string, unknown> {
+  return hasNonEmptyString(metadata?.externalChatReference) &&
+    hasNonEmptyString(metadata?.externalThreadReference);
+}
+
+function countFeishuProcessedInboundMessageEvents(events: ExternalIntegrationEventRecord[]): number {
+  return events.filter((event) => {
+    if (event.eventType !== "im.message.receive_v1" || event.status !== "processed") {
+      return false;
+    }
+    const payload = readJsonRecord(event.payloadJson);
+    if (
+      payload?.provider !== FEISHU_PROVIDER_ID ||
+      payload.rawPayloadStored !== false ||
+      !hasNonEmptyString(payload.payloadHash) ||
+      !hasNonEmptyString(payload.externalEventReference) ||
+      payload.externalEventIdRedacted !== true
+    ) {
+      return false;
+    }
+    const message = isRecord(payload.message) ? payload.message : undefined;
+    const sender = isRecord(payload.sender) ? payload.sender : undefined;
+    return hasNonEmptyString(message?.messageReference) &&
+      message?.messageIdRedacted === true &&
+      !hasNonEmptyString(message?.messageId) &&
+      hasNonEmptyString(message?.chatReference) &&
+      message?.chatIdRedacted === true &&
+      !hasNonEmptyString(message?.chatId) &&
+      !hasNonEmptyString(message?.threadId) &&
+      hasNonEmptyString(sender?.openIdReference) &&
+      sender?.openIdRedacted === true &&
+      !hasNonEmptyString(sender?.openId) &&
+      !hasNonEmptyString(sender?.unionId) &&
+      !hasNonEmptyString(sender?.userId);
+  }).length;
+}
+
 function isFeishuApprovalCardActionEventType(eventType: string): boolean {
   const normalized = eventType.trim().toLowerCase();
   return normalized === "card.action.trigger" ||
     normalized === "im.message.message_card.action_v1" ||
     normalized === "message_card.action";
+}
+
+function countFeishuProcessedApprovalCardActionEvents(events: ExternalIntegrationEventRecord[]): number {
+  return events.filter((event) => {
+    if (!isFeishuApprovalCardActionEventType(event.eventType) || event.status !== "processed") {
+      return false;
+    }
+    const payload = readJsonRecord(event.payloadJson);
+    if (!payload || readStringMetadata(payload.provider) !== FEISHU_PROVIDER_ID || payload.rawPayloadStored !== false) {
+      return false;
+    }
+    const approvalCardAction = isRecord(payload.approvalCardAction) ? payload.approvalCardAction : undefined;
+    const decision = readStringMetadata(approvalCardAction?.decision)?.toLowerCase();
+    return readStringMetadata(approvalCardAction?.provider) === FEISHU_PROVIDER_ID &&
+      readStringMetadata(approvalCardAction?.kind) === "data_operation_approval" &&
+      hasNonEmptyString(approvalCardAction?.approvalId) &&
+      hasNonEmptyString(approvalCardAction?.payloadHash) &&
+      (decision === "approved" || decision === "rejected") &&
+      approvalCardAction?.tokenStored === false &&
+      approvalCardAction?.rawActionPayloadStored === false;
+  }).length;
 }
 
 function readJsonRecord(value: string): Record<string, unknown> | undefined {
@@ -5892,6 +5946,7 @@ function countFeishuAgentBotRouteEvidence(
     const metadata = readJsonRecord(mapping.metadataJson);
     return metadata?.provider === FEISHU_PROVIDER_ID &&
       metadata.dispatchStatus === "sent" &&
+      hasFeishuSafeInboundMessageContext(metadata) &&
       metadata.agentBotMentioned === true &&
       typeof metadata.agentId === "string" &&
       metadata.agentId.trim().length > 0 &&
@@ -5912,6 +5967,7 @@ function countFeishuNativeActorMentionEvidence(
     if (
       metadata?.provider !== FEISHU_PROVIDER_ID ||
       metadata.dispatchStatus !== "sent" ||
+      !hasFeishuSafeInboundMessageContext(metadata) ||
       metadata.agentBotMentioned !== true ||
       metadata.actorType !== actorType ||
       typeof metadata.agentId !== "string" ||
@@ -5954,8 +6010,7 @@ function countFeishuAgentChannelPolicyDeniedEvidence(
       metadata.agentId.trim().length > 0 &&
       typeof metadata.botBindingId === "string" &&
       metadata.botBindingId.trim().length > 0 &&
-      typeof metadata.externalChatReference === "string" &&
-      metadata.externalChatReference.trim().length > 0 &&
+      hasFeishuSafeInboundMessageContext(metadata) &&
       metadata.agentBotMentioned === true &&
       Boolean(reasonCode && policyDenialReasonCodes.has(reasonCode)) &&
       !hasFeishuCorrelatedOutboundReply(mappings, mapping);
@@ -5998,8 +6053,7 @@ function countFeishuBotSenderLoopGuardEvidence(
       metadata.agentId.trim().length > 0 &&
       typeof metadata.botBindingId === "string" &&
       metadata.botBindingId.trim().length > 0 &&
-      typeof metadata.externalChatReference === "string" &&
-      metadata.externalChatReference.trim().length > 0 &&
+      hasFeishuSafeInboundMessageContext(metadata) &&
       !hasFeishuCorrelatedOutboundReply(mappings, mapping);
   }).length;
 }
@@ -6029,8 +6083,7 @@ function countFeishuExternalGuestPolicyEvidence(
       metadata.externalGuestPolicyDecision !== input.decision ||
       typeof metadata.externalGuestReference !== "string" ||
       metadata.externalGuestReference.trim().length === 0 ||
-      typeof metadata.externalChatReference !== "string" ||
-      metadata.externalChatReference.trim().length === 0 ||
+      !hasFeishuSafeInboundMessageContext(metadata) ||
       typeof metadata.externalGuestPermissionProfile !== "string" ||
       metadata.externalGuestPermissionProfile.trim().length === 0 ||
       !hasNoFeishuUserIdentity(metadata) ||
@@ -6078,8 +6131,7 @@ function countFeishuExternalGuestReplyAllEvidence(
       metadata.externalGuestPolicyReasonCode === "feishu_external_guest_allowed" &&
       metadata.externalGuestUnboundUserMode === "reply_all" &&
       metadata.agentBotMentioned === false &&
-      typeof metadata.externalChatReference === "string" &&
-      metadata.externalChatReference.trim().length > 0 &&
+      hasFeishuSafeInboundMessageContext(metadata) &&
       typeof metadata.externalGuestReference === "string" &&
       metadata.externalGuestReference.trim().length > 0 &&
       typeof metadata.externalGuestPermissionProfile === "string" &&
@@ -6112,7 +6164,7 @@ function countFeishuIdentityBindingNoticeEvidence(
       !hasNoFeishuUserIdentity(metadata) ||
       !hasNonEmptyString(metadata.agentId) ||
       !hasNonEmptyString(metadata.botBindingId) ||
-      !hasNonEmptyString(metadata.externalChatReference)
+      !hasFeishuSafeInboundMessageContext(metadata)
     ) {
       return false;
     }

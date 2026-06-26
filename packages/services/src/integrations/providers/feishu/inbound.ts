@@ -1577,6 +1577,7 @@ function createFeishuInboundMapping(input: {
       provider: FEISHU_PROVIDER_ID,
       eventType: input.message.eventType,
       externalChatReference: shortHash(input.message.externalChatId),
+      externalThreadReference: buildFeishuInboundSafeThreadReference(input.message),
       mappedChannelName: input.mappedChannelName,
       userId: input.userId,
       actorType: input.actorType ?? (input.userId ? "user" : undefined),
@@ -1604,6 +1605,11 @@ function createFeishuInboundMapping(input: {
 
 function shortHash(value: string): string {
   return createHash("sha256").update(value).digest("hex").slice(0, 16);
+}
+
+function buildFeishuInboundSafeThreadReference(message: ExternalMessageEnvelope): string | undefined {
+  const targetExternalMessageId = resolveFeishuInboundReplyTargetExternalMessageId(message);
+  return targetExternalMessageId ? shortHash(targetExternalMessageId) : undefined;
 }
 
 function resolveRoutedFeishuText(input: {

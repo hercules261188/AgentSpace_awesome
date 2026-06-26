@@ -178,20 +178,29 @@ test("bound Feishu messages enter the AgentSpace channel message and task queue 
     rawPayloadStored?: boolean;
     contentRedacted?: boolean;
     payloadHash?: string;
+    externalEventReference?: string;
+    externalEventIdRedacted?: boolean;
     message?: {
-      messageId?: string;
-      chatId?: string;
+      messageReference?: string;
+      messageIdRedacted?: boolean;
+      chatReference?: string;
+      chatIdRedacted?: boolean;
       contentLength?: number;
       contentHash?: string;
     };
   };
   assert.equal(payloadSummary.rawPayloadStored, false);
   assert.equal(payloadSummary.contentRedacted, true);
-  assert.equal(payloadSummary.message?.messageId, "om-bound-1");
-  assert.equal(payloadSummary.message?.chatId, "oc_general");
+  assert.match(payloadSummary.externalEventReference ?? "", /^event [a-f0-9]{16}$/);
+  assert.equal(payloadSummary.externalEventIdRedacted, true);
+  assert.match(payloadSummary.message?.messageReference ?? "", /^message [a-f0-9]{16}$/);
+  assert.equal(payloadSummary.message?.messageIdRedacted, true);
+  assert.match(payloadSummary.message?.chatReference ?? "", /^chat [a-f0-9]{16}$/);
+  assert.equal(payloadSummary.message?.chatIdRedacted, true);
   assert.ok((payloadSummary.message?.contentLength ?? 0) > 0);
   assert.match(payloadSummary.message?.contentHash ?? "", /^[a-f0-9]{64}$/);
   assert.match(payloadSummary.payloadHash ?? "", /^[a-f0-9]{64}$/);
+  assert.doesNotMatch(event.payloadJson, /evt-bound-1|om-bound-1|oc_general/);
   assert.doesNotMatch(event.payloadJson, /summarize this/);
   assert.doesNotMatch(event.payloadJson, /AgentSpaceBot/);
 

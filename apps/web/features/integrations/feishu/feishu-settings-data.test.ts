@@ -49,11 +49,11 @@ vi.mock("@agent-space/services", () => ({
   ],
   FEISHU_EVENT_CALLBACK_PATH: "/api/integrations/feishu/events",
   FEISHU_FINAL_EVIDENCE_GATE_REQUIREMENTS: {
-    botReply: "processed_inbound + same_agent_bot_correlated_reply_mapping",
-    nativeAgentBot: "direct_agent_bot_route + bound_user_bot_mention + external_guest_bot_mention + bot_added_auto_provision_with_channel_identity_review_state + first_message_auto_provision_with_channel_identity_review_state + multi_agent_channel_reuse_distinct_binding + thread_task_binding + thread_continuation_without_remention_active_binding + thread_collaboration + bot_sender_loop_guard_without_reply + agent_channel_policy_denial_without_reply",
+    botReply: "processed_inbound_with_safe_summary + same_agent_bot_correlated_reply_mapping",
+    nativeAgentBot: "direct_agent_bot_route_with_safe_context + bound_user_bot_mention_with_safe_context + external_guest_bot_mention_with_safe_context + bot_added_auto_provision_with_channel_identity_review_state + first_message_auto_provision_with_channel_identity_review_state + multi_agent_channel_reuse_distinct_binding + thread_task_binding + thread_continuation_without_remention_active_binding + thread_collaboration + bot_sender_loop_guard_without_reply + agent_channel_policy_denial_without_reply",
     guestPolicy: "external_guest_reply_on_mention_allow_with_dispatch + external_guest_reply_all_without_mention + external_guest_require_identity_without_dispatch + sent_identity_binding_notice + external_guest_ignore_without_dispatch_or_reply + external_guest_mention_required_without_dispatch_or_reply",
     workerRestart: "two_correlated_websocket_replies",
-    workerCardAction: "processed_approval_card_action",
+    workerCardAction: "processed_approval_card_action_with_governance_context",
     dataPlane: "bound_governed_doc_read + agent_runtime_doc_read_from_lark_cli_manifest + bound_approved_doc_write + bound_governed_sheet_read + bound_approved_sheet_write_with_agentspace_sync + bound_governed_base_read + bound_approved_base_mutation_with_agentspace_sync + user_actor + external_guest_actor + external_guest_read_guest_readable_current_channel + external_guest_bound_write_denied",
     failureVisibility: "provider_failure_row + degraded_or_error_health + agent_bot_failure_with_safe_context",
   },
@@ -153,13 +153,13 @@ describe("Feishu settings data", () => {
         errorMessage: "external_user_unbound",
         payloadJson: JSON.stringify({
           message: {
-            chatId: "oc_launch",
+            chatReference: "chat 2d9a8b11",
             contentHash: "hash-only",
           },
           sender: {
-            openId: "ou_new_user",
-            unionId: "on_new_user",
-            userId: "feishu_user_1",
+            openIdReference: "user 8f13a2bc",
+            unionIdReference: "union a1b2c3d4",
+            userIdReference: "user 4e5f6071",
           },
         }),
         receivedAt: "2026-06-24T00:00:00.000Z",
@@ -174,11 +174,11 @@ describe("Feishu settings data", () => {
         errorMessage: "external_channel_unbound",
         payloadJson: JSON.stringify({
           message: {
-            chatId: "oc_new_chat",
+            chatReference: "chat 7c6d5e4f",
             contentHash: "hash-only",
           },
           sender: {
-            openId: "ou_existing_user",
+            openIdReference: "user 11223344",
           },
         }),
         receivedAt: "2026-06-24T00:00:02.000Z",
@@ -458,11 +458,11 @@ describe("Feishu settings data", () => {
       evidenceGates: [
         {
           key: "bot_reply",
-          required: "processed_inbound + same_agent_bot_correlated_reply_mapping",
+          required: "processed_inbound_with_safe_summary + same_agent_bot_correlated_reply_mapping",
         },
         {
           key: "native_agent_bot",
-          required: "direct_agent_bot_route + bound_user_bot_mention + external_guest_bot_mention + bot_added_auto_provision_with_channel_identity_review_state + first_message_auto_provision_with_channel_identity_review_state + multi_agent_channel_reuse_distinct_binding + thread_task_binding + thread_continuation_without_remention_active_binding + thread_collaboration + bot_sender_loop_guard_without_reply + agent_channel_policy_denial_without_reply",
+          required: "direct_agent_bot_route_with_safe_context + bound_user_bot_mention_with_safe_context + external_guest_bot_mention_with_safe_context + bot_added_auto_provision_with_channel_identity_review_state + first_message_auto_provision_with_channel_identity_review_state + multi_agent_channel_reuse_distinct_binding + thread_task_binding + thread_continuation_without_remention_active_binding + thread_collaboration + bot_sender_loop_guard_without_reply + agent_channel_policy_denial_without_reply",
         },
         {
           key: "guest_policy",
@@ -514,11 +514,11 @@ describe("Feishu settings data", () => {
         errorMessage: "external_user_unbound",
         bindingSuggestion: {
           kind: "user",
-          externalUserReference: expect.stringMatching(/^user [0-9a-f]{8}$/),
+          externalUserReference: "user 8f13a2bc",
           externalUserIdRedacted: true,
-          externalUnionReference: expect.stringMatching(/^union [0-9a-f]{8}$/),
+          externalUnionReference: "union a1b2c3d4",
           externalUnionIdRedacted: true,
-          externalOpenReference: expect.stringMatching(/^user [0-9a-f]{8}$/),
+          externalOpenReference: "user 4e5f6071",
           externalOpenIdRedacted: true,
         },
         receivedAt: "2026-06-24T00:00:00.000Z",
@@ -533,7 +533,7 @@ describe("Feishu settings data", () => {
         errorMessage: "external_channel_unbound",
         bindingSuggestion: {
           kind: "channel",
-          externalChatReference: expect.stringMatching(/^chat [0-9a-f]{8}$/),
+          externalChatReference: "chat 7c6d5e4f",
           externalChatIdRedacted: true,
         },
         receivedAt: "2026-06-24T00:00:02.000Z",
@@ -699,7 +699,7 @@ describe("Feishu settings data", () => {
       },
       {
         key: "worker_card_action",
-        required: "processed_approval_card_action",
+        required: "processed_approval_card_action_with_governance_context",
       },
     ]));
   });

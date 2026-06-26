@@ -1146,7 +1146,28 @@ test("Feishu approval card callbacks validate user binding token hash and execut
   });
   assert.equal(event?.status, "processed");
   assert.equal(event?.errorMessage, undefined);
-  assert.doesNotMatch(event?.payloadJson ?? "", /short-token|approved from card/);
+  const eventSummary = JSON.parse(event?.payloadJson ?? "{}") as {
+    rawPayloadStored?: boolean;
+    approvalCardAction?: {
+      provider?: string;
+      kind?: string;
+      approvalId?: string;
+      payloadHash?: string;
+      decision?: string;
+      tokenStored?: boolean;
+      rawActionPayloadStored?: boolean;
+    };
+  };
+  assert.equal(eventSummary.rawPayloadStored, false);
+  assert.equal(eventSummary.approvalCardAction?.provider, FEISHU_PROVIDER_ID);
+  assert.equal(eventSummary.approvalCardAction?.kind, "data_operation_approval");
+  assert.equal(eventSummary.approvalCardAction?.approvalId, pending.approval.id);
+  assert.equal(eventSummary.approvalCardAction?.payloadHash, payloadHash);
+  assert.equal(eventSummary.approvalCardAction?.decision, "approved");
+  assert.equal(eventSummary.approvalCardAction?.tokenStored, false);
+  assert.equal(eventSummary.approvalCardAction?.rawActionPayloadStored, false);
+  assert.equal((event?.payloadJson ?? "").includes(token), false);
+  assert.doesNotMatch(event?.payloadJson ?? "", /short-token|card-token|approved from card/);
 });
 
 async function createAndApproveWriteOperation(input: {

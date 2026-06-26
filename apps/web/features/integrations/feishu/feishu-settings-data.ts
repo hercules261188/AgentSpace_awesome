@@ -849,6 +849,14 @@ function buildFeishuInboundBindingSuggestion(
   const message = asRecord(payload.message);
   const sender = asRecord(payload.sender);
   if (reasonCode === "external_channel_unbound") {
+    const safeChatReference = asString(message?.chatReference) ?? asString(message?.externalChatReference);
+    if (safeChatReference) {
+      return {
+        kind: "channel",
+        externalChatReference: safeChatReference,
+        externalChatIdRedacted: true,
+      };
+    }
     const externalChatId = asString(message?.chatId);
     return externalChatId
       ? {
@@ -862,33 +870,38 @@ function buildFeishuInboundBindingSuggestion(
       : undefined;
   }
 
+  const safeUserReference = asString(sender?.openIdReference)
+    ?? asString(sender?.userReference)
+    ?? asString(sender?.externalUserReference);
   const externalUserId = asString(sender?.openId);
-  if (!externalUserId) {
+  if (!safeUserReference && !externalUserId) {
     return undefined;
   }
+  const safeUnionReference = asString(sender?.unionIdReference) ?? asString(sender?.externalUnionReference);
+  const safeOpenReference = asString(sender?.userIdReference) ?? asString(sender?.externalOpenReference);
   const externalUnionId = asString(sender?.unionId);
   const externalOpenId = asString(sender?.userId);
   return {
     kind: "user",
-    externalUserReference: buildFeishuExternalIdReference({
+    externalUserReference: safeUserReference ?? buildFeishuExternalIdReference({
       kind: "user",
       value: externalUserId,
     }),
     externalUserIdRedacted: true,
-    externalUnionReference: externalUnionId
+    externalUnionReference: safeUnionReference ?? (externalUnionId
       ? buildFeishuExternalIdReference({
         kind: "union",
         value: externalUnionId,
       })
-      : undefined,
-    externalUnionIdRedacted: externalUnionId ? true : undefined,
-    externalOpenReference: externalOpenId
+      : undefined),
+    externalUnionIdRedacted: safeUnionReference || externalUnionId ? true : undefined,
+    externalOpenReference: safeOpenReference ?? (externalOpenId
       ? buildFeishuExternalIdReference({
         kind: "user",
         value: externalOpenId,
       })
-      : undefined,
-    externalOpenIdRedacted: externalOpenId ? true : undefined,
+      : undefined),
+    externalOpenIdRedacted: safeOpenReference || externalOpenId ? true : undefined,
   };
 }
 

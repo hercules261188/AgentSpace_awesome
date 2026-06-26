@@ -37,7 +37,10 @@ import {
   resolveFeishuEventId,
   resolveFeishuEventType,
 } from "./events.ts";
-import { summarizeFeishuInboundEventPayload } from "./event-summary.ts";
+import {
+  summarizeFeishuApprovalCardActionEventPayload,
+  summarizeFeishuInboundEventPayload,
+} from "./event-summary.ts";
 import {
   createFeishuApiClient,
   fetchFeishuTenantAccessToken,
@@ -487,16 +490,18 @@ export async function processFeishuCardActionCallback(input: {
 }): Promise<FeishuCardActionCallbackResult> {
   const externalEventId = resolveFeishuEventId(input.payload);
   const eventType = resolveFeishuEventType(input.payload);
+  const action = parseFeishuApprovalCardActionPayload(input.payload);
   recordExternalIntegrationEventSync({
     workspaceId: input.context.workspaceId,
     integrationId: input.context.integrationId,
     provider: FEISHU_PROVIDER_ID,
     externalEventId,
     eventType,
-    payloadJson: summarizeFeishuInboundEventPayload(input.payload),
+    payloadJson: action
+      ? summarizeFeishuApprovalCardActionEventPayload(input.payload, action)
+      : summarizeFeishuInboundEventPayload(input.payload),
   });
 
-  const action = parseFeishuApprovalCardActionPayload(input.payload);
   if (!action) {
     return finishFeishuCardActionCallback({
       workspaceId: input.context.workspaceId,

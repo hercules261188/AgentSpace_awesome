@@ -1092,7 +1092,7 @@ test("Feishu evidence report summarizes AgentSpace-side live smoke proof without
     eventsByIntegrationId: {
       "integration-evidence": [
         buildIntegrationEvent("integration-evidence", "evt_processed_secret", "im.message.receive_v1", "processed"),
-        buildIntegrationEvent("integration-evidence", "evt_card_secret", "card.action.trigger", "processed"),
+        buildApprovalCardActionEvent("integration-evidence", "evt_card_secret"),
         buildIntegrationEvent("integration-evidence", "evt_failed_secret", "im.message.receive_v1", "failed"),
       ],
     },
@@ -1372,6 +1372,40 @@ test("Feishu worker evidence requires a processed approval card action", () => {
   assert.equal(JSON.stringify(report).includes("evt_card_secret"), false);
 });
 
+test("Feishu worker evidence rejects non-governed processed card actions", () => {
+  const report = buildFeishuEvidenceReport({
+    ...buildCompleteFeishuEvidenceInput(),
+    eventsByIntegrationId: {
+      "integration-evidence": [
+        buildIntegrationEvent("integration-evidence", "evt_processed_secret", "im.message.receive_v1", "processed"),
+        buildIntegrationEvent("integration-evidence", "evt_card_secret", "card.action.trigger", "processed", {
+          provider: "feishu",
+          eventType: "card.action.trigger",
+          rawPayloadStored: false,
+          approvalCardAction: {
+            provider: "feishu",
+            kind: "status_card_refresh",
+            resourceId: "status-card-1",
+            tokenStored: false,
+            rawActionPayloadStored: false,
+          },
+        }),
+        buildIntegrationEvent("integration-evidence", "evt_failed_secret", "im.message.receive_v1", "failed"),
+      ],
+    },
+  });
+
+  assert.equal(report.strictSatisfied, false);
+  assert.equal(report.summary.workerSatisfiedCount, 0);
+  const [item] = report.integrations;
+  assert.equal(item?.worker.restartRecoverySatisfied, true);
+  assert.equal(item?.worker.processedApprovalCardActions, 0);
+  assert.equal(item?.worker.approvalCardActionSatisfied, false);
+  assert.equal(item?.worker.satisfied, false);
+  assert.ok(item?.issues.includes("websocket_worker_card_action_evidence_missing"));
+  assert.equal(JSON.stringify(report).includes("status-card-1"), false);
+});
+
 test("Feishu evidence report requires reply mappings correlated to inbound messages", () => {
   const report = buildFeishuEvidenceReport({
     ...buildCompleteFeishuEvidenceInput(),
@@ -1420,6 +1454,45 @@ test("Feishu evidence report requires correlated replies from the same agent bot
   assert.ok(item?.issues.includes("correlated_reply_mapping_missing"));
   assert.ok(item?.issues.includes("native_agent_bot_reply_evidence_missing"));
   assert.equal(JSON.stringify(report).includes("integration-evidence-other-bot"), false);
+});
+
+test("Feishu evidence report requires processed inbound events to use safe summaries", () => {
+  const report = buildFeishuEvidenceReport({
+    ...buildCompleteFeishuEvidenceInput(),
+    requiredEvidence: "bot",
+    eventsByIntegrationId: {
+      "integration-evidence": [
+        buildIntegrationEvent("integration-evidence", "evt_processed_secret", "im.message.receive_v1", "processed", {
+          provider: "feishu",
+          rawPayloadStored: true,
+          payloadHash: "payload-hash",
+          message: {
+            messageId: "om_secret_raw",
+            chatId: "oc_secret_raw",
+          },
+          sender: {
+            openId: "ou_secret_raw",
+            unionId: "on_secret_raw",
+          },
+        }),
+        buildApprovalCardActionEvent("integration-evidence", "evt_card_secret"),
+        buildIntegrationEvent("integration-evidence", "evt_failed_secret", "im.message.receive_v1", "failed"),
+      ],
+    },
+  });
+
+  assert.equal(report.strictSatisfied, false);
+  assert.equal(report.summary.botSatisfiedCount, 0);
+  assert.equal(report.summary.workerSatisfiedCount, 0);
+  const [item] = report.integrations;
+  assert.equal(item?.bot.processedInboundEvents, 0);
+  assert.equal(item?.bot.correlatedReplyMappings, 2);
+  assert.equal(item?.bot.satisfied, false);
+  assert.ok(item?.issues.includes("processed_inbound_event_missing"));
+  assert.ok(item?.issues.includes("websocket_worker_receive_evidence_missing"));
+  assert.equal(JSON.stringify(report).includes("om_secret_raw"), false);
+  assert.equal(JSON.stringify(report).includes("oc_secret_raw"), false);
+  assert.equal(JSON.stringify(report).includes("ou_secret_raw"), false);
 });
 
 test("Feishu evidence report requires approved write metadata for data-plane smoke", () => {
@@ -1947,6 +2020,35 @@ test("Feishu evidence report requires native route evidence from direct bot ment
       "integration-evidence": complete.messageMappingsByIntegrationId["integration-evidence"].map((mapping) =>
         withAgentBotMentioned(mapping, false)
       ),
+    },
+  });
+
+  assert.equal(report.strictSatisfied, false);
+  assert.equal(report.summary.nativeExperienceSatisfiedCount, 0);
+  const [item] = report.integrations;
+  assert.equal(item?.nativeExperience.agentBotRouteEvidence, 0);
+  assert.equal(item?.nativeExperience.boundUserMentionEvidence, 0);
+  assert.equal(item?.nativeExperience.externalGuestMentionEvidence, 0);
+  assert.equal(item?.nativeExperience.agentChannelPolicyDeniedEvidence, 0);
+  assert.ok(item?.issues.includes("agent_bot_route_evidence_missing"));
+  assert.ok(item?.issues.includes("bound_user_bot_mention_evidence_missing"));
+  assert.ok(item?.issues.includes("external_guest_bot_mention_evidence_missing"));
+  assert.ok(item?.issues.includes("agent_channel_policy_disabled_evidence_missing"));
+});
+
+test("Feishu evidence report requires native route safe chat and thread context", () => {
+  const complete = buildCompleteFeishuEvidenceInput();
+  const report = buildFeishuEvidenceReport({
+    ...complete,
+    requiredEvidence: "native",
+    messageMappingsByIntegrationId: {
+      "integration-evidence": complete.messageMappingsByIntegrationId["integration-evidence"].map((mapping) => {
+        const metadataSource = mapping as { direction?: string; metadataJson?: string };
+        const metadata = JSON.parse(metadataSource.metadataJson ?? "{}") as Record<string, unknown>;
+        return metadataSource.direction === "inbound" && metadata.agentBotMentioned === true
+          ? withoutMetadataField(mapping, "externalThreadReference")
+          : mapping;
+      }),
     },
   });
 
@@ -5007,11 +5109,11 @@ test("Feishu smoke plan converts readiness into live smoke checklist without ext
   assert.deepEqual(report.evidenceGates, [
     {
       key: "bot_reply",
-      required: "processed_inbound + same_agent_bot_correlated_reply_mapping",
+      required: "processed_inbound_with_safe_summary + same_agent_bot_correlated_reply_mapping",
     },
     {
       key: "native_agent_bot",
-      required: "direct_agent_bot_route + bound_user_bot_mention + external_guest_bot_mention + bot_added_auto_provision_with_channel_identity_review_state + first_message_auto_provision_with_channel_identity_review_state + multi_agent_channel_reuse_distinct_binding + thread_task_binding + thread_continuation_without_remention_active_binding + thread_collaboration + bot_sender_loop_guard_without_reply + agent_channel_policy_denial_without_reply",
+      required: "direct_agent_bot_route_with_safe_context + bound_user_bot_mention_with_safe_context + external_guest_bot_mention_with_safe_context + bot_added_auto_provision_with_channel_identity_review_state + first_message_auto_provision_with_channel_identity_review_state + multi_agent_channel_reuse_distinct_binding + thread_task_binding + thread_continuation_without_remention_active_binding + thread_collaboration + bot_sender_loop_guard_without_reply + agent_channel_policy_denial_without_reply",
     },
     {
       key: "guest_policy",
@@ -5023,7 +5125,7 @@ test("Feishu smoke plan converts readiness into live smoke checklist without ext
     },
     {
       key: "worker_card_action",
-      required: "processed_approval_card_action",
+      required: "processed_approval_card_action_with_governance_context",
     },
       {
         key: "data_plane",
@@ -5487,7 +5589,7 @@ function buildCompleteFeishuEvidenceInput() {
     eventsByIntegrationId: {
       "integration-evidence": [
         buildIntegrationEvent("integration-evidence", "evt_processed_secret", "im.message.receive_v1", "processed"),
-        buildIntegrationEvent("integration-evidence", "evt_card_secret", "card.action.trigger", "processed"),
+        buildApprovalCardActionEvent("integration-evidence", "evt_card_secret"),
         buildIntegrationEvent("integration-evidence", "evt_failed_secret", "im.message.receive_v1", "failed"),
       ],
     },
@@ -5592,6 +5694,7 @@ function buildMessageMapping(
         metadataJson: JSON.stringify({
           provider: "feishu",
           externalChatReference: "chat-ref-hash",
+          externalThreadReference: "thread-ref-hash",
           mappedChannelName: "general",
           dispatchStatus: "sent",
           actorType,
@@ -5675,6 +5778,15 @@ function withBotBindingId<T extends { metadataJson?: string }>(mapping: T, botBi
   };
 }
 
+function withoutMetadataField<T extends { metadataJson?: string }>(mapping: T, field: string): T {
+  const metadata = JSON.parse(mapping.metadataJson ?? "{}") as Record<string, unknown>;
+  delete metadata[field];
+  return {
+    ...mapping,
+    metadataJson: JSON.stringify(metadata),
+  };
+}
+
 function withDispatchEvidence<T extends { agentSpaceMessageId?: string; taskQueueId?: string }>(mapping: T): T {
   return {
     ...mapping,
@@ -5723,6 +5835,7 @@ function buildExternalGuestReplyAllMapping(integrationId: string) {
     metadataJson: JSON.stringify({
       provider: "feishu",
       externalChatReference: "chat-ref-hash",
+      externalThreadReference: "thread-ref-hash",
       mappedChannelName: "general",
       dispatchStatus: "sent",
       actorType: "external_guest",
@@ -5757,6 +5870,7 @@ function buildThreadContinuationMapping(integrationId: string) {
     metadataJson: JSON.stringify({
       provider: "feishu",
       externalChatReference: "chat-ref-hash",
+      externalThreadReference: "thread-ref-hash",
       mappedChannelName: "general",
       dispatchStatus: "sent",
       actorType: "user",
@@ -5785,6 +5899,7 @@ function buildAgentChannelPolicyDeniedMapping(integrationId: string) {
     metadataJson: JSON.stringify({
       provider: "feishu",
       externalChatReference: "chat-ref-hash",
+      externalThreadReference: "thread-ref-hash",
       mappedChannelName: "general",
       dispatchStatus: "ignored",
       reasonCode: "feishu_agent_channel_member_access_disabled",
@@ -5816,6 +5931,7 @@ function buildBotSenderLoopGuardMapping(integrationId: string) {
     metadataJson: JSON.stringify({
       provider: "feishu",
       externalChatReference: "chat-ref-hash",
+      externalThreadReference: "thread-ref-hash",
       mappedChannelName: "general",
       dispatchStatus: "ignored",
       reasonCode: "feishu_bot_sender_ignored",
@@ -5849,6 +5965,7 @@ function buildPolicyBlockedMessageMapping(
     metadataJson: JSON.stringify({
       provider: "feishu",
       externalChatReference: "chat-ref-hash",
+      externalThreadReference: "thread-ref-hash",
       mappedChannelName: "general",
       dispatchStatus: "ignored",
       reasonCode: input.reasonCode,
@@ -6258,6 +6375,7 @@ function buildIntegrationEvent(
   externalEventId: string,
   eventType: string,
   status: "received" | "processed" | "ignored" | "failed",
+  payload: Record<string, unknown> = buildSafeInboundEventPayload(),
 ) {
   return {
     id: `${status}-${integrationId}-${eventType}`,
@@ -6267,13 +6385,68 @@ function buildIntegrationEvent(
     externalEventId,
     eventType,
     status,
-    payloadJson: JSON.stringify({ messageId: "om_secret", chatId: "oc_secret" }),
+    payloadJson: JSON.stringify(payload),
     errorMessage: status === "failed" ? "provider error" : undefined,
     receivedAt: "2026-06-24T00:00:00.000Z",
     processedAt: status === "processed" || status === "failed" || status === "ignored"
       ? "2026-06-24T00:00:01.000Z"
       : undefined,
   } as never;
+}
+
+function buildSafeInboundEventPayload(payload: Record<string, unknown> = {}) {
+  return {
+    provider: "feishu",
+    externalEventReference: "event-ref-safe",
+    externalEventIdRedacted: true,
+    eventType: "im.message.receive_v1",
+    payloadHash: "payload-hash-safe",
+    rawPayloadStored: false,
+    contentRedacted: true,
+    message: {
+      messageReference: "message-ref-safe",
+      messageIdRedacted: true,
+      chatReference: "chat-ref-safe",
+      chatIdRedacted: true,
+      threadReference: "thread-ref-safe",
+      threadIdRedacted: true,
+      messageType: "text",
+      contentLength: 24,
+      contentHash: "content-hash-safe",
+    },
+    sender: {
+      openIdReference: "user-ref-safe",
+      openIdRedacted: true,
+      unionIdReference: "union-ref-safe",
+      unionIdRedacted: true,
+      userIdReference: "user-id-ref-safe",
+      userIdRedacted: true,
+    },
+    ...payload,
+  };
+}
+
+function buildApprovalCardActionEvent(
+  integrationId: string,
+  externalEventId: string,
+  status: "received" | "processed" | "ignored" | "failed" = "processed",
+  approvalCardAction: Record<string, unknown> = {},
+) {
+  return buildIntegrationEvent(integrationId, externalEventId, "card.action.trigger", status, {
+    provider: "feishu",
+    eventType: "card.action.trigger",
+    rawPayloadStored: false,
+    approvalCardAction: {
+      provider: "feishu",
+      kind: "data_operation_approval",
+      approvalId: "approval-safe-1",
+      payloadHash: "sha256:approval-payload-1",
+      decision: "approved",
+      tokenStored: false,
+      rawActionPayloadStored: false,
+      ...approvalCardAction,
+    },
+  });
 }
 
 function buildAgentRuntimeDocReadRun(integrationId: string) {
