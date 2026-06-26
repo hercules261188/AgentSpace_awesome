@@ -10,6 +10,7 @@ import {
   summarizeFeishuDataOperationRequest,
   summarizeFeishuStoredDataOperationPolicyDecision,
   summarizeFeishuStoredDataOperationPolicyInput,
+  summarizeFeishuStoredDataOperationGovernanceContext,
   summarizeFeishuStoredDataOperationRequest,
   summarizeFeishuStoredDataOperationResultData,
 } from "../operation-plan.ts";
@@ -588,6 +589,40 @@ test("builds TODO85-style policy input for Feishu data actions", () => {
       payloadHash: buildFeishuDataOperationPayloadHash(request),
       riskLevel: "medium",
     },
+  });
+});
+
+test("summarizes Feishu external guest readable resource access for stored evidence", () => {
+  const request = buildRequest({
+    operationType: "docs.read_document",
+    providerResourceType: "doc",
+    providerResourceToken: "docToken",
+    parameters: {
+      feishuGovernance: {
+        provider: "feishu",
+        agentId: "Atlas",
+        botBindingId: "integration-1",
+        channelName: "travel",
+        actorType: "external_guest",
+        actorUserId: "user-should-not-survive",
+        externalActorReference: "guest-ref-safe-123",
+        externalGuestPermissionProfile: "channel_context_only",
+        externalGuestResourceAccess: "guest_readable_current_channel",
+        externalChatReference: "chat-ref-safe-123",
+      },
+    },
+  });
+
+  assert.deepEqual(summarizeFeishuStoredDataOperationGovernanceContext(request), {
+    provider: "feishu",
+    agentId: "Atlas",
+    botBindingId: "integration-1",
+    channelName: "travel",
+    actorType: "external_guest",
+    externalActorReference: "guest-ref-safe-123",
+    externalGuestPermissionProfile: "channel_context_only",
+    externalGuestResourceAccess: "guest_readable_current_channel",
+    externalChatReference: "chat-ref-safe-123",
   });
 });
 

@@ -810,6 +810,7 @@ Feishu Base table -> AgentSpace data_table
 - [x] External guest evidence gate 已收紧：message mapping / data-plane governance 中 `actorType=external_guest` 的证据必须没有 `userId` / `actorUserId`，避免未绑定飞书用户被误证明为真实 workspace member。
 - [x] 多 bot 同群的 evidence gate 已收紧：同一 Feishu chat 复用需记录 `linkedFromAgentId` / `linkedFromBotBindingId` 且与当前 agent/bot 不同；同一 thread 可记录 `threadContinuation=true`、`threadCollaboration=true` 和 collaborator agent ids，不覆盖原 agent task。
 - [x] Data-plane approved write evidence 已收紧：Doc / Sheet / Base 写入不仅需要 `approvalId` + `payloadHash`，还必须在同一 operation 的 Feishu governance context 中记录 `agentId` + `botBindingId` 和真实 `agent` / `user` actor，避免 agent bot 绕过 AgentSpace resource policy 的证据空洞。
+- [x] External guest read evidence 已收紧：成功读 Doc / Sheet / Base 必须是当前 channel 绑定资源，并在 Feishu governance context 中记录 `externalGuestResourceAccess=guest_readable_current_channel`，避免仅凭 `external_guest` actor 证明绕过 guest-readable resource policy。
 - [x] 部署默认已明确：self-hosted / 快速开始默认 WebSocket worker；EventCallback 作为 SaaS webhook / 严格验签 / 加密事件的高级模式保留。
 
 ## 推荐第一版产品默认值

@@ -402,6 +402,7 @@ test("external guest Feishu reads require guest-readable current-channel resourc
     actorType: "external_guest",
     externalActorReference: "guest-ref-safe-123",
     externalGuestPermissionProfile: "channel_context_only",
+    externalGuestResourceAccess: "guest_readable_current_channel",
     externalChatReference: "ref_2762fdc95dd841bb",
   });
   assert.equal(JSON.stringify(requestJson).includes("oc_raw_chat_should_not_persist"), false);
