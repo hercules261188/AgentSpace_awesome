@@ -288,6 +288,147 @@ describe("Feishu event route", () => {
     });
   });
 
+  it("resolves app id callbacks by tenant key when multiple Feishu bot bindings share an app id", async () => {
+    const tenantOneIntegration = {
+      id: "external-integration-tenant-one",
+      workspaceId: "workspace-1",
+      provider: "feishu",
+      displayName: "Codex Feishu Bot",
+      status: "active",
+      transportMode: "http_webhook",
+      agentId: "Codex",
+      appId: "cli_shared",
+      tenantKey: "tenant-one",
+      encryptedCredentialsJson: "{}",
+      configJson: "{}",
+      capabilitiesJson: "{}",
+      scopesJson: "[]",
+      createdAt: "2026-06-24T00:00:00.000Z",
+      updatedAt: "2026-06-24T00:00:00.000Z",
+    };
+    const tenantTwoIntegration = {
+      ...tenantOneIntegration,
+      id: "external-integration-tenant-two",
+      displayName: "Hermes Feishu Bot",
+      agentId: "Hermes",
+      tenantKey: "tenant-two",
+    };
+    mockListExternalIntegrationsSync.mockReturnValueOnce([
+      tenantOneIntegration,
+      tenantTwoIntegration,
+    ]);
+    const payload = {
+      header: {
+        token: "verify-token",
+        event_id: "evt-tenant-resolved-1",
+        event_type: "im.message.receive_v1",
+        app_id: "cli_shared",
+        tenant_key: "tenant-two",
+      },
+      event: {},
+    };
+    mockProcessFeishuInboundEvent.mockResolvedValueOnce({
+      event: {
+        externalEventId: "evt-tenant-resolved-1",
+        status: "processed",
+      },
+      dispatchStatus: "sent",
+      message: {
+        externalMessageId: "om-tenant-resolved-1",
+      },
+      mappedChannelName: "ops",
+    });
+
+    const response = await POST(buildRequest(
+      "https://example.com/api/integrations/feishu/events?workspaceId=workspace-1",
+      payload,
+    ));
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      ok: true,
+      eventId: "evt-tenant-resolved-1",
+      dispatchStatus: "sent",
+      messageId: "om-tenant-resolved-1",
+    });
+    expect(mockReadExternalIntegrationSync).not.toHaveBeenCalled();
+    expect(mockProcessFeishuInboundEvent).toHaveBeenCalledWith({
+      context: {
+        workspaceId: "workspace-1",
+        integrationId: "external-integration-tenant-two",
+        provider: "feishu",
+      },
+      payload,
+      attachmentDownloader: mockAttachmentDownloader,
+    });
+    expect(mockCreateFeishuInboundAttachmentDownloader).toHaveBeenCalledWith({
+      workspaceId: "workspace-1",
+      appId: "cli_shared",
+      appSecret: "secret",
+      baseUrl: undefined,
+    });
+  });
+
+  it("rejects app id callbacks that match multiple Feishu bot bindings without tenant key", async () => {
+    mockListExternalIntegrationsSync.mockReturnValueOnce([
+      {
+        id: "external-integration-tenant-one",
+        workspaceId: "workspace-1",
+        provider: "feishu",
+        displayName: "Codex Feishu Bot",
+        status: "active",
+        transportMode: "http_webhook",
+        agentId: "Codex",
+        appId: "cli_shared",
+        tenantKey: "tenant-one",
+        encryptedCredentialsJson: "{}",
+        configJson: "{}",
+        capabilitiesJson: "{}",
+        scopesJson: "[]",
+        createdAt: "2026-06-24T00:00:00.000Z",
+        updatedAt: "2026-06-24T00:00:00.000Z",
+      },
+      {
+        id: "external-integration-tenant-two",
+        workspaceId: "workspace-1",
+        provider: "feishu",
+        displayName: "Hermes Feishu Bot",
+        status: "active",
+        transportMode: "http_webhook",
+        agentId: "Hermes",
+        appId: "cli_shared",
+        tenantKey: "tenant-two",
+        encryptedCredentialsJson: "{}",
+        configJson: "{}",
+        capabilitiesJson: "{}",
+        scopesJson: "[]",
+        createdAt: "2026-06-24T00:00:00.000Z",
+        updatedAt: "2026-06-24T00:00:00.000Z",
+      },
+    ]);
+
+    const response = await POST(buildRequest(
+      "https://example.com/api/integrations/feishu/events?workspaceId=workspace-1",
+      {
+        header: {
+          token: "verify-token",
+          event_id: "evt-ambiguous-app-1",
+          event_type: "im.message.receive_v1",
+          app_id: "cli_shared",
+        },
+        event: {},
+      },
+    ));
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({
+      error: "Feishu callback app_id matches multiple integrations; tenant_key is required.",
+    });
+    expect(mockReadFeishuIntegrationCredentials).not.toHaveBeenCalled();
+    expect(mockCreateFeishuInboundAttachmentDownloader).not.toHaveBeenCalled();
+    expect(mockProcessFeishuInboundEvent).not.toHaveBeenCalled();
+  });
+
   it("requires integration id for encrypted callbacks because app id is inside encrypted payload", async () => {
     const response = await POST(buildRequest(
       "https://example.com/api/integrations/feishu/events?workspaceId=workspace-1",
