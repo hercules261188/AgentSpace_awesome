@@ -5974,12 +5974,12 @@ function countFeishuThreadCollaborationEvidence(
       return false;
     }
     const metadata = readJsonRecord(binding.metadataJson);
+    const agentId = hasNonEmptyString(metadata?.agentId) ? metadata.agentId.trim() : "";
     return metadata?.provider === FEISHU_PROVIDER_ID &&
       metadata.threadCollaboration === true &&
-      Array.isArray(metadata.collaboratingAgentIds) &&
-      metadata.collaboratingAgentIds.some((agentId) => typeof agentId === "string" && agentId.trim().length > 0) &&
-      typeof metadata.agentId === "string" &&
-      metadata.agentId.trim().length > 0 &&
+      agentId.length > 0 &&
+      binding.agentId.trim() === agentId &&
+      hasDifferentFeishuCollaboratingAgentId(metadata.collaboratingAgentIds, agentId) &&
       typeof metadata.botBindingId === "string" &&
       metadata.botBindingId.trim().length > 0 &&
       typeof metadata.externalChatReference === "string" &&
@@ -5987,6 +5987,17 @@ function countFeishuThreadCollaborationEvidence(
       typeof metadata.externalThreadReference === "string" &&
       metadata.externalThreadReference.trim().length > 0;
   }).length;
+}
+
+function hasDifferentFeishuCollaboratingAgentId(value: unknown, currentAgentId: string): boolean {
+  if (!Array.isArray(value)) {
+    return false;
+  }
+  return value.some((agentId) =>
+    typeof agentId === "string" &&
+    agentId.trim().length > 0 &&
+    agentId.trim() !== currentAgentId
+  );
 }
 
 function countFeishuFailedOutboxAgentBotEvidence(

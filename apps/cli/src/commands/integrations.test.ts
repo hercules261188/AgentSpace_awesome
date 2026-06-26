@@ -1646,6 +1646,31 @@ test("Feishu evidence report gates native agent bot experience proof", () => {
   assert.equal(JSON.stringify(report).includes("ou_secret"), false);
 });
 
+test("Feishu evidence report requires thread collaboration with a different agent", () => {
+  const report = buildFeishuEvidenceReport({
+    ...buildCompleteFeishuEvidenceInput(),
+    requiredEvidence: "native",
+    threadBindingsByIntegrationId: {
+      "integration-evidence": [
+        buildThreadBinding("integration-evidence", {
+          agentId: "HermesAgent",
+          botBindingId: "integration-evidence-hermes",
+          threadCollaboration: true,
+          collaboratingAgentIds: ["HermesAgent", " "],
+        }),
+      ],
+    },
+  });
+
+  assert.equal(report.strictSatisfied, false);
+  assert.equal(report.summary.nativeExperienceSatisfiedCount, 0);
+  const [item] = report.integrations;
+  assert.equal(item?.nativeExperience.threadTaskBindings, 1);
+  assert.equal(item?.nativeExperience.threadCollaborationEvidence, 0);
+  assert.ok(item?.issues.includes("thread_collaboration_evidence_missing"));
+  assert.equal(JSON.stringify(report).includes("om_secret"), false);
+});
+
 test("Feishu evidence report gates external guest policy proof", () => {
   const report = buildFeishuEvidenceReport({
     ...buildCompleteFeishuEvidenceInput(),
