@@ -171,7 +171,7 @@ const TABLE_MIGRATION_PLANS: TableMigrationPlan[] = [
   {
     tableName: "external_message_outbox",
     conflictColumns: ["id"],
-    jsonColumns: ["payload_json"],
+    jsonColumns: ["payload_json", "metadata_json"],
     optionalWhenMissing: true,
     orderBy: "created_at ASC, id ASC",
   },

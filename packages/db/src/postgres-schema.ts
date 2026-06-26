@@ -1,4 +1,4 @@
-export const POSTGRES_SCHEMA_VERSION = "22";
+export const POSTGRES_SCHEMA_VERSION = "23";
 
 export const POSTGRES_TABLE_NAMES = [
   "app_metadata",
@@ -345,6 +345,7 @@ export function getPostgresSchemaStatements(): string[] {
         target_external_thread_id TEXT,
         agent_space_message_id TEXT,
         payload_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        metadata_json JSONB NOT NULL DEFAULT '{}'::jsonb,
         status TEXT NOT NULL DEFAULT 'pending',
         attempts INTEGER NOT NULL DEFAULT 0,
         next_attempt_at TIMESTAMPTZ,
@@ -355,6 +356,10 @@ export function getPostgresSchemaStatements(): string[] {
         updated_at TIMESTAMPTZ NOT NULL,
         sent_at TIMESTAMPTZ
       )
+    `,
+    `
+      ALTER TABLE external_message_outbox
+        ADD COLUMN IF NOT EXISTS metadata_json JSONB NOT NULL DEFAULT '{}'::jsonb
     `,
     `
       CREATE TABLE IF NOT EXISTS external_data_operation_run (

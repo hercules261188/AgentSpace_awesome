@@ -90,6 +90,12 @@ export function FeishuHealthPanel({
                           {item.nextAttemptAt ? (
                             <span>{tx("下次重试", "Next Retry")}: {item.nextAttemptAt}</span>
                           ) : null}
+                          {item.agentId ? (
+                            <span>{tx("Agent", "Agent")}: {item.agentId}</span>
+                          ) : null}
+                          {item.botBindingId ? (
+                            <span>{tx("Bot 绑定", "Bot binding")}: {item.botBindingId}</span>
+                          ) : null}
                           <span>{tx("飞书会话", "Feishu Chat")}: {item.targetExternalChatReference}</span>
                         </div>
                         <p>{item.lastError ?? tx("无错误详情", "No error detail")}</p>

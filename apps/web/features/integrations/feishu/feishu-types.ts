@@ -124,6 +124,8 @@ export interface FeishuOutboxSettingsItem {
   id: string;
   integrationId: string;
   channelBindingId?: string;
+  agentId?: string;
+  botBindingId?: string;
   targetExternalChatReference: string;
   targetExternalChatIdRedacted: true;
   targetExternalThreadReference?: string;

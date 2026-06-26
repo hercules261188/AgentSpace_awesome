@@ -206,28 +206,33 @@ export function listFeishuIntegrationSettingsItems(input: {
     const recentOutboxFailures = [...failedOutboxItems, ...pendingOutboxItems]
       .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt) || right.createdAt.localeCompare(left.createdAt))
       .slice(0, 5)
-      .map((item): FeishuOutboxSettingsItem => ({
-        id: item.id,
-        integrationId: item.integrationId,
-        channelBindingId: item.channelBindingId,
-        targetExternalChatReference: buildFeishuExternalIdReference({
-          kind: "chat",
-          value: item.targetExternalChatId,
-        }),
-        targetExternalChatIdRedacted: true,
-        targetExternalThreadReference: item.targetExternalThreadId ? buildFeishuExternalIdReference({
-          kind: "thread",
-          value: item.targetExternalThreadId,
-        }) : undefined,
-        targetExternalThreadIdRedacted: item.targetExternalThreadId ? true : undefined,
-        agentSpaceMessageId: item.agentSpaceMessageId,
-        status: item.status,
-        attempts: item.attempts,
-        nextAttemptAt: item.nextAttemptAt,
-        lastError: item.lastError,
-        createdAt: item.createdAt,
-        updatedAt: item.updatedAt,
-      }));
+      .map((item): FeishuOutboxSettingsItem => {
+        const metadata = readFeishuBindingMetadata(item.metadataJson);
+        return {
+          id: item.id,
+          integrationId: item.integrationId,
+          channelBindingId: item.channelBindingId,
+          agentId: readMetadataString(metadata, "agentId"),
+          botBindingId: readMetadataString(metadata, "botBindingId"),
+          targetExternalChatReference: buildFeishuExternalIdReference({
+            kind: "chat",
+            value: item.targetExternalChatId,
+          }),
+          targetExternalChatIdRedacted: true,
+          targetExternalThreadReference: item.targetExternalThreadId ? buildFeishuExternalIdReference({
+            kind: "thread",
+            value: item.targetExternalThreadId,
+          }) : undefined,
+          targetExternalThreadIdRedacted: item.targetExternalThreadId ? true : undefined,
+          agentSpaceMessageId: item.agentSpaceMessageId,
+          status: item.status,
+          attempts: item.attempts,
+          nextAttemptAt: item.nextAttemptAt,
+          lastError: item.lastError,
+          createdAt: item.createdAt,
+          updatedAt: item.updatedAt,
+        };
+      });
     const recentInboundEvents = inboundEvents.map((event): FeishuIntegrationEventSettingsItem => ({
       id: event.id,
       integrationId: event.integrationId,

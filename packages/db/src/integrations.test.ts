@@ -753,6 +753,7 @@ test("listExternalMessageOutboxSync filters by integration and status", {
     provider: "feishu",
     displayName: "Feishu",
     transportMode: "http_webhook",
+    agentId: "Codex",
   });
   const slack = createExternalIntegrationSync({
     workspaceId: workspace.id,
@@ -812,6 +813,11 @@ test("listExternalMessageOutboxSync filters by integration and status", {
   assert.deepEqual(pending.map((item) => item.id), [retrying.id]);
   assert.equal(pending[0]?.lastError, "feishu.outbound.network_unreachable: fetch failed");
   assert.equal(pending[0]?.nextAttemptAt, "2026-06-24T00:01:00.000Z");
+  assert.deepEqual(JSON.parse(pending[0]?.metadataJson ?? "{}"), {
+    provider: "feishu",
+    agentId: "Codex",
+    botBindingId: feishu.id,
+  });
 
   const failedItems = listExternalMessageOutboxSync({
     workspaceId: workspace.id,

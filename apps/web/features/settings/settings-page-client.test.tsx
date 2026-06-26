@@ -1576,6 +1576,8 @@ describe("SettingsPageClient", () => {
             {
               id: "outbox-1",
               integrationId: "feishu-1",
+              agentId: "Codex",
+              botBindingId: "agent-bot-codex",
               targetExternalChatReference: "chat b2295ba0",
               targetExternalChatIdRedacted: true,
               status: "pending",
@@ -1596,6 +1598,8 @@ describe("SettingsPageClient", () => {
     expect(screen.getByText("待重试")).toBeInTheDocument();
     expect(screen.getByText(/尝试: 2/)).toBeInTheDocument();
     expect(screen.getByText(/下次重试: 2026-06-24T00:01:00.000Z/)).toBeInTheDocument();
+    expect(screen.getByText(/Agent: Codex/)).toBeInTheDocument();
+    expect(screen.getByText(/Bot 绑定: agent-bot-codex/)).toBeInTheDocument();
     expect(screen.getByText(/飞书会话: chat b2295ba0/)).toBeInTheDocument();
     expect(screen.getByText("feishu.outbound.network_unreachable: fetch failed ECONNRESET")).toBeInTheDocument();
     expect(screen.queryByText(/oc_general/)).not.toBeInTheDocument();

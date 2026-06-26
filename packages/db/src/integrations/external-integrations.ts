@@ -1199,11 +1199,17 @@ export function createExternalMessageOutboxSync(input: {
   targetExternalThreadId?: string;
   agentSpaceMessageId?: string;
   payloadJson: JsonInput;
+  metadataJson?: JsonInput;
   nextAttemptAt?: string;
 }): ExternalMessageOutboxRecord {
   const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
   const integrationId = normalizeRequiredText(input.integrationId, "External message outbox integration id is required.");
   const targetExternalChatId = normalizeRequiredText(input.targetExternalChatId, "External message outbox target chat id is required.");
+  const metadataJson = buildExternalMessageOutboxMetadataJson({
+    workspaceId,
+    integrationId,
+    metadataJson: input.metadataJson,
+  });
   const id = `external-message-outbox-${randomLikeId()}`;
   const now = new Date().toISOString();
 
@@ -1217,12 +1223,13 @@ export function createExternalMessageOutboxSync(input: {
        target_external_thread_id,
        agent_space_message_id,
        payload_json,
+       metadata_json,
        status,
        attempts,
        next_attempt_at,
        created_at,
        updated_at
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', 0, ?, ?, ?)`,
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 0, ?, ?, ?)`,
   ).run(
     id,
     workspaceId,
@@ -1232,6 +1239,7 @@ export function createExternalMessageOutboxSync(input: {
     normalizeOptionalText(input.targetExternalThreadId),
     normalizeOptionalText(input.agentSpaceMessageId),
     normalizeJsonInput(input.payloadJson, DEFAULT_JSON_OBJECT),
+    metadataJson,
     normalizeOptionalText(input.nextAttemptAt),
     now,
     now,
@@ -1974,6 +1982,7 @@ function selectExternalMessageOutboxSql(): string {
     target_external_thread_id AS targetExternalThreadId,
     agent_space_message_id AS agentSpaceMessageId,
     payload_json AS payloadJson,
+    metadata_json AS metadataJson,
     status,
     attempts,
     next_attempt_at AS nextAttemptAt,
@@ -2252,6 +2261,7 @@ function mapExternalMessageOutboxRecord(value: Record<string, unknown>): Externa
     typeof value.integrationId !== "string" ||
     typeof value.targetExternalChatId !== "string" ||
     typeof value.payloadJson !== "string" ||
+    typeof value.metadataJson !== "string" ||
     !isExternalMessageOutboxStatus(value.status) ||
     typeof value.attempts !== "number" ||
     typeof value.createdAt !== "string" ||
@@ -2269,6 +2279,7 @@ function mapExternalMessageOutboxRecord(value: Record<string, unknown>): Externa
     targetExternalThreadId: asOptionalString(value.targetExternalThreadId),
     agentSpaceMessageId: asOptionalString(value.agentSpaceMessageId),
     payloadJson: value.payloadJson,
+    metadataJson: value.metadataJson,
     status: value.status,
     attempts: value.attempts,
     nextAttemptAt: asOptionalString(value.nextAttemptAt),
@@ -2381,6 +2392,57 @@ function normalizeJsonInput(value: JsonInput, fallback: string): string {
     return fallback;
   }
   return JSON.stringify(value);
+}
+
+function buildExternalMessageOutboxMetadataJson(input: {
+  workspaceId: string;
+  integrationId: string;
+  metadataJson?: JsonInput;
+}): string {
+  const metadata = readJsonInputRecord(input.metadataJson);
+  const integration = readExternalIntegrationSync({
+    workspaceId: input.workspaceId,
+    integrationId: input.integrationId,
+  });
+  const provider = normalizeOptionalText(integration?.provider);
+  const agentId = normalizeOptionalText(integration?.agentId);
+  if (provider && !normalizeOptionalText(readRecordString(metadata.provider))) {
+    metadata.provider = provider;
+  }
+  if (agentId && !normalizeOptionalText(readRecordString(metadata.agentId))) {
+    metadata.agentId = agentId;
+  }
+  if (agentId && !normalizeOptionalText(readRecordString(metadata.botBindingId))) {
+    metadata.botBindingId = input.integrationId;
+  }
+  return normalizeJsonInput(metadata, DEFAULT_JSON_OBJECT);
+}
+
+function readJsonInputRecord(value: JsonInput): Record<string, unknown> {
+  if (value === undefined) {
+    return {};
+  }
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return {};
+    }
+    try {
+      const parsed = JSON.parse(trimmed) as unknown;
+      return isRecord(parsed) ? { ...parsed } : {};
+    } catch {
+      return {};
+    }
+  }
+  return isRecord(value) ? { ...value } : {};
+}
+
+function readRecordString(value: unknown): string | undefined {
+  return typeof value === "string" ? value : undefined;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function asOptionalString(value: unknown): string | undefined {

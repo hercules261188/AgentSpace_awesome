@@ -236,6 +236,7 @@ export interface ExternalMessageOutboxRecord {
   targetExternalThreadId?: string;
   agentSpaceMessageId?: string;
   payloadJson: string;
+  metadataJson: string;
   status: ExternalMessageOutboxStatus;
   attempts: number;
   nextAttemptAt?: string;
