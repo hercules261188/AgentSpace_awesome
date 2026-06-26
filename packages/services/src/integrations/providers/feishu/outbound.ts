@@ -453,20 +453,25 @@ export function queueFeishuOutboundMessageSync(input: {
     throw new Error("Feishu channel binding is ingest-only and cannot send outbound messages.");
   }
 
+  const integration = readExternalIntegrationSync({
+    workspaceId: input.context.workspaceId,
+    integrationId: input.context.integrationId,
+  });
   const outboxItems = buildFeishuOutboundMessages({
     targetExternalChatId: channelBinding.externalChatId,
     targetExternalThreadId: input.message.externalThreadId,
     text: input.message.text,
     attachments: input.message.attachments,
-    agentId: readExternalIntegrationSync({
-      workspaceId: input.context.workspaceId,
-      integrationId: input.context.integrationId,
-    })?.agentId,
+    agentId: integration?.agentId,
   }).map((outbound) => enqueueExternalOutboundMessageSync({
     context: input.context,
     channelBindingId: channelBinding.id,
     agentSpaceMessageId: input.message.agentSpaceMessageId,
     outbound,
+    metadataJson: buildFeishuQueuedOutboxMetadata({
+      source: "direct_outbound_message",
+      outbound,
+    }),
   }));
   return outboxItems[0]!;
 }
@@ -517,6 +522,10 @@ export function queueFeishuChannelReplyOutboxSync(input: {
         channelBindingId: channelBinding.id,
         agentSpaceMessageId: input.agentSpaceMessageId,
         outbound,
+        metadataJson: buildFeishuQueuedOutboxMetadata({
+          source: "agent_reply",
+          outbound,
+        }),
       }));
     }
   }
@@ -579,10 +588,26 @@ export function queueFeishuAgentStatusCardOutboxSync(input: {
       channelBindingId: channelBinding.id,
       agentSpaceMessageId: input.agentSpaceMessageId,
       outbound,
+      metadataJson: buildFeishuQueuedOutboxMetadata({
+        source: "agent_status_card",
+        outbound,
+      }),
     }));
   }
 
   return outboxItems;
+}
+
+function buildFeishuQueuedOutboxMetadata(input: {
+  source: "direct_outbound_message" | "agent_reply" | "agent_status_card";
+  outbound: Pick<ExternalOutboundMessagePayload, "targetExternalChatId" | "targetExternalThreadId">;
+}): Record<string, unknown> {
+  return {
+    provider: FEISHU_PROVIDER_ID,
+    outboxSource: input.source,
+    externalChatReference: formatFeishuOutboundReference(input.outbound.targetExternalChatId),
+    externalThreadReference: formatFeishuOutboundReference(input.outbound.targetExternalThreadId),
+  };
 }
 
 interface FeishuOutboundIntegrationCandidate {

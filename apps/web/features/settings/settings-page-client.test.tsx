@@ -1170,7 +1170,7 @@ describe("SettingsPageClient", () => {
       "bound_governed_doc_read + agent_runtime_doc_read_from_lark_cli_manifest + bound_approved_doc_write + bound_governed_sheet_read + bound_approved_sheet_write_with_agentspace_sync + bound_governed_base_read + bound_approved_base_mutation_with_agentspace_sync + user_actor + external_guest_actor + external_guest_read_guest_readable_current_channel + external_guest_bound_write_denied",
     )).toBeInTheDocument();
     expect(within(evidenceGates).getByText(
-      "provider_failure_row + degraded_or_error_health + agent_bot_failure_evidence",
+      "provider_failure_row + degraded_or_error_health + agent_bot_failure_with_safe_context",
     )).toBeInTheDocument();
     const checklist = screen.getByLabelText("飞书联调清单");
     expect(within(checklist).getByText("回调路径")).toBeInTheDocument();
@@ -2007,7 +2007,7 @@ function buildFeishuSetupGuide(options: { agentBot?: boolean } = {}): NonNullabl
       },
       {
         key: "failure_visibility",
-        required: "provider_failure_row + degraded_or_error_health + agent_bot_failure_evidence",
+        required: "provider_failure_row + degraded_or_error_health + agent_bot_failure_with_safe_context",
       },
       {
         key: "openapi_artifact",

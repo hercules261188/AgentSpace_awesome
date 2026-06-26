@@ -1141,6 +1141,7 @@ test("Feishu evidence report summarizes AgentSpace-side live smoke proof without
     outboxByIntegrationId: {
       "integration-evidence": [
         buildOutboxItem("integration-evidence", "sent"),
+        buildIdentityBindingNoticeOutboxItem("integration-evidence"),
         buildOutboxItem("integration-evidence", "failed"),
       ],
     },
@@ -1192,6 +1193,7 @@ test("Feishu evidence report summarizes AgentSpace-side live smoke proof without
   assert.equal(item?.guestPolicy.externalGuestAllowedEvidence, 1);
   assert.equal(item?.guestPolicy.externalGuestReplyAllEvidence, 1);
   assert.equal(item?.guestPolicy.externalGuestRequireIdentityEvidence, 1);
+  assert.equal(item?.guestPolicy.externalGuestIdentityBindingNoticeEvidence, 1);
   assert.equal(item?.guestPolicy.externalGuestIgnoreEvidence, 1);
   assert.equal(item?.guestPolicy.externalGuestMentionRequiredEvidence, 1);
   assert.equal(item?.dataPlane.satisfied, true);
@@ -1289,6 +1291,39 @@ test("Feishu evidence report requires agent bot provenance for failure visibilit
   assert.equal(JSON.stringify(report).includes("oc_secret"), false);
 });
 
+test("Feishu evidence report requires safe context for failed agent bot outbox proof", () => {
+  const complete = buildCompleteFeishuEvidenceInput();
+  const report = buildFeishuEvidenceReport({
+    ...complete,
+    requiredEvidence: "failure",
+    outboxByIntegrationId: {
+      "integration-evidence": [
+        buildOutboxItem("integration-evidence", "failed", {
+          metadataJson: JSON.stringify({
+            provider: "feishu",
+            agentId: "Atlas",
+            botBindingId: "integration-evidence",
+          }),
+        }),
+      ],
+    },
+    dataOperationsByIntegrationId: {
+      "integration-evidence": [],
+    },
+  });
+
+  assert.equal(report.strictSatisfied, false);
+  assert.equal(report.summary.failureVisibleCount, 0);
+  const [item] = report.integrations;
+  assert.equal(item?.failureVisibility.healthFailureVisible, true);
+  assert.equal(item?.failureVisibility.providerFailureVisible, true);
+  assert.equal(item?.failureVisibility.agentBotFailureEvidence, 0);
+  assert.equal(item?.failureVisibility.satisfied, false);
+  assert.ok(item?.issues.includes("agent_bot_failure_evidence_missing"));
+  assert.ok(item?.issues.includes("failure_visibility_evidence_missing"));
+  assert.equal(JSON.stringify(report).includes("oc_secret"), false);
+});
+
 test("Feishu worker evidence requires a second correlated reply for restart recovery", () => {
   const report = buildFeishuEvidenceReport({
     ...buildCompleteFeishuEvidenceInput(),
@@ -1353,7 +1388,7 @@ test("Feishu evidence report requires reply mappings correlated to inbound messa
   assert.equal(report.summary.workerSatisfiedCount, 0);
   const [item] = report.integrations;
   assert.equal(item?.bot.processedInboundEvents, 1);
-  assert.equal(item?.bot.sentOutboxItems, 1);
+  assert.equal(item?.bot.sentOutboxItems, 2);
   assert.equal(item?.bot.inboundMessageMappings, 1);
   assert.equal(item?.bot.outboundMessageMappings, 1);
   assert.equal(item?.bot.correlatedReplyMappings, 0);
@@ -2040,6 +2075,70 @@ test("Feishu evidence report requires channel reuse from a different agent bot",
   assert.equal(JSON.stringify(report).includes("oc_secret"), false);
 });
 
+test("Feishu evidence report requires auto-provisioned channel identity and review state", () => {
+  const report = buildFeishuEvidenceReport({
+    ...buildCompleteFeishuEvidenceInput(),
+    requiredEvidence: "native",
+    channelBindingsByIntegrationId: {
+      "integration-evidence": [
+        buildAutoProvisionedChannelBinding("integration-evidence", "first_message", {
+          reviewStatus: "",
+        }),
+        buildAutoProvisionedChannelBinding("integration-evidence", "bot_added", {
+          agentId: "HermesAgent",
+          botBindingId: "integration-evidence-hermes",
+          linkedFromBindingId: "channel-atlas-binding",
+          linkedFromAgentId: "Atlas",
+          linkedFromBotBindingId: "integration-evidence-atlas",
+          channelName: "",
+        }),
+      ],
+    },
+  });
+
+  assert.equal(report.strictSatisfied, false);
+  assert.equal(report.summary.nativeExperienceSatisfiedCount, 0);
+  const [item] = report.integrations;
+  assert.equal(item?.nativeExperience.autoProvisionedChannelBindings, 0);
+  assert.equal(item?.nativeExperience.botAddedAutoProvisionedChannelBindings, 0);
+  assert.equal(item?.nativeExperience.firstMessageAutoProvisionedChannelBindings, 0);
+  assert.equal(item?.nativeExperience.reusedProviderChannelBindings, 0);
+  assert.ok(item?.issues.includes("channel_auto_provision_evidence_missing"));
+  assert.ok(item?.issues.includes("bot_added_auto_provision_evidence_missing"));
+  assert.ok(item?.issues.includes("first_message_auto_provision_evidence_missing"));
+  assert.ok(item?.issues.includes("multi_agent_channel_reuse_evidence_missing"));
+  assert.equal(JSON.stringify(report).includes("oc_secret"), false);
+});
+
+test("Feishu evidence report requires channel reuse to link a different binding record", () => {
+  const report = buildFeishuEvidenceReport({
+    ...buildCompleteFeishuEvidenceInput(),
+    requiredEvidence: "native",
+    channelBindingsByIntegrationId: {
+      "integration-evidence": [
+        buildAutoProvisionedChannelBinding("integration-evidence", "first_message"),
+        buildAutoProvisionedChannelBinding("integration-evidence", "bot_added", {
+          agentId: "HermesAgent",
+          botBindingId: "integration-evidence-hermes",
+          linkedFromBindingId: "channel-integration-evidence",
+          linkedFromAgentId: "Atlas",
+          linkedFromBotBindingId: "integration-evidence-atlas",
+        }),
+      ],
+    },
+  });
+
+  assert.equal(report.strictSatisfied, false);
+  assert.equal(report.summary.nativeExperienceSatisfiedCount, 0);
+  const [item] = report.integrations;
+  assert.equal(item?.nativeExperience.autoProvisionedChannelBindings, 2);
+  assert.equal(item?.nativeExperience.botAddedAutoProvisionedChannelBindings, 1);
+  assert.equal(item?.nativeExperience.firstMessageAutoProvisionedChannelBindings, 1);
+  assert.equal(item?.nativeExperience.reusedProviderChannelBindings, 0);
+  assert.ok(item?.issues.includes("multi_agent_channel_reuse_evidence_missing"));
+  assert.equal(JSON.stringify(report).includes("oc_secret"), false);
+});
+
 test("Feishu evidence report rejects external guest message proof with user identity", () => {
   const complete = buildCompleteFeishuEvidenceInput();
   const report = buildFeishuEvidenceReport({
@@ -2126,6 +2225,88 @@ test("Feishu evidence report requires external guest allow proof from reply_on_m
   assert.equal(item?.guestPolicy.externalGuestAllowedEvidence, 0);
   assert.equal(item?.guestPolicy.externalGuestReplyAllEvidence, 1);
   assert.ok(item?.issues.includes("external_guest_policy_allow_evidence_missing"));
+});
+
+test("Feishu evidence report requires blocked guest policies without dispatch or replies", () => {
+  const report = buildFeishuEvidenceReport({
+    ...buildCompleteFeishuEvidenceInput(),
+    requiredEvidence: "guest-policy",
+    messageMappingsByIntegrationId: {
+      "integration-evidence": [
+        buildMessageMapping("integration-evidence", "inbound", "om_secret_inbound"),
+        buildMessageMapping("integration-evidence", "outbound", "om_secret_reply", "om_secret_inbound"),
+        buildMessageMapping("integration-evidence", "inbound", "om_secret_restart_inbound", undefined, {
+          actorType: "external_guest",
+          externalGuestPolicyDecision: "allow",
+        }),
+        buildExternalGuestReplyAllMapping("integration-evidence"),
+        buildMessageMapping("integration-evidence", "outbound", "om_secret_restart_reply", "om_secret_restart_inbound"),
+        withDispatchEvidence(buildPolicyBlockedMessageMapping("integration-evidence", {
+          externalMessageId: "om_secret_guest_require_identity",
+          decision: "require_identity",
+          reasonCode: "feishu_external_guest_identity_required",
+          unboundUserMode: "require_identity",
+        })),
+        buildPolicyBlockedMessageMapping("integration-evidence", {
+          externalMessageId: "om_secret_guest_ignored",
+          decision: "ignore",
+          reasonCode: "feishu_external_guest_ignored",
+          unboundUserMode: "ignore",
+        }),
+        buildMessageMapping("integration-evidence", "outbound", "om_secret_guest_ignored_reply", "om_secret_guest_ignored"),
+        buildPolicyBlockedMessageMapping("integration-evidence", {
+          externalMessageId: "om_secret_guest_unmentioned",
+          decision: "ignore",
+          reasonCode: "feishu_external_guest_bot_mention_required",
+          unboundUserMode: "reply_on_mention",
+        }),
+        buildMessageMapping(
+          "integration-evidence",
+          "outbound",
+          "om_secret_guest_unmentioned_reply",
+          "om_secret_guest_unmentioned",
+        ),
+      ],
+    },
+  });
+
+  assert.equal(report.strictSatisfied, false);
+  assert.equal(report.summary.guestPolicySatisfiedCount, 0);
+  const [item] = report.integrations;
+  assert.equal(item?.guestPolicy.externalGuestAllowedEvidence, 1);
+  assert.equal(item?.guestPolicy.externalGuestReplyAllEvidence, 1);
+  assert.equal(item?.guestPolicy.externalGuestRequireIdentityEvidence, 0);
+  assert.equal(item?.guestPolicy.externalGuestIdentityBindingNoticeEvidence, 0);
+  assert.equal(item?.guestPolicy.externalGuestIgnoreEvidence, 0);
+  assert.equal(item?.guestPolicy.externalGuestMentionRequiredEvidence, 0);
+  assert.ok(item?.issues.includes("external_guest_policy_require_identity_evidence_missing"));
+  assert.ok(item?.issues.includes("external_guest_identity_binding_notice_evidence_missing"));
+  assert.ok(item?.issues.includes("external_guest_policy_ignore_evidence_missing"));
+  assert.ok(item?.issues.includes("external_guest_policy_mention_required_evidence_missing"));
+  assert.equal(JSON.stringify(report).includes("om_secret_guest_ignored"), false);
+});
+
+test("Feishu evidence report requires a sent identity binding notice for require_identity", () => {
+  const complete = buildCompleteFeishuEvidenceInput();
+  const report = buildFeishuEvidenceReport({
+    ...complete,
+    requiredEvidence: "guest-policy",
+    outboxByIntegrationId: {
+      "integration-evidence": [
+        buildOutboxItem("integration-evidence", "sent"),
+        buildIdentityBindingNoticeOutboxItem("integration-evidence", "pending"),
+        buildOutboxItem("integration-evidence", "failed"),
+      ],
+    },
+  });
+
+  assert.equal(report.strictSatisfied, false);
+  assert.equal(report.summary.guestPolicySatisfiedCount, 0);
+  const [item] = report.integrations;
+  assert.equal(item?.guestPolicy.externalGuestRequireIdentityEvidence, 1);
+  assert.equal(item?.guestPolicy.externalGuestIdentityBindingNoticeEvidence, 0);
+  assert.ok(item?.issues.includes("external_guest_identity_binding_notice_evidence_missing"));
+  assert.equal(JSON.stringify(report).includes("om_secret_guest_require_identity"), false);
 });
 
 test("Feishu evidence report can gate on redacted OpenAPI live smoke evidence", () => {
@@ -2409,6 +2590,7 @@ test("Feishu evidence report blocks strict gates when local proof is incomplete"
   assert.ok(item?.issues.includes("external_guest_policy_allow_evidence_missing"));
   assert.ok(item?.issues.includes("external_guest_policy_reply_all_evidence_missing"));
   assert.ok(item?.issues.includes("external_guest_policy_require_identity_evidence_missing"));
+  assert.ok(item?.issues.includes("external_guest_identity_binding_notice_evidence_missing"));
   assert.ok(item?.issues.includes("external_guest_policy_ignore_evidence_missing"));
   assert.ok(item?.issues.includes("external_guest_policy_mention_required_evidence_missing"));
   assert.ok(item?.issues.includes("failure_visibility_evidence_missing"));
@@ -2487,6 +2669,7 @@ test("Feishu evidence report blocks strict gates when local proof is incomplete"
     step.stepId === "live_external_guest_identity_required"
   );
   assert.ok(requireIdentityRemediation?.issues.includes("external_guest_policy_require_identity_evidence_missing"));
+  assert.ok(requireIdentityRemediation?.issues.includes("external_guest_identity_binding_notice_evidence_missing"));
   const ignoreRemediation = item?.remediationSteps.find((step) =>
     step.stepId === "live_external_guest_reply_disabled"
   );
@@ -4828,11 +5011,11 @@ test("Feishu smoke plan converts readiness into live smoke checklist without ext
     },
     {
       key: "native_agent_bot",
-      required: "direct_agent_bot_route + bound_user_bot_mention + external_guest_bot_mention + bot_added_auto_provision + first_message_auto_provision + multi_agent_channel_reuse + thread_task_binding + thread_continuation_without_remention_active_binding + thread_collaboration + bot_sender_loop_guard_without_reply + agent_channel_policy_denial_without_reply",
+      required: "direct_agent_bot_route + bound_user_bot_mention + external_guest_bot_mention + bot_added_auto_provision_with_channel_identity_review_state + first_message_auto_provision_with_channel_identity_review_state + multi_agent_channel_reuse_distinct_binding + thread_task_binding + thread_continuation_without_remention_active_binding + thread_collaboration + bot_sender_loop_guard_without_reply + agent_channel_policy_denial_without_reply",
     },
     {
       key: "guest_policy",
-      required: "external_guest_reply_on_mention_allow + external_guest_reply_all + external_guest_require_identity + external_guest_ignore + external_guest_mention_required",
+      required: "external_guest_reply_on_mention_allow_with_dispatch + external_guest_reply_all_without_mention + external_guest_require_identity_without_dispatch + sent_identity_binding_notice + external_guest_ignore_without_dispatch_or_reply + external_guest_mention_required_without_dispatch_or_reply",
     },
     {
       key: "worker_restart",
@@ -4848,7 +5031,7 @@ test("Feishu smoke plan converts readiness into live smoke checklist without ext
       },
     {
       key: "failure_visibility",
-      required: "provider_failure_row + degraded_or_error_health + agent_bot_failure_evidence",
+      required: "provider_failure_row + degraded_or_error_health + agent_bot_failure_with_safe_context",
     },
     {
       key: "openapi_artifact",
@@ -5353,6 +5536,7 @@ function buildCompleteFeishuEvidenceInput() {
     outboxByIntegrationId: {
       "integration-evidence": [
         buildOutboxItem("integration-evidence", "sent"),
+        buildIdentityBindingNoticeOutboxItem("integration-evidence"),
         buildOutboxItem("integration-evidence", "failed"),
       ],
     },
@@ -5488,6 +5672,14 @@ function withBotBindingId<T extends { metadataJson?: string }>(mapping: T, botBi
       ...metadata,
       botBindingId,
     }),
+  };
+}
+
+function withDispatchEvidence<T extends { agentSpaceMessageId?: string; taskQueueId?: string }>(mapping: T): T {
+  return {
+    ...mapping,
+    agentSpaceMessageId: "message-should-not-dispatch",
+    taskQueueId: "task-should-not-dispatch",
   };
 }
 
@@ -5656,6 +5848,7 @@ function buildPolicyBlockedMessageMapping(
     externalEventId: "evt_secret",
     metadataJson: JSON.stringify({
       provider: "feishu",
+      externalChatReference: "chat-ref-hash",
       mappedChannelName: "general",
       dispatchStatus: "ignored",
       reasonCode: input.reasonCode,
@@ -5682,16 +5875,22 @@ function buildAutoProvisionedChannelBinding(
     linkedFromBindingId?: string;
     linkedFromAgentId?: string;
     linkedFromBotBindingId?: string;
+    reviewStatus?: string;
+    channelName?: string;
+    externalChatId?: string;
   } = {},
 ) {
   const agentId = options.agentId ?? "Atlas";
   const botBindingId = options.botBindingId ?? integrationId;
   return {
-    ...(buildChannelBinding(integrationId) as Record<string, unknown>),
+    ...(buildChannelBinding(integrationId, {
+      ...(options.channelName !== undefined ? { channelName: options.channelName } : {}),
+      ...(options.externalChatId !== undefined ? { externalChatId: options.externalChatId } : {}),
+    }) as Record<string, unknown>),
     metadataJson: JSON.stringify({
       provider: "feishu",
       provisionSource,
-      reviewStatus: "approved",
+      reviewStatus: options.reviewStatus ?? "approved",
       agentId,
       botBindingId,
       externalChatReference: "chat-ref-hash",
@@ -6014,6 +6213,9 @@ function buildOutboxItem(
     payloadJson: JSON.stringify({ text: "payload-secret" }),
     metadataJson: options.metadataJson ?? JSON.stringify({
       provider: "feishu",
+      outboxSource: "agent_reply",
+      externalChatReference: "chat-ref-hash",
+      externalThreadReference: "thread-ref-hash",
       agentId: "Codex",
       botBindingId: integrationId,
     }),
@@ -6024,6 +6226,31 @@ function buildOutboxItem(
     updatedAt: "2026-06-24T00:00:00.000Z",
     sentAt: status === "sent" ? "2026-06-24T00:00:01.000Z" : undefined,
   } as never;
+}
+
+function buildIdentityBindingNoticeOutboxItem(integrationId: string, status: "failed" | "pending" | "sent" = "sent") {
+  return {
+    ...(buildOutboxItem(integrationId, status, {
+      metadataJson: JSON.stringify({
+        provider: "feishu",
+        noticeType: "identity_binding_required",
+        noticeSource: "external_guest_policy",
+        reasonCode: "feishu_external_guest_identity_required",
+        actorType: "external_guest",
+        agentId: "Atlas",
+        botBindingId: integrationId,
+        externalChatReference: "chat-ref-hash",
+        externalThreadReference: shortHashForTest("om_secret_guest_require_identity"),
+      }),
+    }) as Record<string, unknown>),
+    id: `${status}-${integrationId}-identity-binding-notice`,
+    channelBindingId: `channel-${integrationId}`,
+    targetExternalThreadId: "om_secret_guest_require_identity",
+  } as never;
+}
+
+function shortHashForTest(value: string): string {
+  return createHash("sha256").update(value).digest("hex").slice(0, 16);
 }
 
 function buildIntegrationEvent(

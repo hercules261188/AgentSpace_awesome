@@ -11,6 +11,7 @@ export function enqueueExternalOutboundMessageSync(input: {
   channelBindingId?: string;
   agentSpaceMessageId?: string;
   outbound: ExternalOutboundMessagePayload;
+  metadataJson?: string | Record<string, unknown> | unknown[];
   nextAttemptAt?: string;
 }): ExternalMessageOutboxRecord {
   return createExternalMessageOutboxSync({
@@ -21,6 +22,7 @@ export function enqueueExternalOutboundMessageSync(input: {
     targetExternalThreadId: input.outbound.targetExternalThreadId,
     agentSpaceMessageId: input.agentSpaceMessageId,
     payloadJson: input.outbound.payload,
+    metadataJson: input.metadataJson,
     nextAttemptAt: input.nextAttemptAt,
   });
 }

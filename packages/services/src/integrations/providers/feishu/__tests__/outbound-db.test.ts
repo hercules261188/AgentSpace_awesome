@@ -154,6 +154,13 @@ test("AgentSpace replies are sent back to the source Feishu thread", databaseTes
   assert.equal(queuedOutbox.length, 1);
   assert.equal(queuedOutbox[0]?.targetExternalChatId, "oc_tour");
   assert.equal(queuedOutbox[0]?.targetExternalThreadId, "om_root");
+  const queuedMetadata = JSON.parse(queuedOutbox[0]?.metadataJson ?? "{}") as Record<string, unknown>;
+  assert.equal(queuedMetadata.provider, "feishu");
+  assert.equal(queuedMetadata.outboxSource, "agent_reply");
+  assert.match(String(queuedMetadata.externalChatReference), /^ref_[a-f0-9]{8}$/);
+  assert.match(String(queuedMetadata.externalThreadReference), /^ref_[a-f0-9]{8}$/);
+  assert.equal(JSON.stringify(queuedMetadata).includes("oc_tour"), false);
+  assert.equal(JSON.stringify(queuedMetadata).includes("om_root"), false);
 
   const requests: FeishuApiRequest[] = [];
   const client: FeishuApiClient = {

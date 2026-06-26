@@ -1817,6 +1817,19 @@ function queueFeishuIdentityBindingRequiredCardOutboxSync(input: {
     targetExternalChatId: outbound.targetExternalChatId,
     targetExternalThreadId: outbound.targetExternalThreadId,
     payloadJson: outbound.payload,
+    metadataJson: {
+      provider: FEISHU_PROVIDER_ID,
+      noticeType: "identity_binding_required",
+      noticeSource: "external_guest_policy",
+      reasonCode: "feishu_external_guest_identity_required",
+      actorType: "external_guest",
+      agentId: input.agentId,
+      botBindingId: input.context.integrationId,
+      externalChatReference: shortHash(input.message.externalChatId),
+      externalThreadReference: outbound.targetExternalThreadId
+        ? shortHash(outbound.targetExternalThreadId)
+        : undefined,
+    },
   });
 }
 

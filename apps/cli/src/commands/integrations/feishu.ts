@@ -572,6 +572,7 @@ export interface FeishuIntegrationEvidence {
     externalGuestAllowedEvidence: number;
     externalGuestReplyAllEvidence: number;
     externalGuestRequireIdentityEvidence: number;
+    externalGuestIdentityBindingNoticeEvidence: number;
     externalGuestIgnoreEvidence: number;
     externalGuestMentionRequiredEvidence: number;
     satisfied: boolean;
@@ -4666,7 +4667,7 @@ export function buildFeishuSmokePlanReport(input: BuildFeishuSmokePlanReportInpu
         area: "failure",
         title: "Live smoke: verify visible provider failure",
         status: hasIntegration ? "pending" : "blocked",
-        detail: "Temporarily revoke a Feishu scope, use a wrong secret, or stop Feishu API access, then refresh health and verify a failed outbox/data-operation row plus degraded/error health are visible without leaking secrets.",
+        detail: "Temporarily revoke a Feishu scope, use a wrong secret, or stop Feishu API access, then refresh health and verify a failed outbox/data-operation row plus degraded/error health are visible with agent/bot and safe chat/resource context, without leaking secrets.",
         command: `agent-space integrations feishu health-check --workspace-id ${readiness.workspaceId} --integration ${setupIntegrationFlag} --json`,
         issues: hasIntegration ? [] : ["integration_missing"],
       },
@@ -4675,7 +4676,7 @@ export function buildFeishuSmokePlanReport(input: BuildFeishuSmokePlanReportInpu
         area: "failure",
         title: "Verify AgentSpace-side Feishu live smoke evidence",
         status: readyForBot && readyForDataPlane ? "pending" : "blocked",
-        detail: "After live native agent bot, guest-policy, data-plane, worker, and failure smoke, verify local AgentSpace DB evidence without exposing external ids or resource tokens. Native evidence requires agent-specific bot routing, auto-provisioning, multi-agent channel reuse, thread/task binding, thread continuation, thread collaboration, bot sender loop guard, and disabled-policy no-reply proof; guest evidence requires allow, reply_all, require_identity, ignore, and mention-required decisions.",
+        detail: "After live native agent bot, guest-policy, data-plane, worker, and failure smoke, verify local AgentSpace DB evidence without exposing external ids or resource tokens. Native evidence requires agent-specific bot routing, auto-provisioning, multi-agent channel reuse, thread/task binding, thread continuation, thread collaboration, bot sender loop guard, and disabled-policy no-reply proof; guest evidence requires allow, reply_all, require_identity, sent identity-binding notice, ignore, and mention-required decisions.",
         command: `agent-space integrations feishu evidence --workspace-id ${readiness.workspaceId} --integration ${setupIntegrationFlag} --openapi-evidence ${smokeHarness.evidencePath} --strict --require all --json`,
         issues: readyForBot && readyForDataPlane ? [] : uniqueStrings([...botIssues, ...dataPlaneIssues]),
       },
@@ -4808,18 +4809,31 @@ function buildFeishuIntegrationEvidence(input: {
     decision: "require_identity",
     reasonCode: "feishu_external_guest_identity_required",
     dispatchStatus: "ignored",
+    unboundUserMode: "require_identity",
+    agentBotMentioned: true,
+    requireNoDispatchEvidence: true,
   });
+  const externalGuestIdentityBindingNoticeEvidence = countFeishuIdentityBindingNoticeEvidence(
+    input.messageMappings,
+    input.outbox,
+  );
   const externalGuestIgnoreEvidence = countFeishuExternalGuestPolicyEvidence(input.messageMappings, {
     decision: "ignore",
     reasonCode: "feishu_external_guest_ignored",
     unboundUserMode: "ignore",
     dispatchStatus: "ignored",
+    agentBotMentioned: true,
+    requireNoDispatchEvidence: true,
+    requireNoOutboundReply: true,
   });
   const externalGuestMentionRequiredEvidence = countFeishuExternalGuestPolicyEvidence(input.messageMappings, {
     decision: "ignore",
     reasonCode: "feishu_external_guest_bot_mention_required",
     unboundUserMode: "reply_on_mention",
     dispatchStatus: "ignored",
+    agentBotMentioned: false,
+    requireNoDispatchEvidence: true,
+    requireNoOutboundReply: true,
   });
   const autoProvisionedChannelBindings = countFeishuAutoProvisionedChannelBindings(input.channelBindings);
   const botAddedAutoProvisionedChannelBindings = countFeishuAutoProvisionedChannelBindings(
@@ -4895,6 +4909,7 @@ function buildFeishuIntegrationEvidence(input: {
   const guestPolicySatisfied = externalGuestAllowedEvidence > 0 &&
     externalGuestReplyAllEvidence > 0 &&
     externalGuestRequireIdentityEvidence > 0 &&
+    externalGuestIdentityBindingNoticeEvidence > 0 &&
     externalGuestIgnoreEvidence > 0 &&
     externalGuestMentionRequiredEvidence > 0;
   const dataPlaneSatisfied = docReadSucceeded > 0 &&
@@ -4940,6 +4955,7 @@ function buildFeishuIntegrationEvidence(input: {
     externalGuestAllowedEvidence,
     externalGuestReplyAllEvidence,
     externalGuestRequireIdentityEvidence,
+    externalGuestIdentityBindingNoticeEvidence,
     externalGuestIgnoreEvidence,
     externalGuestMentionRequiredEvidence,
     autoProvisionedChannelBindings,
@@ -5009,6 +5025,7 @@ function buildFeishuIntegrationEvidence(input: {
       externalGuestAllowedEvidence,
       externalGuestReplyAllEvidence,
       externalGuestRequireIdentityEvidence,
+      externalGuestIdentityBindingNoticeEvidence,
       externalGuestIgnoreEvidence,
       externalGuestMentionRequiredEvidence,
       satisfied: guestPolicySatisfied,
@@ -5307,6 +5324,10 @@ function buildFeishuCliExternalReference(kind: string, value: string): string {
   return `${kind}:${createHash("sha256").update(`${kind}:${value}`, "utf8").digest("hex").slice(0, 16)}`;
 }
 
+function buildFeishuShortHash(value: string): string {
+  return createHash("sha256").update(value).digest("hex").slice(0, 16);
+}
+
 function buildFeishuEvidenceIssues(input: {
   integration: ExternalIntegrationRecord;
   botSatisfied: boolean;
@@ -5329,6 +5350,7 @@ function buildFeishuEvidenceIssues(input: {
   externalGuestAllowedEvidence: number;
   externalGuestReplyAllEvidence: number;
   externalGuestRequireIdentityEvidence: number;
+  externalGuestIdentityBindingNoticeEvidence: number;
   externalGuestIgnoreEvidence: number;
   externalGuestMentionRequiredEvidence: number;
   autoProvisionedChannelBindings: number;
@@ -5428,6 +5450,9 @@ function buildFeishuEvidenceIssues(input: {
     }
     if (input.externalGuestRequireIdentityEvidence === 0) {
       issues.push("external_guest_policy_require_identity_evidence_missing");
+    }
+    if (input.externalGuestIdentityBindingNoticeEvidence === 0) {
+      issues.push("external_guest_identity_binding_notice_evidence_missing");
     }
     if (input.externalGuestIgnoreEvidence === 0) {
       issues.push("external_guest_policy_ignore_evidence_missing");
@@ -5597,6 +5622,12 @@ function mapFeishuEvidenceIssueToRemediationSpec(input: {
         title: "Live smoke: external guest is asked to bind identity",
         detail: "Set the agent bot external guest policy to require_identity, mention the bot from an unbound Feishu user, and verify AgentSpace records the require_identity decision and sends the binding notice.",
       };
+    case "external_guest_identity_binding_notice_evidence_missing":
+      return {
+        stepId: "live_external_guest_identity_required",
+        title: "Live smoke: external guest identity notice is sent",
+        detail: "Set the agent bot external guest policy to require_identity, mention the bot from an unbound Feishu user, drain the Feishu outbox, and verify AgentSpace records a sent identity-binding notice correlated to that ignored inbound message.",
+      };
     case "external_guest_policy_ignore_evidence_missing":
       return {
         stepId: "live_external_guest_reply_disabled",
@@ -5619,25 +5650,25 @@ function mapFeishuEvidenceIssueToRemediationSpec(input: {
       return {
         stepId: "live_agent_bot_channel_auto_provision",
         title: "Live smoke: agent bot auto-provisions channel",
-        detail: "Add the agent bot to a new Feishu group or send a first mentioned message in an unbound group, then verify the channel binding metadata records bot_added or first_message auto-provisioning.",
+        detail: "Add the agent bot to a new Feishu group or send a first mentioned message in an unbound group, then verify the channel binding records an AgentSpace channel name, review status, and safe chat reference with bot_added or first_message auto-provisioning.",
       };
     case "bot_added_auto_provision_evidence_missing":
       return {
         stepId: "live_agent_bot_channel_auto_provision",
         title: "Live smoke: agent bot auto-provisions channel",
-        detail: "Add the agent bot to a new Feishu group and verify the channel binding metadata records provisionSource=bot_added with safe chat reference metadata.",
+        detail: "Add the agent bot to a new Feishu group and verify the channel binding records provisionSource=bot_added with AgentSpace channel identity, review status, and safe chat reference metadata.",
       };
     case "first_message_auto_provision_evidence_missing":
       return {
         stepId: "live_agent_bot_first_message_auto_provision",
         title: "Live smoke: first mentioned message provisions channel",
-        detail: "Send the first mentioned message from an unbound Feishu group and verify AgentSpace records provisionSource=first_message.",
+        detail: "Send the first mentioned message from an unbound Feishu group and verify AgentSpace records provisionSource=first_message with AgentSpace channel identity, review status, and safe chat reference metadata.",
       };
     case "multi_agent_channel_reuse_evidence_missing":
       return {
         stepId: "live_multi_agent_bot_channel_reuse",
         title: "Live smoke: second agent bot reuses channel",
-        detail: "Add a second agent bot to the same Feishu group and verify AgentSpace adds that agent to the existing channel with linkedFromBindingId plus different linkedFromAgentId/linkedFromBotBindingId metadata instead of creating a duplicate channel.",
+        detail: "Add a second agent bot to the same Feishu group and verify AgentSpace adds that agent to the existing channel with a distinct linkedFromBindingId plus different linkedFromAgentId/linkedFromBotBindingId metadata instead of creating a duplicate channel.",
       };
     case "thread_task_binding_evidence_missing":
       return {
@@ -5760,7 +5791,7 @@ function mapFeishuEvidenceIssueToRemediationSpec(input: {
       return {
         stepId: "live_failure_visibility",
         title: "Live smoke: verify visible provider failure",
-        detail: "Temporarily use a wrong agent bot secret, revoke a required scope, or force a failed agent-bot outbox/data operation, then refresh Feishu health until degraded/error status and a provider failure row with agentId and botBindingId evidence are both visible.",
+        detail: "Temporarily use a wrong agent bot secret, revoke a required scope, or force a failed agent-bot outbox/data operation, then refresh Feishu health until degraded/error status and a provider failure row with agentId, botBindingId, and safe chat/resource context are both visible.",
         command: `agent-space integrations feishu health-check --workspace-id ${input.workspaceId} --integration ${input.integration.id} --json`,
       };
     default:
@@ -5982,6 +6013,8 @@ function countFeishuExternalGuestPolicyEvidence(
     unboundUserMode?: string;
     agentBotMentioned?: boolean;
     requireDispatchEvidence?: boolean;
+    requireNoDispatchEvidence?: boolean;
+    requireNoOutboundReply?: boolean;
   },
 ): number {
   return mappings.filter((mapping) => {
@@ -5996,6 +6029,10 @@ function countFeishuExternalGuestPolicyEvidence(
       metadata.externalGuestPolicyDecision !== input.decision ||
       typeof metadata.externalGuestReference !== "string" ||
       metadata.externalGuestReference.trim().length === 0 ||
+      typeof metadata.externalChatReference !== "string" ||
+      metadata.externalChatReference.trim().length === 0 ||
+      typeof metadata.externalGuestPermissionProfile !== "string" ||
+      metadata.externalGuestPermissionProfile.trim().length === 0 ||
       !hasNoFeishuUserIdentity(metadata) ||
       typeof metadata.agentId !== "string" ||
       metadata.agentId.trim().length === 0 ||
@@ -6005,6 +6042,12 @@ function countFeishuExternalGuestPolicyEvidence(
       return false;
     }
     if (input.requireDispatchEvidence && (!mapping.taskQueueId || !mapping.agentSpaceMessageId)) {
+      return false;
+    }
+    if (input.requireNoDispatchEvidence && (mapping.taskQueueId || mapping.agentSpaceMessageId)) {
+      return false;
+    }
+    if (input.requireNoOutboundReply && hasFeishuCorrelatedOutboundReply(mappings, mapping)) {
       return false;
     }
     if (input.reasonCode && metadata.externalGuestPolicyReasonCode !== input.reasonCode) {
@@ -6034,6 +6077,9 @@ function countFeishuExternalGuestReplyAllEvidence(
       metadata.externalGuestPolicyDecision === "allow" &&
       metadata.externalGuestPolicyReasonCode === "feishu_external_guest_allowed" &&
       metadata.externalGuestUnboundUserMode === "reply_all" &&
+      metadata.agentBotMentioned === false &&
+      typeof metadata.externalChatReference === "string" &&
+      metadata.externalChatReference.trim().length > 0 &&
       typeof metadata.externalGuestReference === "string" &&
       metadata.externalGuestReference.trim().length > 0 &&
       typeof metadata.externalGuestPermissionProfile === "string" &&
@@ -6044,6 +6090,58 @@ function countFeishuExternalGuestReplyAllEvidence(
       typeof metadata.botBindingId === "string" &&
       metadata.botBindingId.trim().length > 0;
   }).length;
+}
+
+function countFeishuIdentityBindingNoticeEvidence(
+  mappings: readonly ExternalMessageMappingRecord[],
+  outbox: readonly ExternalMessageOutboxRecord[],
+): number {
+  return mappings.filter((mapping) => {
+    if (mapping.direction !== "inbound" || mapping.taskQueueId || mapping.agentSpaceMessageId) {
+      return false;
+    }
+    const metadata = readJsonRecord(mapping.metadataJson);
+    if (
+      metadata?.provider !== FEISHU_PROVIDER_ID ||
+      metadata.actorType !== "external_guest" ||
+      metadata.dispatchStatus !== "ignored" ||
+      metadata.externalGuestPolicyDecision !== "require_identity" ||
+      metadata.externalGuestPolicyReasonCode !== "feishu_external_guest_identity_required" ||
+      metadata.externalGuestUnboundUserMode !== "require_identity" ||
+      metadata.agentBotMentioned !== true ||
+      !hasNoFeishuUserIdentity(metadata) ||
+      !hasNonEmptyString(metadata.agentId) ||
+      !hasNonEmptyString(metadata.botBindingId) ||
+      !hasNonEmptyString(metadata.externalChatReference)
+    ) {
+      return false;
+    }
+    return outbox.some((item) => hasMatchingFeishuIdentityBindingNotice(item, mapping, metadata));
+  }).length;
+}
+
+function hasMatchingFeishuIdentityBindingNotice(
+  item: ExternalMessageOutboxRecord,
+  mapping: ExternalMessageMappingRecord,
+  inboundMetadata: Record<string, unknown>,
+): boolean {
+  if (item.status !== "sent" || item.integrationId !== mapping.integrationId) {
+    return false;
+  }
+  if (!mapping.channelBindingId || item.channelBindingId !== mapping.channelBindingId) {
+    return false;
+  }
+  const metadata = readJsonRecord(item.metadataJson);
+  const replyTargetReference = buildFeishuShortHash(mapping.externalThreadId || mapping.externalMessageId);
+  return metadata?.provider === FEISHU_PROVIDER_ID &&
+    metadata.noticeType === "identity_binding_required" &&
+    metadata.noticeSource === "external_guest_policy" &&
+    metadata.reasonCode === "feishu_external_guest_identity_required" &&
+    metadata.actorType === "external_guest" &&
+    metadata.agentId === inboundMetadata.agentId &&
+    metadata.botBindingId === inboundMetadata.botBindingId &&
+    metadata.externalChatReference === inboundMetadata.externalChatReference &&
+    metadata.externalThreadReference === replyTargetReference;
 }
 
 function countFeishuAutoProvisionedChannelBindings(
@@ -6060,12 +6158,11 @@ function countFeishuAutoProvisionedChannelBindings(
       return false;
     }
     return metadata?.provider === FEISHU_PROVIDER_ID &&
+      hasFeishuAutoProvisionedChannelIdentity(binding, metadata) &&
       typeof metadata.agentId === "string" &&
       metadata.agentId.trim().length > 0 &&
       typeof metadata.botBindingId === "string" &&
-      metadata.botBindingId.trim().length > 0 &&
-      typeof metadata.externalChatReference === "string" &&
-      metadata.externalChatReference.trim().length > 0;
+      metadata.botBindingId.trim().length > 0;
   }).length;
 }
 
@@ -6077,6 +6174,7 @@ function countFeishuReusedProviderChannelBindings(
       return false;
     }
     const metadata = readJsonRecord(binding.metadataJson);
+    const bindingId = binding.id.trim();
     const agentId = hasNonEmptyString(metadata?.agentId) ? metadata.agentId.trim() : "";
     const botBindingId = hasNonEmptyString(metadata?.botBindingId) ? metadata.botBindingId.trim() : "";
     const linkedFromAgentId = hasNonEmptyString(metadata?.linkedFromAgentId)
@@ -6087,8 +6185,10 @@ function countFeishuReusedProviderChannelBindings(
       : "";
     return metadata?.provider === FEISHU_PROVIDER_ID &&
       metadata.provisionSource === "bot_added" &&
+      hasFeishuAutoProvisionedChannelIdentity(binding, metadata) &&
       typeof metadata.linkedFromBindingId === "string" &&
       metadata.linkedFromBindingId.trim().length > 0 &&
+      metadata.linkedFromBindingId.trim() !== bindingId &&
       agentId.length > 0 &&
       botBindingId.length > 0 &&
       linkedFromAgentId.length > 0 &&
@@ -6098,6 +6198,24 @@ function countFeishuReusedProviderChannelBindings(
       typeof metadata.externalChatReference === "string" &&
       metadata.externalChatReference.trim().length > 0;
   }).length;
+}
+
+function hasFeishuAutoProvisionedChannelIdentity(
+  binding: ExternalChannelBindingRecord,
+  metadata: Record<string, unknown> | undefined,
+): boolean {
+  return hasNonEmptyString(binding.id) &&
+    hasNonEmptyString(binding.integrationId) &&
+    hasNonEmptyString(binding.channelName) &&
+    hasNonEmptyString(binding.externalChatId) &&
+    hasNonEmptyString(metadata?.externalChatReference) &&
+    isFeishuAutoProvisionReviewStatus(metadata?.reviewStatus);
+}
+
+function isFeishuAutoProvisionReviewStatus(value: unknown): boolean {
+  return value === "approved" ||
+    value === "pending_admin_review" ||
+    value === "needs_identity_binding";
 }
 
 function countFeishuThreadTaskBindingEvidence(
@@ -6238,8 +6356,17 @@ function countFeishuFailedOutboxAgentBotEvidence(
     const metadata = readJsonRecord(item.metadataJson);
     return metadata?.provider === FEISHU_PROVIDER_ID &&
       hasNonEmptyString(metadata.agentId) &&
-      hasNonEmptyString(metadata.botBindingId);
+      hasNonEmptyString(metadata.botBindingId) &&
+      hasNonEmptyString(metadata.externalChatReference) &&
+      hasFeishuFailureOutboxSource(metadata);
   }).length;
+}
+
+function hasFeishuFailureOutboxSource(metadata: Record<string, unknown>): boolean {
+  return metadata.outboxSource === "direct_outbound_message" ||
+    metadata.outboxSource === "agent_reply" ||
+    metadata.outboxSource === "agent_status_card" ||
+    metadata.noticeType === "identity_binding_required";
 }
 
 function countFeishuFailedDataOperationAgentBotEvidence(
@@ -6250,8 +6377,12 @@ function countFeishuFailedDataOperationAgentBotEvidence(
       return false;
     }
     const governanceContext = readFeishuGovernanceContext(operation);
-    return hasNonEmptyString(governanceContext?.agentId) &&
-      hasNonEmptyString(governanceContext?.botBindingId);
+    return governanceContext?.provider === FEISHU_PROVIDER_ID &&
+      hasNonEmptyString(operation.resourceBindingId) &&
+      hasNonEmptyString(operation.operationType) &&
+      hasNonEmptyString(operation.providerResourceType) &&
+      hasNonEmptyString(governanceContext.agentId) &&
+      hasNonEmptyString(governanceContext.botBindingId);
   }).length;
 }
 

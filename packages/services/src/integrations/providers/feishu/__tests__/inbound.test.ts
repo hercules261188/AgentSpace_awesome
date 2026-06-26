@@ -1208,6 +1208,18 @@ test("agent bot require_identity policy sends an identity binding card without d
   assert.match(String(metadata.externalGuestReference), /^[a-f0-9]{64}$/);
   assert.doesNotMatch(mapping.metadataJson, /oc_general|ou_mina|on_mina|om-agent-bot-guest-require-identity/);
 
+  const noticeMetadata = JSON.parse(result.noticeOutbox.metadataJson) as Record<string, unknown>;
+  assert.equal(noticeMetadata.provider, "feishu");
+  assert.equal(noticeMetadata.noticeType, "identity_binding_required");
+  assert.equal(noticeMetadata.noticeSource, "external_guest_policy");
+  assert.equal(noticeMetadata.reasonCode, "feishu_external_guest_identity_required");
+  assert.equal(noticeMetadata.actorType, "external_guest");
+  assert.equal(noticeMetadata.agentId, "Atlas");
+  assert.equal(noticeMetadata.botBindingId, fixtures.integration.id);
+  assert.match(String(noticeMetadata.externalChatReference), /^[a-f0-9]{16}$/);
+  assert.match(String(noticeMetadata.externalThreadReference), /^[a-f0-9]{16}$/);
+  assert.doesNotMatch(result.noticeOutbox.metadataJson, /oc_general|ou_mina|on_mina|om-agent-bot-guest-require-identity/);
+
   const noticePayload = JSON.parse(result.noticeOutbox.payloadJson) as {
     msg_type?: string;
     reply_to_message_id?: string;
