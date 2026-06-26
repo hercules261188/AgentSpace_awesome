@@ -235,6 +235,8 @@ export interface FeishuIntegrationSetupGuide {
     dataPlaneReadiness: string;
     workerReadiness: string;
     autoProvisionPolicy?: string;
+    agentChannelAccessDisable?: string;
+    agentChannelAccessRestore?: string;
     channelBindings?: string;
     smokeEnv: string;
     checkEnv: string;

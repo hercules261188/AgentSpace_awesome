@@ -786,6 +786,12 @@ describe("Feishu settings data", () => {
     expect(atlas?.setupGuide?.commands.autoProvisionPolicy).toBe(
       "agent-space integrations feishu auto-provision-policy --workspace-id workspace-1 --agent Atlas --bot-added-policy auto_create_channel --first-message-policy auto_create_if_bot_mentioned --unbound-user-mode reply_on_mention --guest-permission-profile channel_context_only --json",
     );
+    expect(atlas?.setupGuide?.commands.agentChannelAccessDisable).toBe(
+      "agent-space integrations feishu agent-channel-access --workspace-id workspace-1 --agent Atlas --access disabled --json",
+    );
+    expect(atlas?.setupGuide?.commands.agentChannelAccessRestore).toBe(
+      "agent-space integrations feishu agent-channel-access --workspace-id workspace-1 --agent Atlas --access enabled --json",
+    );
     expect(atlas?.setupGuide?.commands.channelBindings).toBe(
       "agent-space integrations feishu channel-bindings --workspace-id workspace-1 --integration agent-bot-atlas --json",
     );

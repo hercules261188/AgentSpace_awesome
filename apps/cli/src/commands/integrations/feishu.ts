@@ -67,6 +67,7 @@ import {
   reviewFeishuDataOperationApproval,
   resolveFeishuResourceDescriptorForType,
   sanitizeFeishuOperationResponseSummary,
+  setEmployeeChannelMemberAccessSync,
   startFeishuWebSocketWorker,
   summarizeFeishuStoredCredentials,
   tryRecordWorkspaceAuditEventSync,
@@ -375,6 +376,8 @@ export interface FeishuAgentBotNextCommands {
   dataPlaneReadiness: string;
   workerReadiness: string;
   autoProvisionPolicy: string;
+  agentChannelAccessDisable: string;
+  agentChannelAccessRestore: string;
   channelBindings: string;
   smokeEnv: string;
   checkEnv: string;
@@ -383,6 +386,32 @@ export interface FeishuAgentBotNextCommands {
   smokePlan: string;
   finalEvidence: string;
   bindSecondAgentBot: string;
+}
+
+export type FeishuAgentChannelMemberAccess = "enabled" | "disabled";
+
+export interface FeishuAgentChannelAccessCliInput {
+  workspaceId: string;
+  agentId?: string;
+  integrationId?: string;
+  channelMemberAccess: FeishuAgentChannelMemberAccess;
+  actorUserId?: string;
+}
+
+export interface FeishuAgentChannelAccessCliResult {
+  ok: true;
+  kind: "agent_channel_access";
+  operation: "updated";
+  workspaceId: string;
+  agentId: string;
+  integrationId?: string;
+  channelMemberAccess: FeishuAgentChannelMemberAccess;
+  totalActiveEmployees: number;
+  nextCommands: {
+    disableForSmoke: string;
+    restoreAfterSmoke: string;
+    smokePlan: string;
+  };
 }
 
 export interface FeishuBindingCliResult {
@@ -759,7 +788,8 @@ export async function runFeishuIntegrationCommand(args: string[], format: Output
       subcommand === "bind-agent-bot" ||
       subcommand === "disable-agent-bot" ||
       subcommand === "rotate-agent-bot-secret" ||
-      subcommand === "auto-provision-policy"
+      subcommand === "auto-provision-policy" ||
+      subcommand === "agent-channel-access"
     ) &&
     hasHelpFlag(parsed.flags)
   ) {
@@ -817,6 +847,7 @@ export async function runFeishuIntegrationCommand(args: string[], format: Output
     subcommand !== "disable-agent-bot" &&
     subcommand !== "rotate-agent-bot-secret" &&
     subcommand !== "auto-provision-policy" &&
+    subcommand !== "agent-channel-access" &&
     subcommand !== "readiness" &&
     subcommand !== "agent-bot-readiness" &&
     subcommand !== "smoke-plan" &&
@@ -1011,6 +1042,26 @@ export async function runFeishuIntegrationCommand(args: string[], format: Output
   if (subcommand === "auto-provision-policy") {
     try {
       const report = updateFeishuAgentBotPolicyForCli(buildFeishuAgentBotPolicyCliInputFromFlags({
+        workspaceId,
+        integrationId,
+        flags: parsed.flags,
+        actorUserId: createdByUserId,
+      }));
+      writeData(format, report);
+      return 0;
+    } catch (error) {
+      const report = buildFeishuCliAgentBotErrorReport(error);
+      if (!report) {
+        throw error;
+      }
+      writeData(format, report);
+      return 1;
+    }
+  }
+
+  if (subcommand === "agent-channel-access") {
+    try {
+      const report = setFeishuAgentChannelAccessForCli(buildFeishuAgentChannelAccessCliInputFromFlags({
         workspaceId,
         integrationId,
         flags: parsed.flags,
@@ -1478,6 +1529,96 @@ export function updateFeishuAgentBotPolicyForCli(
   return buildFeishuAgentBotCliResult(hasPolicyPatch ? "policy_updated" : "policy_read", binding);
 }
 
+export function setFeishuAgentChannelAccessForCli(
+  input: FeishuAgentChannelAccessCliInput,
+  deps: {
+    readIntegration?: typeof readExternalIntegrationSync;
+    setAccess?: typeof setEmployeeChannelMemberAccessSync;
+  } = {},
+): FeishuAgentChannelAccessCliResult {
+  const readIntegration = deps.readIntegration ?? readExternalIntegrationSync;
+  const setAccess = deps.setAccess ?? setEmployeeChannelMemberAccessSync;
+  const resolvedTarget = resolveFeishuAgentChannelAccessTarget({
+    workspaceId: input.workspaceId,
+    agentId: input.agentId,
+    integrationId: input.integrationId,
+    readIntegration,
+  });
+  let state: ReturnType<typeof setEmployeeChannelMemberAccessSync>;
+  try {
+    state = setAccess(resolvedTarget.agentId, input.channelMemberAccess, input.workspaceId);
+  } catch (error) {
+    if (error instanceof Error && error.message.startsWith("Active employee ")) {
+      throw new Error("feishu.agent_channel_access.agent_not_found");
+    }
+    throw error;
+  }
+  const agent = state.activeEmployees.find((item) => sameValue(item.name, resolvedTarget.agentId));
+  if (!agent) {
+    throw new Error("feishu.agent_channel_access.agent_not_found");
+  }
+  return {
+    ok: true,
+    kind: "agent_channel_access",
+    operation: "updated",
+    workspaceId: input.workspaceId,
+    agentId: agent.name,
+    ...(resolvedTarget.integrationId ? { integrationId: resolvedTarget.integrationId } : {}),
+    channelMemberAccess: agent.channelMemberAccess ?? input.channelMemberAccess,
+    totalActiveEmployees: state.activeEmployees.length,
+    nextCommands: buildFeishuAgentChannelAccessNextCommands({
+      workspaceId: input.workspaceId,
+      agentId: agent.name,
+      integrationId: resolvedTarget.integrationId,
+    }),
+  };
+}
+
+function resolveFeishuAgentChannelAccessTarget(input: {
+  workspaceId: string;
+  agentId?: string;
+  integrationId?: string;
+  readIntegration: typeof readExternalIntegrationSync;
+}): { agentId: string; integrationId?: string } {
+  const agentId = normalizeOptionalText(input.agentId);
+  if (agentId) {
+    const integrationId = normalizeOptionalText(input.integrationId);
+    return {
+      agentId: requireNonPlaceholderFeishuAgentBotValue("agent_id", agentId),
+      ...(integrationId ? { integrationId } : {}),
+    };
+  }
+  const integrationId = normalizeOptionalText(input.integrationId);
+  if (!integrationId) {
+    throw new Error("feishu.agent_channel_access.missing_target");
+  }
+  const integration = requireActiveFeishuCliIntegration({
+    workspaceId: input.workspaceId,
+    integrationId: requireNonPlaceholderFeishuBindingValue(integrationId, "feishu.integration.placeholder_value"),
+    readIntegration: input.readIntegration,
+  });
+  if (!integration.agentId?.trim()) {
+    throw new Error("feishu.agent_channel_access.integration_not_agent_bot");
+  }
+  return {
+    agentId: integration.agentId.trim(),
+    integrationId: integration.id,
+  };
+}
+
+function buildFeishuAgentChannelAccessNextCommands(input: {
+  workspaceId: string;
+  agentId: string;
+  integrationId?: string;
+}): FeishuAgentChannelAccessCliResult["nextCommands"] {
+  const targetFlags = `--agent ${input.agentId}`;
+  return {
+    disableForSmoke: `agent-space integrations feishu agent-channel-access --workspace-id ${input.workspaceId} ${targetFlags} --access disabled --json`,
+    restoreAfterSmoke: `agent-space integrations feishu agent-channel-access --workspace-id ${input.workspaceId} ${targetFlags} --access enabled --json`,
+    smokePlan: `agent-space integrations feishu smoke-plan --workspace-id ${input.workspaceId} ${input.integrationId ? `--integration ${input.integrationId} ` : ""}--json`,
+  };
+}
+
 function buildFeishuAgentBotCliResult(
   operation: FeishuAgentBotCliResult["operation"],
   binding: FeishuAgentBotBinding,
@@ -1515,6 +1656,8 @@ function buildFeishuAgentBotNextCommands(binding: FeishuAgentBotBinding): Feishu
     dataPlaneReadiness: `agent-space integrations feishu agent-bot-readiness ${agentFlags} --strict --require data-plane --json`,
     workerReadiness: `agent-space integrations feishu agent-bot-readiness ${agentFlags} --strict --require worker --json`,
     autoProvisionPolicy: `agent-space integrations feishu auto-provision-policy ${agentFlags} --bot-added-policy auto_create_channel --first-message-policy auto_create_if_bot_mentioned --unbound-user-mode reply_on_mention --guest-permission-profile channel_context_only --json`,
+    agentChannelAccessDisable: `agent-space integrations feishu agent-channel-access ${agentFlags} --access disabled --json`,
+    agentChannelAccessRestore: `agent-space integrations feishu agent-channel-access ${agentFlags} --access enabled --json`,
     channelBindings: `agent-space integrations feishu channel-bindings ${integrationFlags} --json`,
     smokeEnv: smokeHarness.prepareEnvCommand,
     checkEnv: smokeHarness.checkEnvCommand,
@@ -1667,6 +1810,23 @@ export function buildFeishuAgentBotPolicyCliInputFromFlags(input: {
   };
 }
 
+export function buildFeishuAgentChannelAccessCliInputFromFlags(input: {
+  workspaceId: string;
+  integrationId?: string;
+  flags: Record<string, string | boolean>;
+  actorUserId?: string;
+}): FeishuAgentChannelAccessCliInput {
+  return {
+    workspaceId: input.workspaceId,
+    integrationId: normalizeOptionalText(input.integrationId),
+    agentId: getStringFlag(input.flags, "agent")
+      ?? getStringFlag(input.flags, "agent-id")
+      ?? getStringFlag(input.flags, "agent-name"),
+    channelMemberAccess: readRequiredFeishuAgentChannelAccessFlag(input.flags),
+    actorUserId: input.actorUserId,
+  };
+}
+
 export function readFeishuCreateCliEnv(input: {
   envFilePath?: string;
   env?: Record<string, string | undefined>;
@@ -1734,6 +1894,20 @@ function buildFeishuAgentBotExternalGuestPolicyFromFlags(
   return Object.keys(policy).length > 0
     ? policy
     : undefined;
+}
+
+function readRequiredFeishuAgentChannelAccessFlag(
+  flags: Record<string, string | boolean>,
+): FeishuAgentChannelMemberAccess {
+  const channelMemberAccess = readFeishuPolicyFlag(flags, [
+    "access",
+    "channel-member-access",
+    "channel_member_access",
+  ], ["enabled", "disabled"], "feishu.agent_channel_access.invalid_access");
+  if (!channelMemberAccess) {
+    throw new Error("feishu.agent_channel_access.missing_access");
+  }
+  return channelMemberAccess;
 }
 
 function readFeishuPolicyFlag<T extends string>(
@@ -3502,6 +3676,41 @@ export function buildFeishuCliAgentBotErrorReport(error: unknown): FeishuCliErro
         errorMessage: "Feishu agent bot binding was not found.",
         nextStep: "Pass --agent <agent-id-or-name> or --integration <integration-id> for an existing agent bot binding.",
       };
+    case "feishu.agent_channel_access.missing_access":
+      return {
+        ok: false,
+        errorCode: message,
+        errorMessage: "Agent channel-member access value is required.",
+        nextStep: "Pass --access enabled or --access disabled.",
+      };
+    case "feishu.agent_channel_access.invalid_access":
+      return {
+        ok: false,
+        errorCode: message,
+        errorMessage: "Agent channel-member access must be enabled or disabled.",
+        nextStep: "Use --access enabled to restore replies or --access disabled for the no-reply smoke step.",
+      };
+    case "feishu.agent_channel_access.missing_target":
+      return {
+        ok: false,
+        errorCode: message,
+        errorMessage: "Agent channel-member access target is required.",
+        nextStep: "Pass --agent <agent-id-or-name> or --integration <agent-bot-integration-id>.",
+      };
+    case "feishu.agent_channel_access.integration_not_agent_bot":
+      return {
+        ok: false,
+        errorCode: message,
+        errorMessage: "The selected Feishu integration is not an agent-scoped bot binding.",
+        nextStep: "Pass an agent bot binding id or use --agent <agent-id-or-name>.",
+      };
+    case "feishu.agent_channel_access.agent_not_found":
+      return {
+        ok: false,
+        errorCode: message,
+        errorMessage: "AgentSpace agent was not found after updating channel-member access.",
+        nextStep: "Check --workspace-id and --agent.",
+      };
   }
 
   if (message.startsWith("feishu.cli.missing_env_value:")) {
@@ -4232,6 +4441,12 @@ interface FeishuExternalGuestPolicySmokeCommands {
   replyAllCommand: string;
   requireIdentityCommand: string;
   ignoreCommand: string;
+  restoreDefaultCommand: string;
+}
+
+interface FeishuAgentChannelAccessSmokeCommands {
+  disableCommand: string;
+  restoreCommand: string;
 }
 
 function buildFeishuDataPlaneSmokeCommands(input: {
@@ -4273,6 +4488,22 @@ function buildFeishuExternalGuestPolicySmokeCommands(input: {
     replyAllCommand: `${baseCommand} --unbound-user-mode reply_all --guest-permission-profile channel_context_only ${defaultRequireIdentityFor} --json`,
     requireIdentityCommand: `${baseCommand} --unbound-user-mode require_identity --guest-permission-profile none ${defaultRequireIdentityFor} --json`,
     ignoreCommand: `${baseCommand} --unbound-user-mode ignore --guest-permission-profile none ${defaultRequireIdentityFor} --json`,
+    restoreDefaultCommand: `${baseCommand} --unbound-user-mode reply_on_mention --guest-permission-profile channel_context_only ${defaultRequireIdentityFor} --json`,
+  };
+}
+
+function buildFeishuAgentChannelAccessSmokeCommands(input: {
+  workspaceId: string;
+  integrationId: string;
+  agentId?: string;
+}): FeishuAgentChannelAccessSmokeCommands {
+  const targetFlags = input.agentId
+    ? `--agent ${input.agentId}`
+    : `--integration ${input.integrationId}`;
+  const baseCommand = `agent-space integrations feishu agent-channel-access --workspace-id ${input.workspaceId} ${targetFlags}`;
+  return {
+    disableCommand: `${baseCommand} --access disabled --json`,
+    restoreCommand: `${baseCommand} --access enabled --json`,
   };
 }
 
@@ -4367,10 +4598,20 @@ export function buildFeishuSmokePlanReport(input: BuildFeishuSmokePlanReportInpu
     workspaceId: readiness.workspaceId,
     integrationId: dataPlaneIntegrationFlag,
   });
+  const sourceIntegrationsById = new Map(sourceIntegrations.map((integration) => [integration.id, integration]));
+  const agentChannelAccessCandidate = nativeAgentBotReadinessSource.integrations.find((item) =>
+    hasNonEmptyString(item.agentId) &&
+    isFeishuNativeAgentBotSmokeReady(item, sourceIntegrationsById.get(item.id))
+  ) ?? nativeAgentBotReadinessSource.integrations.find((item) => hasNonEmptyString(item.agentId));
   const externalGuestPolicyCommands = buildFeishuExternalGuestPolicySmokeCommands({
     workspaceId: readiness.workspaceId,
     integrationId: botCandidate?.id ?? setupIntegrationFlag,
     agentId: botCandidate?.agentId,
+  });
+  const agentChannelAccessCommands = buildFeishuAgentChannelAccessSmokeCommands({
+    workspaceId: readiness.workspaceId,
+    integrationId: agentChannelAccessCandidate?.id ?? botCandidate?.id ?? setupIntegrationFlag,
+    agentId: agentChannelAccessCandidate?.agentId ?? botCandidate?.agentId,
   });
 
   return {
@@ -4607,7 +4848,7 @@ export function buildFeishuSmokePlanReport(input: BuildFeishuSmokePlanReportInpu
         area: "bot",
         title: "Live smoke: reply_all external guest dispatch",
         status: readyForBot ? "pending" : "blocked",
-        detail: "Temporarily set the agent bot external guest policy to reply_all, send an unbound Feishu message without mentioning the bot, and verify AgentSpace still routes it to the bot's agent as channel_context_only external_guest.",
+        detail: `Temporarily set the agent bot external guest policy to reply_all, send an unbound Feishu message without mentioning the bot, and verify AgentSpace still routes it to the bot's agent as channel_context_only external_guest. Restore after this smoke step with: ${externalGuestPolicyCommands.restoreDefaultCommand}`,
         command: externalGuestPolicyCommands.replyAllCommand,
         issues: readyForBot ? [] : botIssues,
       },
@@ -4616,7 +4857,7 @@ export function buildFeishuSmokePlanReport(input: BuildFeishuSmokePlanReportInpu
         area: "bot",
         title: "Live smoke: external guest must bind identity",
         status: readyForBot ? "pending" : "blocked",
-        detail: "Temporarily set the agent bot external guest policy to require_identity, mention the bot from an unbound Feishu user, and verify AgentSpace records the require_identity decision plus the identity-binding notice.",
+        detail: `Temporarily set the agent bot external guest policy to require_identity, mention the bot from an unbound Feishu user, and verify AgentSpace records the require_identity decision plus the identity-binding notice. Restore after this smoke step with: ${externalGuestPolicyCommands.restoreDefaultCommand}`,
         command: externalGuestPolicyCommands.requireIdentityCommand,
         issues: readyForBot ? [] : botIssues,
       },
@@ -4625,7 +4866,7 @@ export function buildFeishuSmokePlanReport(input: BuildFeishuSmokePlanReportInpu
         area: "bot",
         title: "Live smoke: external guest replies can be disabled",
         status: readyForBot ? "pending" : "blocked",
-        detail: "Temporarily set the agent bot external guest policy to ignore, mention the bot from an unbound Feishu user, and verify AgentSpace records the ignore decision without dispatching a task or sending a reply.",
+        detail: `Temporarily set the agent bot external guest policy to ignore, mention the bot from an unbound Feishu user, and verify AgentSpace records the ignore decision without dispatching a task or sending a reply. Restore after this smoke step with: ${externalGuestPolicyCommands.restoreDefaultCommand}`,
         command: externalGuestPolicyCommands.ignoreCommand,
         issues: readyForBot ? [] : botIssues,
       },
@@ -4652,7 +4893,7 @@ export function buildFeishuSmokePlanReport(input: BuildFeishuSmokePlanReportInpu
         area: "data-plane",
         title: "Live smoke: external guest write requires identity",
         status: readyForBot && readyForDataPlane ? "pending" : "blocked",
-        detail: "From an unbound Feishu user, ask the concrete agent bot to write a bound smoke Sheet/Base resource. Verify AgentSpace records external_guest governance on a bound write run, refuses the final Feishu write with require_identity, sends the identity-binding notice, and does not create a real workspace member.",
+        detail: `From an unbound Feishu user, ask the concrete agent bot to write a bound smoke Sheet/Base resource. Verify AgentSpace records external_guest governance on a bound write run, refuses the final Feishu write with require_identity, sends the identity-binding notice, and does not create a real workspace member. Restore after this smoke step with: ${externalGuestPolicyCommands.restoreDefaultCommand}`,
         command: externalGuestPolicyCommands.requireIdentityCommand,
         issues: readyForBot && readyForDataPlane ? [] : uniqueStrings([...botIssues, ...dataPlaneIssues]),
       },
@@ -4673,7 +4914,8 @@ export function buildFeishuSmokePlanReport(input: BuildFeishuSmokePlanReportInpu
         area: "bot",
         title: "Live smoke: disabled agent/channel policy blocks replies",
         status: readyForBot ? "pending" : "blocked",
-        detail: "Disable the agent's channel-member access or remove the agent from the mapped AgentSpace channel, mention the Feishu agent bot, and verify AgentSpace records the policy denial without writing a channel message, queueing a task, or sending a bot reply.",
+        detail: `Disable the agent's channel-member access, mention the Feishu agent bot, and verify AgentSpace records the policy denial without writing a channel message, queueing a task, or sending a bot reply. Restore after this smoke step with: ${agentChannelAccessCommands.restoreCommand}`,
+        command: agentChannelAccessCommands.disableCommand,
         issues: readyForBot ? [] : botIssues,
       },
       {
@@ -5808,6 +6050,16 @@ function mapFeishuEvidenceIssueToRemediationSpec(input: {
     workspaceId: input.workspaceId,
     integrationId: input.integration.id,
   });
+  const externalGuestPolicyCommands = buildFeishuExternalGuestPolicySmokeCommands({
+    workspaceId: input.workspaceId,
+    integrationId: input.integration.id,
+    agentId: input.integration.agentId,
+  });
+  const agentChannelAccessCommands = buildFeishuAgentChannelAccessSmokeCommands({
+    workspaceId: input.workspaceId,
+    integrationId: input.integration.id,
+    agentId: input.integration.agentId ?? FEISHU_CLI_PLACEHOLDERS.agentName,
+  });
 
   switch (input.issue) {
     case "processed_inbound_event_missing":
@@ -5832,48 +6084,56 @@ function mapFeishuEvidenceIssueToRemediationSpec(input: {
         stepId: "live_external_guest_agent_bot_mention",
         title: "Live smoke: unbound Feishu user routes as external guest",
         detail: "From an unbound Feishu user, mention the agent-specific bot and verify AgentSpace records external_guest actor metadata without raw Feishu user ids.",
+        command: externalGuestPolicyCommands.replyOnMentionCommand,
       };
     case "external_guest_policy_allow_evidence_missing":
       return {
         stepId: "live_external_guest_agent_bot_mention",
         title: "Live smoke: unbound Feishu user routes as external guest",
         detail: "From an unbound Feishu user, mention the agent-specific bot and verify AgentSpace records external_guest policy allow metadata plus the low-permission task dispatch.",
+        command: externalGuestPolicyCommands.replyOnMentionCommand,
       };
     case "external_guest_policy_reply_all_evidence_missing":
       return {
         stepId: "live_external_guest_reply_all",
         title: "Live smoke: external guest reply_all dispatches without mention",
-        detail: "Set the agent bot external guest policy to reply_all, send an unbound Feishu message without mentioning the bot, and verify AgentSpace records the reply_all allow decision plus the low-permission task dispatch.",
+        detail: `Set the agent bot external guest policy to reply_all, send an unbound Feishu message without mentioning the bot, and verify AgentSpace records the reply_all allow decision plus the low-permission task dispatch. Restore after this smoke step with: ${externalGuestPolicyCommands.restoreDefaultCommand}`,
+        command: externalGuestPolicyCommands.replyAllCommand,
       };
     case "external_guest_policy_require_identity_evidence_missing":
       return {
         stepId: "live_external_guest_identity_required",
         title: "Live smoke: external guest is asked to bind identity",
-        detail: "Set the agent bot external guest policy to require_identity, mention the bot from an unbound Feishu user, and verify AgentSpace records the require_identity decision and sends the binding notice.",
+        detail: `Set the agent bot external guest policy to require_identity, mention the bot from an unbound Feishu user, and verify AgentSpace records the require_identity decision and sends the binding notice. Restore after this smoke step with: ${externalGuestPolicyCommands.restoreDefaultCommand}`,
+        command: externalGuestPolicyCommands.requireIdentityCommand,
       };
     case "external_guest_identity_binding_notice_evidence_missing":
       return {
         stepId: "live_external_guest_identity_required",
         title: "Live smoke: external guest identity notice is sent",
-        detail: "Set the agent bot external guest policy to require_identity, mention the bot from an unbound Feishu user, drain the Feishu outbox, and verify AgentSpace records a sent identity-binding notice correlated to that ignored inbound message.",
+        detail: `Set the agent bot external guest policy to require_identity, mention the bot from an unbound Feishu user, drain the Feishu outbox, and verify AgentSpace records a sent identity-binding notice correlated to that ignored inbound message. Restore after this smoke step with: ${externalGuestPolicyCommands.restoreDefaultCommand}`,
+        command: externalGuestPolicyCommands.requireIdentityCommand,
       };
     case "external_guest_policy_ignore_evidence_missing":
       return {
         stepId: "live_external_guest_reply_disabled",
         title: "Live smoke: external guest replies can be disabled",
-        detail: "Set the agent bot external guest policy to ignore, mention the bot from an unbound Feishu user, and verify AgentSpace records the ignore decision without dispatching a task or reply.",
+        detail: `Set the agent bot external guest policy to ignore, mention the bot from an unbound Feishu user, and verify AgentSpace records the ignore decision without dispatching a task or reply. Restore after this smoke step with: ${externalGuestPolicyCommands.restoreDefaultCommand}`,
+        command: externalGuestPolicyCommands.ignoreCommand,
       };
     case "external_guest_policy_mention_required_evidence_missing":
       return {
         stepId: "live_unmentioned_guest_message_ignored",
         title: "Live smoke: unmentioned guest message is ignored",
         detail: "With reply_on_mention enabled, send an unbound Feishu message that does not mention the agent bot and verify AgentSpace records the bot-mention-required decision without dispatching.",
+        command: externalGuestPolicyCommands.replyOnMentionCommand,
       };
     case "agent_channel_policy_disabled_evidence_missing":
       return {
         stepId: "live_agent_channel_policy_disabled",
         title: "Live smoke: disabled agent/channel policy blocks replies",
-        detail: "Disable the agent's channel-member access or remove the agent from the mapped AgentSpace channel, mention the Feishu agent bot, and verify AgentSpace records the policy denial without writing a channel message, queueing a task, or sending a bot reply.",
+        detail: `Disable the agent's channel-member access, mention the Feishu agent bot, and verify AgentSpace records the policy denial without writing a channel message, queueing a task, or sending a bot reply. Restore after this smoke step with: ${agentChannelAccessCommands.restoreCommand}`,
+        command: agentChannelAccessCommands.disableCommand,
       };
     case "channel_auto_provision_evidence_missing":
       return {
@@ -5983,14 +6243,20 @@ function mapFeishuEvidenceIssueToRemediationSpec(input: {
         stepId: "live_external_guest_read_guest_readable",
         title: "Live smoke: external guest reads guest-readable resource",
         detail: "From an unbound Feishu user, ask an agent bot to read a guest-readable resource bound to the current channel and verify AgentSpace records externalGuestResourceAccess=guest_readable_current_channel.",
-        command: dataPlaneCommands.liveDocReadCommand,
+        command: [
+          externalGuestPolicyCommands.replyOnMentionCommand,
+          dataPlaneCommands.liveDocReadCommand,
+        ].join("\n"),
       };
     case "external_guest_write_deny_evidence_missing":
       return {
         stepId: "live_external_guest_write_denied",
         title: "Live smoke: external guest write is denied",
-        detail: "From an unbound Feishu user, ask an agent bot to write a bound Sheet/Base resource and verify AgentSpace records external_guest governance on the bound write operation plus the identity-required denial.",
-        command: dataPlaneCommands.liveSheetWriteCommand,
+        detail: `From an unbound Feishu user, ask an agent bot to write a bound Sheet/Base resource and verify AgentSpace records external_guest governance on the bound write operation plus the identity-required denial. Restore after this smoke step with: ${externalGuestPolicyCommands.restoreDefaultCommand}`,
+        command: [
+          externalGuestPolicyCommands.requireIdentityCommand,
+          dataPlaneCommands.liveSheetWriteCommand,
+        ].join("\n"),
       };
     case "websocket_worker_receive_evidence_missing":
       return {
@@ -8099,6 +8365,10 @@ function uniqueStrings(values: readonly string[]): string[] {
   return Array.from(new Set(values)).sort();
 }
 
+function sameValue(left: string, right: string): boolean {
+  return left.trim().toLowerCase() === right.trim().toLowerCase();
+}
+
 function formatIntegrationLabel(candidate: FeishuIntegrationReadiness | undefined): string {
   if (!candidate) {
     return "the selected Feishu integration";
@@ -8139,6 +8409,7 @@ function printFeishuIntegrationHelp(): void {
   agent-space integrations feishu rotate-agent-bot-secret --workspace-id <id> (--agent <agent-id-or-name>|--integration <id>) [--env-file scripts/feishu/.env] --app-secret-env FEISHU_APP_SECRET [--app-id-env FEISHU_APP_ID] [--json]
   agent-space integrations feishu disable-agent-bot --workspace-id <id> (--agent <agent-id-or-name>|--integration <id>) [--json]
   agent-space integrations feishu auto-provision-policy --workspace-id <id> (--agent <agent-id-or-name>|--integration <id>) [--bot-added-policy auto_create_channel|pending_admin_review|disabled] [--first-message-policy auto_create_if_bot_mentioned|pending_admin_review|reply_with_setup_card|disabled] [--review-status approved|pending_admin_review|needs_identity_binding] [--unbound-user-mode ignore|reply_on_mention|reply_all|require_identity] [--guest-permission-profile none|channel_context_only|channel_readonly] [--require-identity-for writes,approvals] [--json]
+  agent-space integrations feishu agent-channel-access --workspace-id <id> (--agent <agent-id-or-name>|--integration <agent-bot-id>) --access enabled|disabled [--json]
   agent-space integrations feishu agent-bot-readiness --workspace-id <id> [--agent <agent-id-or-name>|--integration <id>] [--strict] [--require bot|data-plane|worker] [--json]
   agent-space integrations feishu worker [--workspace-id <id>] [--integration <id>] [--limit <n>] [--base-url <url>] [--domain <host>] [--locked-by <id>] [--dry-run] [--include-webhook] [--drain-outbox|--once] [--json]
   agent-space integrations feishu readiness [--workspace-id <id>] [--integration <id>] [--strict] [--require bot|data-plane|worker] [--json]
@@ -8172,6 +8443,7 @@ Options:
   --unbound-user-mode <mode> Agent bot bind/policy: ignore|reply_on_mention|reply_all|require_identity
   --guest-permission-profile <profile> Agent bot bind/policy: none|channel_context_only|channel_readonly
   --require-identity-for <csv> Agent bot bind/policy: comma-separated operations that require a bound AgentSpace identity
+  --access <value>         Agent channel access smoke helper: enabled|disabled
   --guest-readable       Resource bind: allow external guests to read this bound resource in its current channel
   --limit <n>              Outbox drain batch size; defaults to 50
   --base-url <url>         Feishu OpenAPI base URL; defaults to AGENT_SPACE_FEISHU_API_BASE_URL
@@ -8200,6 +8472,7 @@ Options:
   rotate-agent-bot-secret  Rotate an existing agent bot binding secret without exposing it in output
   disable-agent-bot        Disable an existing agent bot binding
   auto-provision-policy    View/update agent bot auto-provisioning and external guest policy
+  agent-channel-access     Temporarily disable/restore AgentSpace agent channel-member access for Feishu no-reply smoke
   agent-bot-readiness      Summarize readiness for agent-scoped Feishu bot bindings
   readiness                Summarize local AgentSpace-side prerequisites for Feishu manual smoke
   smoke-plan               Generate the live Feishu manual smoke checklist from current local readiness

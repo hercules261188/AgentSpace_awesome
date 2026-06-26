@@ -1190,6 +1190,14 @@ describe("SettingsPageClient", () => {
     expect(screen.getByText(
       "agent-space integrations feishu bind-agent-bot --workspace-id workspace-1 --agent CHANGE_ME_SECOND_AGENT_NAME --env-file scripts/feishu/.env --app-id-env FEISHU_SECOND_AGENT_APP_ID --app-secret-env FEISHU_SECOND_AGENT_APP_SECRET --json",
     )).toBeInTheDocument();
+    expect(screen.getByText("禁用 Agent 频道访问")).toBeInTheDocument();
+    expect(screen.getByText(
+      "agent-space integrations feishu agent-channel-access --workspace-id workspace-1 --agent Codex --access disabled --json",
+    )).toBeInTheDocument();
+    expect(screen.getByText("恢复 Agent 频道访问")).toBeInTheDocument();
+    expect(screen.getByText(
+      "agent-space integrations feishu agent-channel-access --workspace-id workspace-1 --agent Codex --access enabled --json",
+    )).toBeInTheDocument();
     expect(screen.getByText("群聊映射命令")).toBeInTheDocument();
     expect(screen.getByText(
       "agent-space integrations feishu channel-bindings --workspace-id workspace-1 --integration feishu-1 --json",
@@ -2032,6 +2040,8 @@ function buildFeishuSetupGuide(options: { agentBot?: boolean } = {}): NonNullabl
       ...(options.agentBot
         ? {
           autoProvisionPolicy: "agent-space integrations feishu auto-provision-policy --workspace-id workspace-1 --agent Codex --bot-added-policy auto_create_channel --first-message-policy auto_create_if_bot_mentioned --unbound-user-mode reply_on_mention --guest-permission-profile channel_context_only --json",
+          agentChannelAccessDisable: "agent-space integrations feishu agent-channel-access --workspace-id workspace-1 --agent Codex --access disabled --json",
+          agentChannelAccessRestore: "agent-space integrations feishu agent-channel-access --workspace-id workspace-1 --agent Codex --access enabled --json",
           channelBindings: "agent-space integrations feishu channel-bindings --workspace-id workspace-1 --integration feishu-1 --json",
         }
         : {}),

@@ -368,6 +368,20 @@ function FeishuSetupGuide({
         value: guide.commands.autoProvisionPolicy,
       }]
       : []),
+    ...(guide.commands.agentChannelAccessDisable
+      ? [{
+        key: "agent-channel-access-disable",
+        label: tx("禁用 Agent 频道访问", "Disable Agent Channel Access"),
+        value: guide.commands.agentChannelAccessDisable,
+      }]
+      : []),
+    ...(guide.commands.agentChannelAccessRestore
+      ? [{
+        key: "agent-channel-access-restore",
+        label: tx("恢复 Agent 频道访问", "Restore Agent Channel Access"),
+        value: guide.commands.agentChannelAccessRestore,
+      }]
+      : []),
     ...(guide.commands.channelBindings
       ? [{
         key: "channel-bindings",

@@ -32,6 +32,7 @@ function printIntegrationsHelp(): void {
   agent-space integrations feishu rotate-agent-bot-secret --workspace-id <id> (--agent <agent-id-or-name>|--integration <id>) --app-secret-env FEISHU_APP_SECRET [--json]
   agent-space integrations feishu disable-agent-bot --workspace-id <id> (--agent <agent-id-or-name>|--integration <id>) [--json]
   agent-space integrations feishu auto-provision-policy --workspace-id <id> (--agent <agent-id-or-name>|--integration <id>) [--bot-added-policy auto_create_channel|pending_admin_review|disabled] [--unbound-user-mode ignore|reply_on_mention|reply_all|require_identity] [--json]
+  agent-space integrations feishu agent-channel-access --workspace-id <id> (--agent <agent-id-or-name>|--integration <agent-bot-id>) --access enabled|disabled [--json]
   agent-space integrations feishu agent-bot-readiness --workspace-id <id> [--agent <agent-id-or-name>|--integration <id>] [--strict] [--json]
   agent-space integrations feishu worker [--workspace-id <id>] [--integration <id>] [--limit <n>] [--base-url <url>] [--domain <host>] [--locked-by <id>] [--dry-run] [--include-webhook] [--drain-outbox|--once] [--json]
   agent-space integrations feishu readiness [--workspace-id <id>] [--integration <id>] [--strict] [--require bot|data-plane|worker] [--json]
@@ -50,6 +51,7 @@ Examples:
   agent-space integrations feishu create --workspace-id default --env-file scripts/feishu/.env --app-id-env FEISHU_APP_ID --app-secret-env FEISHU_APP_SECRET --verification-token-env FEISHU_VERIFICATION_TOKEN --encrypt-key-env FEISHU_ENCRYPT_KEY --json
   agent-space integrations feishu bind-agent-bot --workspace-id default --agent Codex --env-file scripts/feishu/.env --app-id-env FEISHU_APP_ID --app-secret-env FEISHU_APP_SECRET --json
   agent-space integrations feishu auto-provision-policy --workspace-id default --agent Codex --unbound-user-mode reply_on_mention --guest-permission-profile channel_context_only --json
+  agent-space integrations feishu agent-channel-access --workspace-id default --agent Codex --access disabled --json
   agent-space integrations feishu agent-bot-readiness --workspace-id default --agent Codex --strict --json
   agent-space integrations feishu worker --dry-run --include-webhook --json
   agent-space integrations feishu worker --workspace-id default --integration feishu-1 --once --json

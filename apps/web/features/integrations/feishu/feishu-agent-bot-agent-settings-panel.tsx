@@ -149,6 +149,18 @@ export function FeishuAgentBotAgentSettingsPanel({
                     value={currentIntegration.setupGuide.commands.autoProvisionPolicy}
                   />
                 ) : null}
+                {currentIntegration.setupGuide.commands.agentChannelAccessDisable ? (
+                  <FeishuAgentSettingsCommand
+                    label={tx("禁用频道访问", "Disable channel access")}
+                    value={currentIntegration.setupGuide.commands.agentChannelAccessDisable}
+                  />
+                ) : null}
+                {currentIntegration.setupGuide.commands.agentChannelAccessRestore ? (
+                  <FeishuAgentSettingsCommand
+                    label={tx("恢复频道访问", "Restore channel access")}
+                    value={currentIntegration.setupGuide.commands.agentChannelAccessRestore}
+                  />
+                ) : null}
                 {currentIntegration.setupGuide.commands.channelBindings ? (
                   <FeishuAgentSettingsCommand
                     label={tx("群聊绑定", "Channel bindings")}

@@ -453,6 +453,8 @@ function buildFeishuIntegrationSetupGuide(input: {
       ...(input.agentId
         ? {
           autoProvisionPolicy: `agent-space integrations feishu auto-provision-policy ${agentFlags} --bot-added-policy auto_create_channel --first-message-policy auto_create_if_bot_mentioned --unbound-user-mode reply_on_mention --guest-permission-profile channel_context_only --json`,
+          agentChannelAccessDisable: `agent-space integrations feishu agent-channel-access ${agentFlags} --access disabled --json`,
+          agentChannelAccessRestore: `agent-space integrations feishu agent-channel-access ${agentFlags} --access enabled --json`,
           channelBindings: `agent-space integrations feishu channel-bindings ${flags} --json`,
         }
         : {}),

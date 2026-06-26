@@ -7,6 +7,7 @@ import test from "node:test";
 import {
   buildFeishuEvidenceReport,
   buildFeishuReadinessReport,
+  buildFeishuAgentChannelAccessCliInputFromFlags,
   buildFeishuAgentBotCliInputFromFlags,
   buildFeishuAgentBotPolicyCliInputFromFlags,
   buildFeishuCreateCliInputFromFlags,
@@ -19,6 +20,7 @@ import {
   disableFeishuAgentBotForCli,
   readFeishuCreateCliEnv,
   rotateFeishuAgentBotCredentialsForCli,
+  setFeishuAgentChannelAccessForCli,
   updateFeishuAgentBotPolicyForCli,
   createFeishuChannelBindingForCli,
   createFeishuResourceBindingForCli,
@@ -63,6 +65,7 @@ test("integrations help documents Feishu worker deployment controls", async () =
   assert.match(output, /integrations feishu rotate-agent-bot-secret/);
   assert.match(output, /integrations feishu disable-agent-bot/);
   assert.match(output, /integrations feishu auto-provision-policy/);
+  assert.match(output, /integrations feishu agent-channel-access/);
   assert.match(output, /integrations feishu agent-bot-readiness/);
   assert.match(output, /integrations feishu readiness/);
   assert.match(output, /integrations feishu smoke-plan/);
@@ -93,6 +96,7 @@ test("integrations help documents Feishu worker deployment controls", async () =
   assert.match(output, /--approval-channel <channel>/);
   assert.match(output, /--approval-id <approval-id>/);
   assert.match(output, /--locked-by <id>/);
+  assert.match(output, /--access enabled\|disabled/);
   assert.match(output, /--require bot\|native\|guest-policy\|data-plane\|worker\|failure\|all/);
   assert.match(output, /--resource CHANGE_ME_FEISHU_DOC_URL_OR_TOKEN/);
   assert.match(output, /--resource CHANGE_ME_FEISHU_SHEET_URL_OR_TOKEN/);
@@ -115,6 +119,7 @@ test("feishu worker --help prints usage without starting the worker", async () =
   assert.match(output, /agent-space integrations feishu rotate-agent-bot-secret/);
   assert.match(output, /agent-space integrations feishu disable-agent-bot/);
   assert.match(output, /agent-space integrations feishu auto-provision-policy/);
+  assert.match(output, /agent-space integrations feishu agent-channel-access/);
   assert.match(output, /agent-space integrations feishu agent-bot-readiness/);
   assert.match(output, /agent-space integrations feishu readiness/);
   assert.match(output, /agent-space integrations feishu smoke-plan/);
@@ -134,6 +139,7 @@ test("feishu worker --help prints usage without starting the worker", async () =
   assert.match(output, /health-check: require all healthy/);
   assert.match(output, /Create a workspace-level AgentSpace Feishu integration with encrypted credentials/);
   assert.match(output, /Bind one AgentSpace agent to one Feishu bot/);
+  assert.match(output, /Temporarily disable\/restore AgentSpace agent channel-member access/);
   assert.match(output, /Validate WebSocket worker config/);
   assert.match(output, /live Feishu manual smoke checklist/);
   assert.match(output, /safe scripts\/feishu\/\.env template/);
@@ -503,6 +509,84 @@ test("Feishu agent bot policy CLI updates governance without requiring secrets",
       "bot-added-policy": "maybe",
     },
   }), /feishu\.agent_bot_binding\.invalid_channel_auto_provisioning_policy/);
+});
+
+test("Feishu agent channel access CLI updates AgentSpace governance for no-reply smoke", () => {
+  const input = buildFeishuAgentChannelAccessCliInputFromFlags({
+    workspaceId: "workspace-1",
+    integrationId: "agent-bot-codex",
+    flags: {
+      access: "disabled",
+    },
+    actorUserId: "admin-1",
+  });
+  const setInputs: unknown[] = [];
+
+  const report = setFeishuAgentChannelAccessForCli(input, {
+    readIntegration: (readInput) => {
+      assert.deepEqual(readInput, {
+        workspaceId: "workspace-1",
+        integrationId: "agent-bot-codex",
+      });
+      return buildIntegrationRecord({
+        id: "agent-bot-codex",
+        displayName: "Codex Feishu Bot",
+        transportMode: "websocket_worker",
+        agentId: "Codex",
+      });
+    },
+    setAccess: (agentId, channelMemberAccess, workspaceId) => {
+      setInputs.push({ agentId, channelMemberAccess, workspaceId });
+      return {
+        activeEmployees: [
+          {
+            name: "Codex",
+            channelMemberAccess,
+          },
+        ],
+      } as never;
+    },
+  });
+
+  assert.deepEqual(input, {
+    workspaceId: "workspace-1",
+    integrationId: "agent-bot-codex",
+    agentId: undefined,
+    channelMemberAccess: "disabled",
+    actorUserId: "admin-1",
+  });
+  assert.deepEqual(setInputs, [{
+    agentId: "Codex",
+    channelMemberAccess: "disabled",
+    workspaceId: "workspace-1",
+  }]);
+  assert.equal(report.kind, "agent_channel_access");
+  assert.equal(report.agentId, "Codex");
+  assert.equal(report.integrationId, "agent-bot-codex");
+  assert.equal(report.channelMemberAccess, "disabled");
+  assert.match(report.nextCommands.disableForSmoke, /agent-channel-access --workspace-id workspace-1 --agent Codex --access disabled --json/);
+  assert.match(report.nextCommands.restoreAfterSmoke, /agent-channel-access --workspace-id workspace-1 --agent Codex --access enabled --json/);
+  assert.match(report.nextCommands.smokePlan, /smoke-plan --workspace-id workspace-1 --integration agent-bot-codex --json/);
+
+  assert.throws(() => buildFeishuAgentChannelAccessCliInputFromFlags({
+    workspaceId: "workspace-1",
+    flags: {
+      access: "maybe",
+    },
+  }), /feishu\.agent_channel_access\.invalid_access/);
+  assert.throws(() => setFeishuAgentChannelAccessForCli({
+    workspaceId: "workspace-1",
+    integrationId: "workspace-feishu",
+    channelMemberAccess: "disabled",
+  }, {
+    readIntegration: () => buildIntegrationRecord({
+      id: "workspace-feishu",
+      agentId: undefined,
+    }),
+    setAccess: () => {
+      throw new Error("setAccess should not be called for workspace integrations");
+    },
+  }), /feishu\.agent_channel_access\.integration_not_agent_bot/);
 });
 
 test("Feishu agent bot CLI rotates and disables existing bindings", () => {
@@ -3164,10 +3248,14 @@ test("Feishu evidence report blocks strict gates when local proof is incomplete"
     step.stepId === "live_agent_channel_policy_disabled"
   );
   assert.ok(agentChannelPolicyRemediation?.issues.includes("agent_channel_policy_disabled_evidence_missing"));
+  assert.match(agentChannelPolicyRemediation?.command ?? "", /agent-channel-access/);
+  assert.match(agentChannelPolicyRemediation?.detail ?? "", /Restore after this smoke step/);
   const replyAllRemediation = item?.remediationSteps.find((step) =>
     step.stepId === "live_external_guest_reply_all"
   );
   assert.ok(replyAllRemediation?.issues.includes("external_guest_policy_reply_all_evidence_missing"));
+  assert.match(replyAllRemediation?.command ?? "", /--unbound-user-mode reply_all/);
+  assert.match(replyAllRemediation?.detail ?? "", /Restore after this smoke step/);
   const autoProvisionRemediation = item?.remediationSteps.find((step) =>
     step.stepId === "live_agent_bot_channel_auto_provision"
   );
@@ -3199,14 +3287,19 @@ test("Feishu evidence report blocks strict gates when local proof is incomplete"
   );
   assert.ok(requireIdentityRemediation?.issues.includes("external_guest_policy_require_identity_evidence_missing"));
   assert.ok(requireIdentityRemediation?.issues.includes("external_guest_identity_binding_notice_evidence_missing"));
+  assert.match(requireIdentityRemediation?.command ?? "", /--unbound-user-mode require_identity/);
+  assert.match(requireIdentityRemediation?.detail ?? "", /Restore after this smoke step/);
   const ignoreRemediation = item?.remediationSteps.find((step) =>
     step.stepId === "live_external_guest_reply_disabled"
   );
   assert.ok(ignoreRemediation?.issues.includes("external_guest_policy_ignore_evidence_missing"));
+  assert.match(ignoreRemediation?.command ?? "", /--unbound-user-mode ignore/);
+  assert.match(ignoreRemediation?.detail ?? "", /Restore after this smoke step/);
   const mentionRequiredRemediation = item?.remediationSteps.find((step) =>
     step.stepId === "live_unmentioned_guest_message_ignored"
   );
   assert.ok(mentionRequiredRemediation?.issues.includes("external_guest_policy_mention_required_evidence_missing"));
+  assert.match(mentionRequiredRemediation?.command ?? "", /--unbound-user-mode reply_on_mention/);
   const agentDocRemediation = item?.remediationSteps.find((step) =>
     step.stepId === "live_agent_bound_doc_summary"
   );
@@ -3232,6 +3325,8 @@ test("Feishu evidence report blocks strict gates when local proof is incomplete"
     step.stepId === "live_external_guest_read_guest_readable"
   );
   assert.ok(guestActorRemediation?.issues.includes("external_guest_actor_data_operation_evidence_missing"));
+  assert.match(guestActorRemediation?.command ?? "", /--unbound-user-mode reply_on_mention/);
+  assert.match(guestActorRemediation?.command ?? "", /--operation read-doc/);
   const failureRemediation = item?.remediationSteps.find((step) => step.stepId === "live_failure_visibility");
   assert.match(
     failureRemediation?.command ?? "",
@@ -3732,6 +3827,8 @@ test("Feishu agent bot CLI returns redacted JSON for successful bindings", () =>
       dataPlaneReadiness: "agent-space integrations feishu agent-bot-readiness --workspace-id workspace-1 --agent Codex --strict --require data-plane --json",
       workerReadiness: "agent-space integrations feishu agent-bot-readiness --workspace-id workspace-1 --agent Codex --strict --require worker --json",
       autoProvisionPolicy: "agent-space integrations feishu auto-provision-policy --workspace-id workspace-1 --agent Codex --bot-added-policy auto_create_channel --first-message-policy auto_create_if_bot_mentioned --unbound-user-mode reply_on_mention --guest-permission-profile channel_context_only --json",
+      agentChannelAccessDisable: "agent-space integrations feishu agent-channel-access --workspace-id workspace-1 --agent Codex --access disabled --json",
+      agentChannelAccessRestore: "agent-space integrations feishu agent-channel-access --workspace-id workspace-1 --agent Codex --access enabled --json",
       channelBindings: "agent-space integrations feishu channel-bindings --workspace-id workspace-1 --integration agent-bot-codex --json",
       smokeEnv: "agent-space integrations feishu smoke-env --workspace-id workspace-1 --integration agent-bot-codex --app-url CHANGE_ME_PUBLIC_AGENTSPACE_URL > scripts/feishu/.env",
       checkEnv: "npm run smoke:feishu -- --env-file scripts/feishu/.env --check-env --json --require-todo120-native",
@@ -5681,14 +5778,17 @@ test("Feishu smoke plan converts readiness into live smoke checklist without ext
   assert.match(liveGuestMention?.command ?? "", /--require-identity-for writes,approvals,private_resources,runtime_sensitive_tools/);
   assert.equal(liveGuestReplyAll?.status, "pending");
   assert.match(liveGuestReplyAll?.detail ?? "", /reply_all/);
+  assert.match(liveGuestReplyAll?.detail ?? "", /Restore after this smoke step/);
   assert.match(liveGuestReplyAll?.command ?? "", /--unbound-user-mode reply_all/);
   assert.match(liveGuestReplyAll?.command ?? "", /--guest-permission-profile channel_context_only/);
   assert.equal(liveGuestIdentityRequired?.status, "pending");
   assert.match(liveGuestIdentityRequired?.detail ?? "", /require_identity/);
+  assert.match(liveGuestIdentityRequired?.detail ?? "", /Restore after this smoke step/);
   assert.match(liveGuestIdentityRequired?.command ?? "", /--unbound-user-mode require_identity/);
   assert.match(liveGuestIdentityRequired?.command ?? "", /--guest-permission-profile none/);
   assert.equal(liveGuestReplyDisabled?.status, "pending");
   assert.match(liveGuestReplyDisabled?.detail ?? "", /ignore decision/);
+  assert.match(liveGuestReplyDisabled?.detail ?? "", /Restore after this smoke step/);
   assert.match(liveGuestReplyDisabled?.command ?? "", /--unbound-user-mode ignore/);
   assert.match(liveGuestReplyDisabled?.command ?? "", /--guest-permission-profile none/);
   assert.equal(liveUnmentionedGuestIgnored?.status, "pending");
@@ -5700,6 +5800,7 @@ test("Feishu smoke plan converts readiness into live smoke checklist without ext
   assert.match(liveBoundUserDataOperation?.command ?? "", /--operation read-doc/);
   assert.equal(liveGuestWriteDenied?.status, "pending");
   assert.match(liveGuestWriteDenied?.detail ?? "", /require_identity/);
+  assert.match(liveGuestWriteDenied?.detail ?? "", /Restore after this smoke step/);
   assert.match(liveGuestWriteDenied?.detail ?? "", /does not create a real workspace member/);
   assert.match(liveGuestWriteDenied?.command ?? "", /--unbound-user-mode require_identity/);
   assert.equal(liveGuestReadableRead?.status, "pending");
@@ -5709,6 +5810,9 @@ test("Feishu smoke plan converts readiness into live smoke checklist without ext
   assert.match(liveGuestReadableRead?.command ?? "", /--operation read-doc/);
   assert.equal(livePolicyDisabled?.status, "pending");
   assert.match(livePolicyDisabled?.detail ?? "", /without writing a channel message/);
+  assert.match(livePolicyDisabled?.detail ?? "", /Restore after this smoke step/);
+  assert.match(livePolicyDisabled?.command ?? "", /agent-channel-access --workspace-id workspace-1 --agent Codex --access disabled --json/);
+  assert.doesNotMatch(livePolicyDisabled?.command ?? "", /--integration integration-ready/);
   assert.equal(liveAgentDocSummary?.status, "pending");
   assert.match(liveAgentDocSummary?.detail ?? "", /already-bound Feishu Doc/);
   assert.match(liveAgentDocSummary?.detail ?? "", /@Codex Bot/);

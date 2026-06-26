@@ -145,6 +145,7 @@ export function printCommandHelp(command: string): void {
   agent-space integrations feishu health-check [--workspace-id <id>] [--integration <id>] [--base-url <url>] [--dry-run] [--strict] [--json]
   agent-space integrations feishu evidence [--workspace-id <id>] [--integration <id>] [--openapi-evidence <path>] [--strict] [--require bot|data-plane|worker|failure|all] [--json]
   agent-space integrations feishu data-operation --workspace-id <id> --integration <id> --operation read-doc|read-sheet|query-base|plan-sheet-write|plan-base-update --resource <url-or-token> [--range <sheet-range>] [--json]
+  agent-space integrations feishu agent-channel-access --workspace-id <id> (--agent <agent-id-or-name>|--integration <agent-bot-id>) --access enabled|disabled [--json]
   agent-space integrations feishu bind-channel --workspace-id <id> --integration <id> --channel <name> --chat-id <oc_xxx> [--json]
   agent-space integrations feishu bind-user --workspace-id <id> --integration <id> --user-id <agent-space-user-id> --open-id <ou_xxx> [--json]
   agent-space integrations feishu bind-resource --workspace-id <id> --integration <id> --type doc|sheet|base|base_table|base_view --resource <url-or-token> --agent-space-type channel_document|data_table|knowledge_page [--allow-write] [--json]
@@ -156,6 +157,7 @@ Examples:
   agent-space integrations feishu smoke-plan --workspace-id default --app-url https://agentspace.example.com --json
   agent-space integrations feishu smoke-env --workspace-id default --integration feishu-1 --app-url https://agentspace.example.com
   agent-space integrations feishu health-check --workspace-id default --json
+  agent-space integrations feishu agent-channel-access --workspace-id default --agent Codex --access disabled --json
   agent-space integrations feishu evidence --workspace-id default --openapi-evidence runtime-output/feishu-smoke/live.json --strict --require all --json
   agent-space integrations feishu bind-channel --workspace-id default --integration feishu-1 --channel general --chat-id oc_xxx --json`);
     return;
