@@ -1126,6 +1126,11 @@ test("Feishu evidence report summarizes AgentSpace-side live smoke proof without
     threadBindingsByIntegrationId: {
       "integration-evidence": [
         buildThreadBinding("integration-evidence", {
+          taskQueueId: "task-thread-continuation",
+          agentSpaceMessageId: "message-thread-continuation-source",
+        }),
+        buildThreadBinding("integration-evidence", {
+          id: "thread-integration-evidence-hermes",
           agentId: "HermesAgent",
           botBindingId: "integration-evidence-hermes",
           threadCollaboration: true,
@@ -1180,11 +1185,11 @@ test("Feishu evidence report summarizes AgentSpace-side live smoke proof without
   assert.equal(item?.nativeExperience.botAddedAutoProvisionedChannelBindings, 1);
   assert.equal(item?.nativeExperience.firstMessageAutoProvisionedChannelBindings, 1);
   assert.equal(item?.nativeExperience.reusedProviderChannelBindings, 1);
-  assert.equal(item?.nativeExperience.threadTaskBindings, 1);
+  assert.equal(item?.nativeExperience.threadTaskBindings, 2);
   assert.equal(item?.nativeExperience.threadContinuationEvidence, 1);
   assert.equal(item?.nativeExperience.threadCollaborationEvidence, 1);
   assert.equal(item?.guestPolicy.satisfied, true);
-  assert.equal(item?.guestPolicy.externalGuestAllowedEvidence, 2);
+  assert.equal(item?.guestPolicy.externalGuestAllowedEvidence, 1);
   assert.equal(item?.guestPolicy.externalGuestReplyAllEvidence, 1);
   assert.equal(item?.guestPolicy.externalGuestRequireIdentityEvidence, 1);
   assert.equal(item?.guestPolicy.externalGuestIgnoreEvidence, 1);
@@ -1356,6 +1361,32 @@ test("Feishu evidence report requires reply mappings correlated to inbound messa
   assert.equal(JSON.stringify(report).includes("om_secret"), false);
 });
 
+test("Feishu evidence report requires correlated replies from the same agent bot", () => {
+  const report = buildFeishuEvidenceReport({
+    ...buildCompleteFeishuEvidenceInput(),
+    requiredEvidence: "bot",
+    messageMappingsByIntegrationId: {
+      "integration-evidence": [
+        buildMessageMapping("integration-evidence", "inbound", "om_secret_inbound"),
+        withBotBindingId(
+          buildMessageMapping("integration-evidence", "outbound", "om_secret_reply", "om_secret_inbound"),
+          "integration-evidence-other-bot",
+        ),
+      ],
+    },
+  });
+
+  assert.equal(report.strictSatisfied, false);
+  assert.equal(report.summary.botSatisfiedCount, 0);
+  assert.equal(report.summary.workerSatisfiedCount, 0);
+  const [item] = report.integrations;
+  assert.equal(item?.bot.correlatedReplyMappings, 0);
+  assert.equal(item?.nativeExperience.nativeBotReplyEvidence, 0);
+  assert.ok(item?.issues.includes("correlated_reply_mapping_missing"));
+  assert.ok(item?.issues.includes("native_agent_bot_reply_evidence_missing"));
+  assert.equal(JSON.stringify(report).includes("integration-evidence-other-bot"), false);
+});
+
 test("Feishu evidence report requires approved write metadata for data-plane smoke", () => {
   const report = buildFeishuEvidenceReport({
     ...buildCompleteFeishuEvidenceInput(),
@@ -1455,6 +1486,71 @@ test("Feishu evidence report requires generic and runtime Doc read as separate d
   assert.equal(item?.dataPlane.agentDocReadSucceeded, 1);
   assert.ok(item?.issues.includes("doc_read_evidence_missing"));
   assert.equal(JSON.stringify(report).includes("doc_secret"), false);
+});
+
+test("Feishu evidence report requires read evidence on bound governed resources", () => {
+  const report = buildFeishuEvidenceReport({
+    ...buildCompleteFeishuEvidenceInput(),
+    dataOperationsByIntegrationId: {
+      "integration-evidence": [
+        withoutResourceBindingId(buildDataOperationRun("integration-evidence", "docs.read_document", "doc", "succeeded", {
+          actorType: "user",
+          actorId: "user-1",
+        })),
+        buildAgentRuntimeDocReadRun("integration-evidence"),
+        buildDataOperationRun("integration-evidence", "docs.update_document", "doc", "succeeded"),
+        withoutResourceBindingId(buildDataOperationRun("integration-evidence", "sheets.read_range", "sheet", "succeeded")),
+        buildDataOperationRun("integration-evidence", "sheets.update_range", "sheet", "succeeded"),
+        withoutResourceBindingId(buildDataOperationRun("integration-evidence", "base.query_records", "base_table", "succeeded")),
+        buildDataOperationRun("integration-evidence", "base.mutate_records", "base_table", "succeeded"),
+        buildExternalGuestWriteDeniedRun("integration-evidence"),
+      ],
+    },
+  });
+
+  assert.equal(report.strictSatisfied, false);
+  assert.equal(report.summary.dataPlaneSatisfiedCount, 0);
+  const [item] = report.integrations;
+  assert.equal(item?.dataPlane.docReadSucceeded, 0);
+  assert.equal(item?.dataPlane.agentDocReadSucceeded, 1);
+  assert.equal(item?.dataPlane.sheetReadSucceeded, 0);
+  assert.equal(item?.dataPlane.baseReadSucceeded, 0);
+  assert.ok(item?.issues.includes("doc_read_evidence_missing"));
+  assert.ok(item?.issues.includes("sheet_read_evidence_missing"));
+  assert.ok(item?.issues.includes("base_read_evidence_missing"));
+});
+
+test("Feishu evidence report requires approved writes on bound governed resources", () => {
+  const report = buildFeishuEvidenceReport({
+    ...buildCompleteFeishuEvidenceInput(),
+    dataOperationsByIntegrationId: {
+      "integration-evidence": [
+        buildDataOperationRun("integration-evidence", "docs.read_document", "doc", "succeeded", {
+          actorType: "user",
+          actorId: "user-1",
+        }),
+        buildAgentRuntimeDocReadRun("integration-evidence"),
+        withoutResourceBindingId(buildDataOperationRun("integration-evidence", "docs.update_document", "doc", "succeeded")),
+        buildDataOperationRun("integration-evidence", "sheets.read_range", "sheet", "succeeded"),
+        withoutResourceBindingId(buildDataOperationRun("integration-evidence", "sheets.update_range", "sheet", "succeeded")),
+        buildDataOperationRun("integration-evidence", "base.query_records", "base_table", "succeeded"),
+        withoutResourceBindingId(buildDataOperationRun("integration-evidence", "base.mutate_records", "base_table", "succeeded")),
+        buildExternalGuestWriteDeniedRun("integration-evidence"),
+      ],
+    },
+  });
+
+  assert.equal(report.strictSatisfied, false);
+  assert.equal(report.summary.dataPlaneSatisfiedCount, 0);
+  const [item] = report.integrations;
+  assert.equal(item?.dataPlane.docApprovedWritesSucceeded, 0);
+  assert.equal(item?.dataPlane.sheetApprovedWritesSucceeded, 0);
+  assert.equal(item?.dataPlane.sheetApprovedWriteSyncSucceeded, 0);
+  assert.equal(item?.dataPlane.baseApprovedMutationsSucceeded, 0);
+  assert.equal(item?.dataPlane.baseApprovedMutationSyncSucceeded, 0);
+  assert.ok(item?.issues.includes("doc_write_approval_evidence_missing"));
+  assert.ok(item?.issues.includes("sheet_write_approval_evidence_missing"));
+  assert.ok(item?.issues.includes("base_mutate_approval_evidence_missing"));
 });
 
 test("Feishu evidence report requires AgentSpace sync proof for approved Sheet and Base writes", () => {
@@ -1780,6 +1876,33 @@ test("Feishu evidence report requires agent policy denial evidence without a bot
   assert.equal(JSON.stringify(report).includes("om_secret_policy_violation_reply"), false);
 });
 
+test("Feishu evidence report requires bot sender loop guard without a bot reply", () => {
+  const complete = buildCompleteFeishuEvidenceInput();
+  const report = buildFeishuEvidenceReport({
+    ...complete,
+    requiredEvidence: "native",
+    messageMappingsByIntegrationId: {
+      "integration-evidence": [
+        ...complete.messageMappingsByIntegrationId["integration-evidence"],
+        buildMessageMapping(
+          "integration-evidence",
+          "outbound",
+          "om_secret_bot_sender_loop_reply",
+          "om_secret_bot_sender_loop",
+        ),
+      ],
+    },
+  });
+
+  assert.equal(report.strictSatisfied, false);
+  assert.equal(report.summary.nativeExperienceSatisfiedCount, 0);
+  const [item] = report.integrations;
+  assert.equal(item?.nativeExperience.nativeBotReplyEvidence, 3);
+  assert.equal(item?.nativeExperience.botSenderLoopGuardEvidence, 0);
+  assert.ok(item?.issues.includes("bot_sender_loop_guard_evidence_missing"));
+  assert.equal(JSON.stringify(report).includes("om_secret_bot_sender_loop_reply"), false);
+});
+
 test("Feishu evidence report requires native route evidence from direct bot mentions", () => {
   const complete = buildCompleteFeishuEvidenceInput();
   const report = buildFeishuEvidenceReport({
@@ -1828,6 +1951,37 @@ test("Feishu evidence report requires thread continuation without re-mentioning 
   assert.ok(item?.issues.includes("thread_continuation_evidence_missing"));
 });
 
+test("Feishu evidence report requires thread continuation to reference the active thread binding", () => {
+  const report = buildFeishuEvidenceReport({
+    ...buildCompleteFeishuEvidenceInput(),
+    requiredEvidence: "native",
+    threadBindingsByIntegrationId: {
+      "integration-evidence": [
+        buildThreadBinding("integration-evidence", {
+          id: "thread-integration-evidence-other",
+          taskQueueId: "task-thread-continuation",
+          agentSpaceMessageId: "message-thread-continuation-source",
+        }),
+        buildThreadBinding("integration-evidence", {
+          id: "thread-integration-evidence-hermes",
+          agentId: "HermesAgent",
+          botBindingId: "integration-evidence-hermes",
+          threadCollaboration: true,
+          collaboratingAgentIds: ["Atlas"],
+        }),
+      ],
+    },
+  });
+
+  assert.equal(report.strictSatisfied, false);
+  assert.equal(report.summary.nativeExperienceSatisfiedCount, 0);
+  const [item] = report.integrations;
+  assert.equal(item?.nativeExperience.threadTaskBindings, 2);
+  assert.equal(item?.nativeExperience.threadContinuationEvidence, 0);
+  assert.equal(item?.nativeExperience.threadCollaborationEvidence, 1);
+  assert.ok(item?.issues.includes("thread_continuation_evidence_missing"));
+});
+
 test("Feishu evidence report requires thread collaboration with a different agent", () => {
   const report = buildFeishuEvidenceReport({
     ...buildCompleteFeishuEvidenceInput(),
@@ -1835,6 +1989,11 @@ test("Feishu evidence report requires thread collaboration with a different agen
     threadBindingsByIntegrationId: {
       "integration-evidence": [
         buildThreadBinding("integration-evidence", {
+          taskQueueId: "task-thread-continuation",
+          agentSpaceMessageId: "message-thread-continuation-source",
+        }),
+        buildThreadBinding("integration-evidence", {
+          id: "thread-integration-evidence-hermes",
           agentId: "HermesAgent",
           botBindingId: "integration-evidence-hermes",
           threadCollaboration: true,
@@ -1847,7 +2006,7 @@ test("Feishu evidence report requires thread collaboration with a different agen
   assert.equal(report.strictSatisfied, false);
   assert.equal(report.summary.nativeExperienceSatisfiedCount, 0);
   const [item] = report.integrations;
-  assert.equal(item?.nativeExperience.threadTaskBindings, 1);
+  assert.equal(item?.nativeExperience.threadTaskBindings, 2);
   assert.equal(item?.nativeExperience.threadCollaborationEvidence, 0);
   assert.ok(item?.issues.includes("thread_collaboration_evidence_missing"));
   assert.equal(JSON.stringify(report).includes("om_secret"), false);
@@ -1934,7 +2093,7 @@ test("Feishu evidence report gates external guest policy proof", () => {
   assert.equal(report.summary.guestPolicySatisfiedCount, 0);
   assert.equal(report.summary.dataPlaneSatisfiedCount, 1);
   const [item] = report.integrations;
-  assert.equal(item?.guestPolicy.externalGuestAllowedEvidence, 2);
+  assert.equal(item?.guestPolicy.externalGuestAllowedEvidence, 1);
   assert.equal(item?.guestPolicy.externalGuestReplyAllEvidence, 1);
   assert.equal(item?.guestPolicy.externalGuestRequireIdentityEvidence, 1);
   assert.equal(item?.guestPolicy.externalGuestIgnoreEvidence, 0);
@@ -1943,6 +2102,30 @@ test("Feishu evidence report gates external guest policy proof", () => {
   assert.ok(item?.issues.includes("external_guest_policy_mention_required_evidence_missing"));
   assert.equal(JSON.stringify(report).includes("om_secret_guest_require_identity"), false);
   assert.equal(JSON.stringify(report).includes("ou_secret"), false);
+});
+
+test("Feishu evidence report requires external guest allow proof from reply_on_mention direct bot mention", () => {
+  const complete = buildCompleteFeishuEvidenceInput();
+  const report = buildFeishuEvidenceReport({
+    ...complete,
+    requiredEvidence: "guest-policy",
+    messageMappingsByIntegrationId: {
+      "integration-evidence": complete.messageMappingsByIntegrationId["integration-evidence"].map((mapping) => {
+        const metadataSource = mapping as { externalMessageId?: string };
+        if (metadataSource.externalMessageId !== "om_secret_restart_inbound") {
+          return mapping;
+        }
+        return withAgentBotMentioned(mapping, false);
+      }),
+    },
+  });
+
+  assert.equal(report.strictSatisfied, false);
+  assert.equal(report.summary.guestPolicySatisfiedCount, 0);
+  const [item] = report.integrations;
+  assert.equal(item?.guestPolicy.externalGuestAllowedEvidence, 0);
+  assert.equal(item?.guestPolicy.externalGuestReplyAllEvidence, 1);
+  assert.ok(item?.issues.includes("external_guest_policy_allow_evidence_missing"));
 });
 
 test("Feishu evidence report can gate on redacted OpenAPI live smoke evidence", () => {
@@ -4641,15 +4824,15 @@ test("Feishu smoke plan converts readiness into live smoke checklist without ext
   assert.deepEqual(report.evidenceGates, [
     {
       key: "bot_reply",
-      required: "processed_inbound + correlated_reply_mapping",
+      required: "processed_inbound + same_agent_bot_correlated_reply_mapping",
     },
     {
       key: "native_agent_bot",
-      required: "direct_agent_bot_route + bound_user_bot_mention + external_guest_bot_mention + bot_added_auto_provision + first_message_auto_provision + multi_agent_channel_reuse + thread_task_binding + thread_continuation_without_remention + thread_collaboration + bot_sender_loop_guard + agent_channel_policy_denial_without_reply",
+      required: "direct_agent_bot_route + bound_user_bot_mention + external_guest_bot_mention + bot_added_auto_provision + first_message_auto_provision + multi_agent_channel_reuse + thread_task_binding + thread_continuation_without_remention_active_binding + thread_collaboration + bot_sender_loop_guard_without_reply + agent_channel_policy_denial_without_reply",
     },
     {
       key: "guest_policy",
-      required: "external_guest_allow + external_guest_reply_all + external_guest_require_identity + external_guest_ignore + external_guest_mention_required",
+      required: "external_guest_reply_on_mention_allow + external_guest_reply_all + external_guest_require_identity + external_guest_ignore + external_guest_mention_required",
     },
     {
       key: "worker_restart",
@@ -4661,7 +4844,7 @@ test("Feishu smoke plan converts readiness into live smoke checklist without ext
     },
       {
         key: "data_plane",
-        required: "doc_read + agent_runtime_doc_read_from_lark_cli_manifest + approved_doc_write + sheet_read + approved_sheet_write_with_agentspace_sync + base_read + approved_base_mutation_with_agentspace_sync + user_actor + external_guest_actor + external_guest_read_guest_readable_current_channel + external_guest_bound_write_denied",
+        required: "bound_governed_doc_read + agent_runtime_doc_read_from_lark_cli_manifest + bound_approved_doc_write + bound_governed_sheet_read + bound_approved_sheet_write_with_agentspace_sync + bound_governed_base_read + bound_approved_base_mutation_with_agentspace_sync + user_actor + external_guest_actor + external_guest_read_guest_readable_current_channel + external_guest_bound_write_denied",
       },
     {
       key: "failure_visibility",
@@ -5155,6 +5338,11 @@ function buildCompleteFeishuEvidenceInput() {
     threadBindingsByIntegrationId: {
       "integration-evidence": [
         buildThreadBinding("integration-evidence", {
+          taskQueueId: "task-thread-continuation",
+          agentSpaceMessageId: "message-thread-continuation-source",
+        }),
+        buildThreadBinding("integration-evidence", {
+          id: "thread-integration-evidence-hermes",
           agentId: "HermesAgent",
           botBindingId: "integration-evidence-hermes",
           threadCollaboration: true,
@@ -5285,6 +5473,20 @@ function withAgentBotMentioned<T extends { metadataJson?: string }>(mapping: T, 
     metadataJson: JSON.stringify({
       ...metadata,
       agentBotMentioned,
+    }),
+  };
+}
+
+function withBotBindingId<T extends { metadataJson?: string }>(mapping: T, botBindingId: string): T {
+  const metadata = JSON.parse(mapping.metadataJson ?? "{}") as Record<string, unknown>;
+  if (metadata.provider !== "feishu") {
+    return mapping;
+  }
+  return {
+    ...mapping,
+    metadataJson: JSON.stringify({
+      ...metadata,
+      botBindingId,
     }),
   };
 }
@@ -5503,8 +5705,11 @@ function buildAutoProvisionedChannelBinding(
 function buildThreadBinding(
   integrationId: string,
   options: {
+    id?: string;
     agentId?: string;
     botBindingId?: string;
+    taskQueueId?: string;
+    agentSpaceMessageId?: string;
     threadCollaboration?: boolean;
     collaboratingAgentIds?: string[];
   } = {},
@@ -5512,7 +5717,7 @@ function buildThreadBinding(
   const agentId = options.agentId ?? "Atlas";
   const botBindingId = options.botBindingId ?? integrationId;
   return {
-    id: `thread-${integrationId}`,
+    id: options.id ?? `thread-${integrationId}`,
     workspaceId: "workspace-1",
     integrationId,
     channelBindingId: `channel-${integrationId}`,
@@ -5522,8 +5727,8 @@ function buildThreadBinding(
     externalThreadId: "om_secret_inbound",
     channelName: "general",
     agentId,
-    taskQueueId: "task-1",
-    agentSpaceMessageId: "message-source-1",
+    taskQueueId: options.taskQueueId ?? "task-1",
+    agentSpaceMessageId: options.agentSpaceMessageId ?? "message-source-1",
     status: "active",
     metadataJson: JSON.stringify({
       provider: "feishu",

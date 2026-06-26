@@ -809,12 +809,16 @@ Feishu Base table -> AgentSpace data_table
 - [x] External guest 第一版不存储真实 Feishu displayName；AgentSpace UI 使用统一 `Feishu Guest` 展示名，审计和任务上下文只保存 provider user hash / safe reference。
 - [x] External guest evidence gate 已收紧：message mapping / data-plane governance 中 `actorType=external_guest` 的证据必须没有 `userId` / `actorUserId`，避免未绑定飞书用户被误证明为真实 workspace member。
 - [x] 多 bot 同群的 evidence gate 已收紧：同一 Feishu chat 复用需记录 `linkedFromAgentId` / `linkedFromBotBindingId` 且与当前 agent/bot 不同；同一 thread 可记录 `threadContinuation=true`、`threadCollaboration=true` 和 collaborator agent ids，不覆盖原 agent task。
-- [x] Data-plane approved write evidence 已收紧：Doc / Sheet / Base 写入不仅需要 `approvalId` + `payloadHash`，还必须在同一 operation 的 Feishu governance context 中记录 `agentId` + `botBindingId` 和真实 `agent` / `user` actor，避免 agent bot 绕过 AgentSpace resource policy 的证据空洞。
+- [x] Data-plane approved write evidence 已收紧：Doc / Sheet / Base 写入不仅需要 `approvalId` + `payloadHash`，还必须带 active resource binding id，并在同一 operation 的 Feishu governance context 中记录 `agentId` + `botBindingId` 和真实 `agent` / `user` actor；最终证据 gate 使用 `bound_approved_doc_write` / `bound_approved_sheet_write_with_agentspace_sync` / `bound_approved_base_mutation_with_agentspace_sync`，避免 agent bot 绕过 AgentSpace resource policy 的证据空洞。
+- [x] Data-plane read evidence 已收紧：普通 Doc / Sheet / Base read 必须带 active resource binding id 和 Feishu governance context（provider、agentId、botBindingId、真实 user/agent actor 或 guest-readable external guest），最终证据 gate 使用 `bound_governed_doc_read` / `bound_governed_sheet_read` / `bound_governed_base_read`，避免用无绑定资源读成功误证明 data plane 治理。
 - [x] External guest read evidence 已收紧：成功读 Doc / Sheet / Base 必须是当前 channel 绑定资源，并在 Feishu governance context 中记录 `externalGuestResourceAccess=guest_readable_current_channel`，避免仅凭 `external_guest` actor 证明绕过 guest-readable resource policy。
 - [x] External guest write-deny evidence 已收紧：未绑定用户写拒绝必须发生在绑定的 Doc / Sheet / Base 写操作上，最终证据 gate 使用 `external_guest_bound_write_denied`，避免用无资源绑定或非写操作失败误证明“不能写”。
 - [x] Agent/channel policy disabled evidence 已收紧：`feishu_agent_channel_member_access_disabled` 等 policy-denied 入站必须没有关联 outbound reply，最终证据 gate 使用 `agent_channel_policy_denial_without_reply` 表达“bot 不回复”的验收语义。
+- [x] Bot reply evidence 已收紧：基础回复 gate 不再接受任意 outbound correlation，必须是 Feishu provider 且 outbound `agentId` / `botBindingId` 与 inbound 一致、带 safe chat/thread references；最终证据 gate 使用 `same_agent_bot_correlated_reply_mapping` 表达“同一个 Feishu bot identity 回复”。
 - [x] Native route evidence 已收紧：Feishu inbound mapping 持久化 `agentBotMentioned`，最终证据 gate 使用 `direct_agent_bot_route` 且 bound/external guest mention evidence 只认可直接 @agent bot 的入站，避免 `/agent` 或 reply_all/thread continuation 误充当原生体验证明。
-- [x] Thread continuation evidence 已收紧：同 thread follow-up 必须记录 `threadContinuation=true` 且 `agentBotMentioned=false`，最终证据 gate 使用 `thread_continuation_without_remention` 表达“不重新 @bot 也能延续同一 AgentSpace context”的验收语义。
+- [x] Thread continuation evidence 已收紧：同 thread follow-up 必须记录 `threadContinuation=true` 且 `agentBotMentioned=false`，并且 `threadBindingId` 必须能匹配 active Feishu thread binding 的 task / message / agent / bot / channel；最终证据 gate 使用 `thread_continuation_without_remention_active_binding` 表达“不重新 @bot 也能延续同一 AgentSpace context”的验收语义。
+- [x] External guest allow evidence 已收紧：默认低权限试用必须是 `reply_on_mention` 下未绑定用户直接 @agent bot、成功 dispatch 到 task/message 的 `external_guest` allow 证据；`reply_all` 继续由独立 gate 覆盖，避免用全量监听误证明默认 @bot 体验。
+- [x] Bot sender loop guard evidence 已收紧：`feishu_bot_sender_ignored` 必须记录 `agentBotMentioned=false` 且没有关联 outbound reply，最终证据 gate 使用 `bot_sender_loop_guard_without_reply` 表达“其他 bot/自身 bot 消息不会触发任务或回复”的验收语义。
 - [x] 部署默认已明确：self-hosted / 快速开始默认 WebSocket worker；EventCallback 作为 SaaS webhook / 严格验签 / 加密事件的高级模式保留。
 
 ## 推荐第一版产品默认值

@@ -4454,7 +4454,7 @@ export function buildFeishuSmokePlanReport(input: BuildFeishuSmokePlanReportInpu
         area: "bot",
         title: "Live smoke: Feishu thread follow-up continues",
         status: readyForBot ? "pending" : "blocked",
-        detail: "After a mentioned agent bot message creates a Feishu thread binding, send a follow-up in the same Feishu thread without mentioning the bot and verify AgentSpace records threadContinuation=true with the same safe thread binding reference.",
+        detail: "After a mentioned agent bot message creates a Feishu thread binding, send a follow-up in the same Feishu thread without mentioning the bot and verify AgentSpace records threadContinuation=true with the same active thread binding reference, taskQueueId, agentSpaceMessageId, agentId, and botBindingId.",
         issues: readyForBot ? [] : botIssues,
       },
       {
@@ -4798,6 +4798,10 @@ function buildFeishuIntegrationEvidence(input: {
   const externalGuestAllowedEvidence = countFeishuExternalGuestPolicyEvidence(input.messageMappings, {
     decision: "allow",
     dispatchStatus: "sent",
+    reasonCode: "feishu_external_guest_allowed",
+    unboundUserMode: "reply_on_mention",
+    agentBotMentioned: true,
+    requireDispatchEvidence: true,
   });
   const externalGuestReplyAllEvidence = countFeishuExternalGuestReplyAllEvidence(input.messageMappings);
   const externalGuestRequireIdentityEvidence = countFeishuExternalGuestPolicyEvidence(input.messageMappings, {
@@ -4828,7 +4832,7 @@ function buildFeishuIntegrationEvidence(input: {
   );
   const reusedProviderChannelBindings = countFeishuReusedProviderChannelBindings(input.channelBindings);
   const threadTaskBindings = countFeishuThreadTaskBindingEvidence(input.threadBindings);
-  const threadContinuationEvidence = countFeishuThreadContinuationEvidence(input.messageMappings);
+  const threadContinuationEvidence = countFeishuThreadContinuationEvidence(input.messageMappings, input.threadBindings);
   const threadCollaborationEvidence = countFeishuThreadCollaborationEvidence(input.threadBindings);
   const sentOutboxItems = input.outbox.filter((item) => item.status === "sent").length;
   const failedOutboxItems = input.outbox.filter((item) =>
@@ -4847,7 +4851,7 @@ function buildFeishuIntegrationEvidence(input: {
     "docs.create_document",
     "docs.update_document",
   ]);
-  const sheetReadSucceeded = countSucceededFeishuOperations(input.dataOperations, ["sheets.read_range"]);
+  const sheetReadSucceeded = countBoundGovernedFeishuReadOperations(input.dataOperations, ["sheets.read_range"]);
   const sheetWriteSucceeded = countSucceededFeishuOperations(input.dataOperations, ["sheets.update_range"]);
   const sheetApprovedWritesSucceeded = countApprovedSucceededFeishuOperations(input.dataOperations, [
     "sheets.update_range",
@@ -4855,7 +4859,7 @@ function buildFeishuIntegrationEvidence(input: {
   const sheetApprovedWriteSyncSucceeded = countApprovedSyncedFeishuDataTableWriteOperations(input.dataOperations, [
     "sheets.update_range",
   ]);
-  const baseReadSucceeded = countSucceededFeishuOperations(input.dataOperations, ["base.query_records"]);
+  const baseReadSucceeded = countBoundGovernedFeishuReadOperations(input.dataOperations, ["base.query_records"]);
   const baseMutateSucceeded = countSucceededFeishuOperations(input.dataOperations, ["base.mutate_records"]);
   const baseApprovedMutationsSucceeded = countApprovedSucceededFeishuOperations(input.dataOperations, [
     "base.mutate_records",
@@ -5067,7 +5071,20 @@ function countNonRuntimeFeishuDocReadOperations(
   return operations.filter((operation) =>
     operation.status === "succeeded" &&
     operation.operationType === "docs.read_document" &&
+    hasBoundFeishuGovernedReadContext(operation) &&
     !hasFeishuAgentRuntimeDocReadEvidence(operation)
+  ).length;
+}
+
+function countBoundGovernedFeishuReadOperations(
+  operations: readonly ExternalDataOperationRunRecord[],
+  operationTypes: readonly string[],
+): number {
+  const allowed = new Set(operationTypes);
+  return operations.filter((operation) =>
+    operation.status === "succeeded" &&
+    allowed.has(operation.operationType) &&
+    hasBoundFeishuGovernedReadContext(operation)
   ).length;
 }
 
@@ -5125,6 +5142,7 @@ function hasFeishuApprovedWriteEvidence(operation: ExternalDataOperationRunRecor
     result.approvalId.trim().length > 0 &&
     typeof result.payloadHash === "string" &&
     result.payloadHash.trim().length > 0 &&
+    hasNonEmptyString(operation.resourceBindingId) &&
     hasFeishuAgentBotGovernedWriteContext(operation);
 }
 
@@ -5148,6 +5166,32 @@ function hasFeishuAgentBotGovernedWriteContext(operation: ExternalDataOperationR
   }
   if (actorType === "user") {
     return hasNonEmptyString(governanceContext.actorUserId);
+  }
+  return false;
+}
+
+function hasBoundFeishuGovernedReadContext(operation: ExternalDataOperationRunRecord): boolean {
+  const governanceContext = readFeishuGovernanceContext(operation);
+  if (governanceContext?.provider !== FEISHU_PROVIDER_ID) {
+    return false;
+  }
+  if (!hasNonEmptyString(operation.resourceBindingId)) {
+    return false;
+  }
+  if (!hasNonEmptyString(governanceContext.agentId) || !hasNonEmptyString(governanceContext.botBindingId)) {
+    return false;
+  }
+  const actorType = readFeishuGovernanceActorType(operation);
+  if (actorType === "agent") {
+    return true;
+  }
+  if (actorType === "user") {
+    return hasNonEmptyString(governanceContext.actorUserId);
+  }
+  if (actorType === "external_guest") {
+    return countFeishuGovernanceActorEvidence([operation], "external_guest") === 1 &&
+      governanceContext.externalGuestResourceAccess === "guest_readable_current_channel" &&
+      hasNonEmptyString(governanceContext.channelName);
   }
   return false;
 }
@@ -5605,7 +5649,7 @@ function mapFeishuEvidenceIssueToRemediationSpec(input: {
       return {
         stepId: "live_feishu_thread_continuation",
         title: "Live smoke: Feishu thread follow-up continues without re-mention",
-        detail: "After a mentioned agent bot message creates a Feishu thread binding, send a follow-up in the same Feishu thread without mentioning the bot and verify AgentSpace records threadContinuation=true with taskQueueId, agentId, botBindingId, and the same safe thread binding reference.",
+        detail: "After a mentioned agent bot message creates a Feishu thread binding, send a follow-up in the same Feishu thread without mentioning the bot and verify AgentSpace records threadContinuation=true with taskQueueId, agentSpaceMessageId, agentId, botBindingId, and the same active thread binding reference.",
       };
     case "thread_collaboration_evidence_missing":
       return {
@@ -5728,26 +5772,15 @@ function countCorrelatedFeishuReplyMappings(
   mappings: readonly ExternalMessageMappingRecord[],
 ): number {
   const inboundMappings = mappings.filter((mapping) => mapping.direction === "inbound");
-  const inboundMessageIds = new Set(inboundMappings.map((mapping) => mapping.externalMessageId));
-  const inboundThreadIds = new Set(inboundMappings
-    .map((mapping) => mapping.externalThreadId)
-    .filter((threadId): threadId is string => Boolean(threadId)));
   return mappings.filter((mapping) => {
     if (mapping.direction !== "outbound" || !mapping.externalThreadId) {
-      return false;
-    }
-    const matchesInboundMessage = inboundMessageIds.has(mapping.externalThreadId);
-    const matchesInboundThread = inboundThreadIds.has(mapping.externalThreadId);
-    if (!matchesInboundMessage && !matchesInboundThread) {
       return false;
     }
     const inbound = inboundMappings.find((candidate) =>
       candidate.externalMessageId === mapping.externalThreadId ||
       candidate.externalThreadId === mapping.externalThreadId
     );
-    return !inbound?.channelBindingId ||
-      !mapping.channelBindingId ||
-      inbound.channelBindingId === mapping.channelBindingId;
+    return Boolean(inbound && hasMatchingFeishuBotReplyMetadata(inbound, mapping));
   }).length;
 }
 
@@ -5769,18 +5802,11 @@ function countFeishuNativeBotReplyEvidence(
     ) {
       return false;
     }
-    const inboundMetadata = readJsonRecord(inbound.metadataJson);
+    if (!hasMatchingFeishuBotReplyMetadata(inbound, mapping)) {
+      return false;
+    }
     const outboundMetadata = readJsonRecord(mapping.metadataJson);
-    if (
-      inboundMetadata?.provider !== FEISHU_PROVIDER_ID ||
-      outboundMetadata?.provider !== FEISHU_PROVIDER_ID ||
-      !hasNonEmptyString(inboundMetadata.agentId) ||
-      !hasNonEmptyString(inboundMetadata.botBindingId) ||
-      !hasNonEmptyString(inboundMetadata.externalChatReference) ||
-      outboundMetadata.agentId !== inboundMetadata.agentId ||
-      outboundMetadata.botBindingId !== inboundMetadata.botBindingId ||
-      !hasNonEmptyString(outboundMetadata.externalChatReference)
-    ) {
+    if (!outboundMetadata) {
       return false;
     }
     const policyInput = isRecord(outboundMetadata.agentActionPolicyInput)
@@ -5791,6 +5817,38 @@ function countFeishuNativeBotReplyEvidence(
       action?.resourceIdRedacted === true &&
       !hasNonEmptyString(action?.resourceId);
   }).length;
+}
+
+function hasMatchingFeishuBotReplyMetadata(
+  inbound: ExternalMessageMappingRecord,
+  outbound: ExternalMessageMappingRecord,
+): boolean {
+  if (outbound.direction !== "outbound" || !outbound.externalThreadId) {
+    return false;
+  }
+  if (inbound.direction !== "inbound") {
+    return false;
+  }
+  if (
+    inbound.externalMessageId !== outbound.externalThreadId &&
+    inbound.externalThreadId !== outbound.externalThreadId
+  ) {
+    return false;
+  }
+  if (inbound.channelBindingId && outbound.channelBindingId && inbound.channelBindingId !== outbound.channelBindingId) {
+    return false;
+  }
+  const inboundMetadata = readJsonRecord(inbound.metadataJson);
+  const outboundMetadata = readJsonRecord(outbound.metadataJson);
+  return inboundMetadata?.provider === FEISHU_PROVIDER_ID &&
+    outboundMetadata?.provider === FEISHU_PROVIDER_ID &&
+    hasNonEmptyString(inboundMetadata.agentId) &&
+    hasNonEmptyString(inboundMetadata.botBindingId) &&
+    hasNonEmptyString(inboundMetadata.externalChatReference) &&
+    outboundMetadata.agentId === inboundMetadata.agentId &&
+    outboundMetadata.botBindingId === inboundMetadata.botBindingId &&
+    hasNonEmptyString(outboundMetadata.externalChatReference) &&
+    hasNonEmptyString(outboundMetadata.externalThreadReference);
 }
 
 function countFeishuAgentBotRouteEvidence(
@@ -5904,12 +5962,14 @@ function countFeishuBotSenderLoopGuardEvidence(
     return metadata?.provider === FEISHU_PROVIDER_ID &&
       metadata.dispatchStatus === "ignored" &&
       metadata.reasonCode === "feishu_bot_sender_ignored" &&
+      metadata.agentBotMentioned === false &&
       typeof metadata.agentId === "string" &&
       metadata.agentId.trim().length > 0 &&
       typeof metadata.botBindingId === "string" &&
       metadata.botBindingId.trim().length > 0 &&
       typeof metadata.externalChatReference === "string" &&
-      metadata.externalChatReference.trim().length > 0;
+      metadata.externalChatReference.trim().length > 0 &&
+      !hasFeishuCorrelatedOutboundReply(mappings, mapping);
   }).length;
 }
 
@@ -5920,6 +5980,8 @@ function countFeishuExternalGuestPolicyEvidence(
     dispatchStatus: "sent" | "ignored";
     reasonCode?: string;
     unboundUserMode?: string;
+    agentBotMentioned?: boolean;
+    requireDispatchEvidence?: boolean;
   },
 ): number {
   return mappings.filter((mapping) => {
@@ -5942,10 +6004,16 @@ function countFeishuExternalGuestPolicyEvidence(
     ) {
       return false;
     }
+    if (input.requireDispatchEvidence && (!mapping.taskQueueId || !mapping.agentSpaceMessageId)) {
+      return false;
+    }
     if (input.reasonCode && metadata.externalGuestPolicyReasonCode !== input.reasonCode) {
       return false;
     }
     if (input.unboundUserMode && metadata.externalGuestUnboundUserMode !== input.unboundUserMode) {
+      return false;
+    }
+    if (input.agentBotMentioned !== undefined && metadata.agentBotMentioned !== input.agentBotMentioned) {
       return false;
     }
     return true;
@@ -6043,9 +6111,10 @@ function countFeishuThreadTaskBindingEvidence(
       return false;
     }
     const metadata = readJsonRecord(binding.metadataJson);
+    const agentId = hasNonEmptyString(metadata?.agentId) ? metadata.agentId.trim() : "";
     return metadata?.provider === FEISHU_PROVIDER_ID &&
-      typeof metadata.agentId === "string" &&
-      metadata.agentId.trim().length > 0 &&
+      agentId.length > 0 &&
+      binding.agentId.trim() === agentId &&
       typeof metadata.botBindingId === "string" &&
       metadata.botBindingId.trim().length > 0 &&
       typeof metadata.externalChatReference === "string" &&
@@ -6057,25 +6126,69 @@ function countFeishuThreadTaskBindingEvidence(
 
 function countFeishuThreadContinuationEvidence(
   mappings: readonly ExternalMessageMappingRecord[],
+  bindings: readonly ExternalThreadBindingRecord[],
 ): number {
   return mappings.filter((mapping) => {
     if (mapping.direction !== "inbound" || !mapping.taskQueueId || !mapping.agentSpaceMessageId) {
       return false;
     }
     const metadata = readJsonRecord(mapping.metadataJson);
-    return metadata?.provider === FEISHU_PROVIDER_ID &&
-      metadata.dispatchStatus === "sent" &&
-      metadata.threadContinuation === true &&
-      metadata.agentBotMentioned === false &&
-      typeof metadata.threadBindingId === "string" &&
-      metadata.threadBindingId.trim().length > 0 &&
-      typeof metadata.agentId === "string" &&
-      metadata.agentId.trim().length > 0 &&
-      typeof metadata.botBindingId === "string" &&
-      metadata.botBindingId.trim().length > 0 &&
-      typeof metadata.externalChatReference === "string" &&
-      metadata.externalChatReference.trim().length > 0;
+    if (
+      metadata?.provider !== FEISHU_PROVIDER_ID ||
+      metadata.dispatchStatus !== "sent" ||
+      metadata.threadContinuation !== true ||
+      metadata.agentBotMentioned !== false ||
+      typeof metadata.threadBindingId !== "string" ||
+      metadata.threadBindingId.trim().length === 0 ||
+      typeof metadata.agentId !== "string" ||
+      metadata.agentId.trim().length === 0 ||
+      typeof metadata.botBindingId !== "string" ||
+      metadata.botBindingId.trim().length === 0 ||
+      typeof metadata.externalChatReference !== "string" ||
+      metadata.externalChatReference.trim().length === 0
+    ) {
+      return false;
+    }
+    return hasMatchingFeishuThreadContinuationBinding(mapping, bindings, {
+      threadBindingId: metadata.threadBindingId.trim(),
+      agentId: metadata.agentId.trim(),
+      botBindingId: metadata.botBindingId.trim(),
+    });
   }).length;
+}
+
+function hasMatchingFeishuThreadContinuationBinding(
+  mapping: ExternalMessageMappingRecord,
+  bindings: readonly ExternalThreadBindingRecord[],
+  expected: {
+    threadBindingId: string;
+    agentId: string;
+    botBindingId: string;
+  },
+): boolean {
+  return bindings.some((binding) => {
+    if (
+      binding.id !== expected.threadBindingId ||
+      binding.provider !== FEISHU_PROVIDER_ID ||
+      binding.status !== "active" ||
+      binding.integrationId !== mapping.integrationId ||
+      binding.channelBindingId !== mapping.channelBindingId ||
+      binding.taskQueueId !== mapping.taskQueueId ||
+      binding.agentSpaceMessageId !== mapping.agentSpaceMessageId ||
+      !binding.agentId ||
+      binding.agentId.trim() !== expected.agentId
+    ) {
+      return false;
+    }
+    const metadata = readJsonRecord(binding.metadataJson);
+    return metadata?.provider === FEISHU_PROVIDER_ID &&
+      metadata.agentId === expected.agentId &&
+      metadata.botBindingId === expected.botBindingId &&
+      typeof metadata.externalChatReference === "string" &&
+      metadata.externalChatReference.trim().length > 0 &&
+      typeof metadata.externalThreadReference === "string" &&
+      metadata.externalThreadReference.trim().length > 0;
+  });
 }
 
 function countFeishuThreadCollaborationEvidence(

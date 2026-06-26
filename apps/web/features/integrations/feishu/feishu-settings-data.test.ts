@@ -49,12 +49,12 @@ vi.mock("@agent-space/services", () => ({
   ],
   FEISHU_EVENT_CALLBACK_PATH: "/api/integrations/feishu/events",
   FEISHU_FINAL_EVIDENCE_GATE_REQUIREMENTS: {
-    botReply: "processed_inbound + correlated_reply_mapping",
-    nativeAgentBot: "direct_agent_bot_route + bound_user_bot_mention + external_guest_bot_mention + bot_added_auto_provision + first_message_auto_provision + multi_agent_channel_reuse + thread_task_binding + thread_continuation_without_remention + thread_collaboration + bot_sender_loop_guard + agent_channel_policy_denial_without_reply",
-    guestPolicy: "external_guest_allow + external_guest_reply_all + external_guest_require_identity + external_guest_ignore + external_guest_mention_required",
+    botReply: "processed_inbound + same_agent_bot_correlated_reply_mapping",
+    nativeAgentBot: "direct_agent_bot_route + bound_user_bot_mention + external_guest_bot_mention + bot_added_auto_provision + first_message_auto_provision + multi_agent_channel_reuse + thread_task_binding + thread_continuation_without_remention_active_binding + thread_collaboration + bot_sender_loop_guard_without_reply + agent_channel_policy_denial_without_reply",
+    guestPolicy: "external_guest_reply_on_mention_allow + external_guest_reply_all + external_guest_require_identity + external_guest_ignore + external_guest_mention_required",
     workerRestart: "two_correlated_websocket_replies",
     workerCardAction: "processed_approval_card_action",
-    dataPlane: "doc_read + agent_runtime_doc_read_from_lark_cli_manifest + approved_doc_write + sheet_read + approved_sheet_write_with_agentspace_sync + base_read + approved_base_mutation_with_agentspace_sync + user_actor + external_guest_actor + external_guest_read_guest_readable_current_channel + external_guest_bound_write_denied",
+    dataPlane: "bound_governed_doc_read + agent_runtime_doc_read_from_lark_cli_manifest + bound_approved_doc_write + bound_governed_sheet_read + bound_approved_sheet_write_with_agentspace_sync + bound_governed_base_read + bound_approved_base_mutation_with_agentspace_sync + user_actor + external_guest_actor + external_guest_read_guest_readable_current_channel + external_guest_bound_write_denied",
     failureVisibility: "provider_failure_row + degraded_or_error_health + agent_bot_failure_evidence",
   },
   FEISHU_OPEN_PLATFORM_CONSOLE_URLS: {
@@ -458,19 +458,19 @@ describe("Feishu settings data", () => {
       evidenceGates: [
         {
           key: "bot_reply",
-          required: "processed_inbound + correlated_reply_mapping",
+          required: "processed_inbound + same_agent_bot_correlated_reply_mapping",
         },
         {
           key: "native_agent_bot",
-          required: "direct_agent_bot_route + bound_user_bot_mention + external_guest_bot_mention + bot_added_auto_provision + first_message_auto_provision + multi_agent_channel_reuse + thread_task_binding + thread_continuation_without_remention + thread_collaboration + bot_sender_loop_guard + agent_channel_policy_denial_without_reply",
+          required: "direct_agent_bot_route + bound_user_bot_mention + external_guest_bot_mention + bot_added_auto_provision + first_message_auto_provision + multi_agent_channel_reuse + thread_task_binding + thread_continuation_without_remention_active_binding + thread_collaboration + bot_sender_loop_guard_without_reply + agent_channel_policy_denial_without_reply",
         },
         {
           key: "guest_policy",
-          required: "external_guest_allow + external_guest_reply_all + external_guest_require_identity + external_guest_ignore + external_guest_mention_required",
+          required: "external_guest_reply_on_mention_allow + external_guest_reply_all + external_guest_require_identity + external_guest_ignore + external_guest_mention_required",
         },
         {
           key: "data_plane",
-          required: "doc_read + agent_runtime_doc_read_from_lark_cli_manifest + approved_doc_write + sheet_read + approved_sheet_write_with_agentspace_sync + base_read + approved_base_mutation_with_agentspace_sync + user_actor + external_guest_actor + external_guest_read_guest_readable_current_channel + external_guest_bound_write_denied",
+          required: "bound_governed_doc_read + agent_runtime_doc_read_from_lark_cli_manifest + bound_approved_doc_write + bound_governed_sheet_read + bound_approved_sheet_write_with_agentspace_sync + bound_governed_base_read + bound_approved_base_mutation_with_agentspace_sync + user_actor + external_guest_actor + external_guest_read_guest_readable_current_channel + external_guest_bound_write_denied",
         },
         {
           key: "failure_visibility",

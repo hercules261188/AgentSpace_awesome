@@ -1165,9 +1165,9 @@ describe("SettingsPageClient", () => {
     expect(within(evidenceGates).getByText("数据面证据")).toBeInTheDocument();
     expect(within(evidenceGates).getByText("失败可见证据")).toBeInTheDocument();
     expect(within(evidenceGates).getByText("OpenAPI 证据")).toBeInTheDocument();
-    expect(within(evidenceGates).getByText("processed_inbound + correlated_reply_mapping")).toBeInTheDocument();
+    expect(within(evidenceGates).getByText("processed_inbound + same_agent_bot_correlated_reply_mapping")).toBeInTheDocument();
     expect(within(evidenceGates).getByText(
-      "doc_read + agent_runtime_doc_read_from_lark_cli_manifest + approved_doc_write + sheet_read + approved_sheet_write_with_agentspace_sync + base_read + approved_base_mutation_with_agentspace_sync + user_actor + external_guest_actor + external_guest_read_guest_readable_current_channel + external_guest_bound_write_denied",
+      "bound_governed_doc_read + agent_runtime_doc_read_from_lark_cli_manifest + bound_approved_doc_write + bound_governed_sheet_read + bound_approved_sheet_write_with_agentspace_sync + bound_governed_base_read + bound_approved_base_mutation_with_agentspace_sync + user_actor + external_guest_actor + external_guest_read_guest_readable_current_channel + external_guest_bound_write_denied",
     )).toBeInTheDocument();
     expect(within(evidenceGates).getByText(
       "provider_failure_row + degraded_or_error_health + agent_bot_failure_evidence",
@@ -1999,11 +1999,11 @@ function buildFeishuSetupGuide(options: { agentBot?: boolean } = {}): NonNullabl
     evidenceGates: [
       {
         key: "bot_reply",
-        required: "processed_inbound + correlated_reply_mapping",
+        required: "processed_inbound + same_agent_bot_correlated_reply_mapping",
       },
       {
         key: "data_plane",
-        required: "doc_read + agent_runtime_doc_read_from_lark_cli_manifest + approved_doc_write + sheet_read + approved_sheet_write_with_agentspace_sync + base_read + approved_base_mutation_with_agentspace_sync + user_actor + external_guest_actor + external_guest_read_guest_readable_current_channel + external_guest_bound_write_denied",
+        required: "bound_governed_doc_read + agent_runtime_doc_read_from_lark_cli_manifest + bound_approved_doc_write + bound_governed_sheet_read + bound_approved_sheet_write_with_agentspace_sync + bound_governed_base_read + bound_approved_base_mutation_with_agentspace_sync + user_actor + external_guest_actor + external_guest_read_guest_readable_current_channel + external_guest_bound_write_denied",
       },
       {
         key: "failure_visibility",
