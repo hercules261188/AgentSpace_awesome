@@ -2,8 +2,25 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   evaluateFeishuExternalGuestIdentityRequirement,
+  readFeishuExternalParticipantPolicy,
   type FeishuExternalParticipantPolicy,
 } from "../external-guests.ts";
+
+const baseIntegration = {
+  id: "integration-1",
+  workspaceId: "workspace-1",
+  provider: "feishu" as const,
+  displayName: "Codex Feishu Bot",
+  status: "active" as const,
+  transportMode: "websocket_worker" as const,
+  agentId: "Codex",
+  appId: "cli_codex_bot",
+  encryptedCredentialsJson: "{}",
+  capabilitiesJson: "{}",
+  scopesJson: "[]",
+  createdAt: "2026-06-26T00:00:00.000Z",
+  updatedAt: "2026-06-26T00:00:00.000Z",
+};
 
 test("external guest identity requirements keep writes and approvals hard-gated", () => {
   const relaxedPolicy: Pick<FeishuExternalParticipantPolicy, "requireIdentityFor"> = {
@@ -51,4 +68,29 @@ test("external guest identity requirements honor configurable private resource g
     reasonCode: "feishu_external_guest_identity_not_required",
     policyConfigured: false,
   });
+});
+
+test("external guest policy preserves explicit empty identity requirements", () => {
+  const policy = readFeishuExternalParticipantPolicy({
+    ...baseIntegration,
+    configJson: JSON.stringify({
+      externalGuestPolicy: {
+        requireIdentityFor: [],
+      },
+    }),
+  });
+
+  assert.deepEqual(policy, {
+    unboundUserMode: "reply_on_mention",
+    guestPermissionProfile: "channel_context_only",
+    requireIdentityFor: [],
+  });
+  assert.equal(evaluateFeishuExternalGuestIdentityRequirement({
+    policy,
+    action: "writes",
+  }).decision, "require_identity");
+  assert.equal(evaluateFeishuExternalGuestIdentityRequirement({
+    policy,
+    action: "private_resources",
+  }).decision, "allow");
 });

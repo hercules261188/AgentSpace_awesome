@@ -239,6 +239,9 @@ function normalizeRestrictedActions(
   if (!Array.isArray(value)) {
     return fallback;
   }
+  if (value.length === 0) {
+    return [];
+  }
   const normalized = value
     .map((item) => typeof item === "string" ? normalizeRestrictedAction(item) : undefined)
     .filter((item): item is FeishuExternalGuestRestrictedAction => item !== undefined);

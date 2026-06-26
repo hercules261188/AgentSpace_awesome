@@ -27,6 +27,7 @@ import type {
   FeishuFirstMessageAutoProvisionMode,
 } from "./channel-auto-provisioning.ts";
 import type {
+  FeishuExternalGuestRestrictedAction,
   FeishuGuestPermissionProfile,
   FeishuUnboundUserMode,
 } from "./external-guests.ts";
@@ -209,7 +210,7 @@ function buildFeishuAgentBotExternalGuestPolicyConfig(
       ["none", "channel_context_only", "channel_readonly"],
       "feishu.agent_bot_binding.invalid_external_guest_policy",
     ),
-    requireIdentityFor: normalizePolicyStringArray(policy.requireIdentityFor),
+    requireIdentityFor: normalizeExternalGuestRestrictedActions(policy.requireIdentityFor),
   });
   return {
     externalGuestPolicy,
@@ -234,11 +235,36 @@ function normalizeOptionalPolicyValue<T extends string>(
   throw new Error(errorCode);
 }
 
-function normalizePolicyStringArray(value: string[] | undefined): string[] | undefined {
-  if (!value) {
+function normalizeExternalGuestRestrictedActions(
+  value: string[] | undefined,
+): FeishuExternalGuestRestrictedAction[] | undefined {
+  if (value === undefined) {
     return undefined;
   }
-  return value.map((item) => item.trim()).filter(Boolean);
+  if (!Array.isArray(value)) {
+    throw new Error("feishu.agent_bot_binding.invalid_external_guest_policy");
+  }
+  const normalized: FeishuExternalGuestRestrictedAction[] = [];
+  for (const item of value) {
+    const action = normalizeExternalGuestRestrictedAction(item);
+    if (!action) {
+      throw new Error("feishu.agent_bot_binding.invalid_external_guest_policy");
+    }
+    if (!normalized.includes(action)) {
+      normalized.push(action);
+    }
+  }
+  return normalized;
+}
+
+function normalizeExternalGuestRestrictedAction(value: unknown): FeishuExternalGuestRestrictedAction | undefined {
+  const normalized = typeof value === "string" ? value.trim() : "";
+  return normalized === "writes" ||
+    normalized === "approvals" ||
+    normalized === "private_resources" ||
+    normalized === "runtime_sensitive_tools"
+    ? normalized
+    : undefined;
 }
 
 export function listFeishuAgentBotBindingsSync(input: {

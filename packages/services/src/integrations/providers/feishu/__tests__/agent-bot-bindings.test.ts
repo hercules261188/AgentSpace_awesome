@@ -144,6 +144,15 @@ test("Feishu agent bot binding stores channel and guest policies in config", dat
       reviewStatus: "invalid" as "approved",
     },
   }), /feishu\.agent_bot_binding\.invalid_channel_auto_provisioning_policy/);
+  assert.throws(() => createFeishuAgentBotBindingSync({
+    workspaceId: workspace.id,
+    agentId: "Hermes",
+    appId: "cli_invalid_guest_policy_bot",
+    appSecret: "super-secret",
+    externalGuestPolicy: {
+      requireIdentityFor: ["writes", "admin_panel"],
+    },
+  }), /feishu\.agent_bot_binding\.invalid_external_guest_policy/);
 });
 
 test("Feishu agent bot policy updates merge with existing config", databaseTestOptions, () => {

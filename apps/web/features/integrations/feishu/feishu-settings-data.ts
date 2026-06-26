@@ -744,19 +744,35 @@ function readFeishuAgentBotExternalGuestPolicy(
     "channel_context_only",
     "channel_readonly",
   ] as const);
-  const requireIdentityFor = Array.isArray(policy.requireIdentityFor)
-    ? policy.requireIdentityFor.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
-    : [
-      "writes",
-      "approvals",
-      "private_resources",
-      "runtime_sensitive_tools",
-    ];
   return {
     unboundUserMode: unboundUserMode ?? "reply_on_mention",
     guestPermissionProfile: guestPermissionProfile ?? "channel_context_only",
-    requireIdentityFor,
+    requireIdentityFor: readFeishuExternalGuestIdentityRequirements(policy.requireIdentityFor),
   };
+}
+
+function readFeishuExternalGuestIdentityRequirements(value: unknown): string[] {
+  const defaultRequirements = [
+    "writes",
+    "approvals",
+    "private_resources",
+    "runtime_sensitive_tools",
+  ];
+  if (!Array.isArray(value)) {
+    return defaultRequirements;
+  }
+  if (value.length === 0) {
+    return [];
+  }
+  const normalized = value
+    .map((item) => typeof item === "string" ? item.trim() : "")
+    .filter((item) =>
+      item === "writes" ||
+      item === "approvals" ||
+      item === "private_resources" ||
+      item === "runtime_sensitive_tools"
+    );
+  return normalized.length > 0 ? Array.from(new Set(normalized)) : defaultRequirements;
 }
 
 function parseConfigRecord(value: unknown): Record<string, unknown> | undefined {

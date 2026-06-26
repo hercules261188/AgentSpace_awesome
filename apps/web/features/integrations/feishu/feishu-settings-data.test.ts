@@ -716,13 +716,33 @@ describe("Feishu settings data", () => {
         }),
       }),
       buildIntegration({
+        id: "agent-bot-hermes",
+        displayName: "Hermes Feishu Bot",
+        agentId: "Hermes",
+        configJson: JSON.stringify({
+          externalGuestPolicy: {
+            requireIdentityFor: ["writes", "admin_panel", "writes", "runtime_sensitive_tools"],
+          },
+        }),
+      }),
+      buildIntegration({
+        id: "agent-bot-vega",
+        displayName: "Vega Feishu Bot",
+        agentId: "Vega",
+        configJson: JSON.stringify({
+          externalGuestPolicy: {
+            requireIdentityFor: [],
+          },
+        }),
+      }),
+      buildIntegration({
         id: "agent-bot-codex",
         displayName: "Codex Feishu Bot",
         agentId: "Codex",
       }),
     ]);
 
-    const [atlas, codex] = listFeishuIntegrationSettingsItems({
+    const [atlas, hermes, vega, codex] = listFeishuIntegrationSettingsItems({
       workspaceId: "workspace-1",
       appUrl: "https://agent.test",
       viewer: {
@@ -753,6 +773,11 @@ describe("Feishu settings data", () => {
     expect(atlas?.setupGuide?.commands.channelBindings).toBe(
       "agent-space integrations feishu channel-bindings --workspace-id workspace-1 --integration agent-bot-atlas --json",
     );
+    expect(hermes?.externalGuestPolicy?.requireIdentityFor).toEqual([
+      "writes",
+      "runtime_sensitive_tools",
+    ]);
+    expect(vega?.externalGuestPolicy?.requireIdentityFor).toEqual([]);
     expect(codex?.channelAutoProvisioning).toEqual({
       botAdded: "auto_create_channel",
       firstMessage: "auto_create_if_bot_mentioned",
