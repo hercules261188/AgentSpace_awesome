@@ -4243,14 +4243,30 @@ test("Feishu smoke plan converts readiness into live smoke checklist without ext
         id: "integration-unchecked",
         displayName: "Unchecked Feishu",
       }),
+      buildIntegrationRecord({
+        id: "agent-bot-codex",
+        displayName: "Codex Bot",
+        agentId: "Codex",
+        transportMode: "websocket_worker",
+      }),
+      buildIntegrationRecord({
+        id: "agent-bot-hermes",
+        displayName: "HermesAgent Bot",
+        agentId: "HermesAgent",
+        transportMode: "websocket_worker",
+      }),
     ],
     channelBindingsByIntegrationId: {
       "integration-ready": [buildChannelBinding("integration-ready")],
       "integration-unchecked": [buildChannelBinding("integration-unchecked")],
+      "agent-bot-codex": [],
+      "agent-bot-hermes": [],
     },
     userBindingsByIntegrationId: {
       "integration-ready": [buildUserBinding("integration-ready")],
       "integration-unchecked": [buildUserBinding("integration-unchecked")],
+      "agent-bot-codex": [],
+      "agent-bot-hermes": [],
     },
     resourceBindingsByIntegrationId: {
       "integration-ready": [
@@ -4259,14 +4275,20 @@ test("Feishu smoke plan converts readiness into live smoke checklist without ext
         buildResourceBinding("integration-ready", "base_table", "tbl_secret"),
       ],
       "integration-unchecked": [],
+      "agent-bot-codex": [],
+      "agent-bot-hermes": [],
     },
     failedOutboxByIntegrationId: {
       "integration-ready": [],
       "integration-unchecked": [],
+      "agent-bot-codex": [],
+      "agent-bot-hermes": [],
     },
     pendingOutboxByIntegrationId: {
       "integration-ready": [],
       "integration-unchecked": [],
+      "agent-bot-codex": [],
+      "agent-bot-hermes": [],
     },
   });
 
@@ -4392,6 +4414,7 @@ test("Feishu smoke plan converts readiness into live smoke checklist without ext
   const bindUser = report.steps.find((step) => step.id === "bind_feishu_user");
   const liveBot = report.steps.find((step) => step.id === "live_bot_message_reply");
   const liveAutoProvision = report.steps.find((step) => step.id === "live_agent_bot_channel_auto_provision");
+  const bindSecondAgentBot = report.steps.find((step) => step.id === "bind_second_feishu_agent_bot");
   const liveMultiAgentReuse = report.steps.find((step) => step.id === "live_multi_agent_bot_channel_reuse");
   const liveThreadCollaboration = report.steps.find((step) => step.id === "live_multi_agent_thread_collaboration");
   const liveGuestMention = report.steps.find((step) => step.id === "live_external_guest_agent_bot_mention");
@@ -4433,6 +4456,8 @@ test("Feishu smoke plan converts readiness into live smoke checklist without ext
   assert.doesNotMatch(liveBot?.detail ?? "", /@AgentSpaceBot/);
   assert.equal(liveAutoProvision?.status, "pending");
   assert.match(liveAutoProvision?.detail ?? "", /provisionSource=bot_added/);
+  assert.equal(bindSecondAgentBot?.status, "done");
+  assert.match(bindSecondAgentBot?.detail ?? "", /2 agent-scoped Feishu bot binding/);
   assert.equal(liveMultiAgentReuse?.status, "pending");
   assert.match(liveMultiAgentReuse?.detail ?? "", /linkedFromBindingId/);
   assert.equal(liveThreadCollaboration?.status, "pending");
@@ -4553,6 +4578,9 @@ test("Feishu smoke plan blocks live smoke steps when local prerequisites are mis
   const health = report.steps.find((step) => step.id === "check_connection_health");
   const botGate = report.steps.find((step) => step.id === "run_bot_readiness_gate");
   const liveBot = report.steps.find((step) => step.id === "live_bot_message_reply");
+  const bindSecondAgentBot = report.steps.find((step) => step.id === "bind_second_feishu_agent_bot");
+  const liveMultiAgentReuse = report.steps.find((step) => step.id === "live_multi_agent_bot_channel_reuse");
+  const liveThreadCollaboration = report.steps.find((step) => step.id === "live_multi_agent_thread_collaboration");
   const liveAgentDocSummary = report.steps.find((step) => step.id === "live_agent_bound_doc_summary");
   const workerDryRun = report.steps.find((step) => step.id === "run_websocket_worker_dry_run");
   const workerReceive = report.steps.find((step) => step.id === "live_websocket_receive_message");
@@ -4582,7 +4610,16 @@ test("Feishu smoke plan blocks live smoke steps when local prerequisites are mis
   assert.equal(botGate?.status, "blocked");
   assert.ok(botGate?.issues?.includes("health_not_checked"));
   assert.equal(liveBot?.status, "blocked");
-  assert.equal(report.steps.find((step) => step.id === "live_multi_agent_thread_collaboration")?.status, "blocked");
+  assert.equal(bindSecondAgentBot?.status, "blocked");
+  assert.match(bindSecondAgentBot?.command ?? "", /bind-agent-bot --workspace-id workspace-1/);
+  assert.match(bindSecondAgentBot?.command ?? "", /--agent CHANGE_ME_SECOND_AGENT_NAME/);
+  assert.match(bindSecondAgentBot?.command ?? "", /--app-id-env FEISHU_SECOND_AGENT_APP_ID/);
+  assert.match(bindSecondAgentBot?.command ?? "", /--app-secret-env FEISHU_SECOND_AGENT_APP_SECRET/);
+  assert.ok(bindSecondAgentBot?.issues?.includes("credential_encryption_key_missing"));
+  assert.equal(liveMultiAgentReuse?.status, "blocked");
+  assert.deepEqual(liveMultiAgentReuse?.issues, ["second_agent_bot_missing"]);
+  assert.equal(liveThreadCollaboration?.status, "blocked");
+  assert.ok(liveThreadCollaboration?.issues?.includes("second_agent_bot_missing"));
   assert.equal(report.steps.find((step) => step.id === "live_external_guest_agent_bot_mention")?.status, "blocked");
   assert.equal(report.steps.find((step) => step.id === "live_external_guest_reply_all")?.status, "blocked");
   assert.equal(report.steps.find((step) => step.id === "live_agent_channel_policy_disabled")?.status, "blocked");

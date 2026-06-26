@@ -28,6 +28,14 @@ agent-space integrations feishu create --workspace-id default --name Feishu --tr
 
 The create result includes `openPlatformSetup` with the developer console URL, custom-app setup steps, workspace callback URL, required events, credential fields, bot scopes, and Docs/Sheets/Base scopes to copy into Feishu Open Platform. It also includes copyable `nextCommands` for health-check, smoke-plan, `smoke-env`, `--check-env`, strict live smoke, OpenAPI evidence verification, final AgentSpace evidence verification, and the required chat/user/resource bindings. Generated binding commands use shell-safe `CHANGE_ME_*` placeholders, and binding commands reject unfilled placeholders before writing AgentSpace state. If required env values, template placeholder values, or the AgentSpace credential encryption key are missing or invalid, CLI create returns a structured `{ "ok": false, "errorCode": "...", "nextStep": "..." }` response instead of printing raw secrets or low-level encryption errors.
 
+For TODO120 native agent bot smoke, prepare two disposable Feishu apps/bots, for example Codex Bot and HermesAgent Bot. Bind the first bot with `FEISHU_APP_ID` / `FEISHU_APP_SECRET`, then bind the second app to another AgentSpace agent with the secondary env names from `scripts/feishu/env.example`:
+
+```bash
+agent-space integrations feishu bind-agent-bot --workspace-id default --agent CHANGE_ME_SECOND_AGENT_NAME --env-file scripts/feishu/.env --app-id-env FEISHU_SECOND_AGENT_APP_ID --app-secret-env FEISHU_SECOND_AGENT_APP_SECRET --json
+```
+
+The smoke plan includes this second-bot command before the live same-group reuse and thread-collaboration checks. Those checks are not meaningful until both agent-scoped bot bindings exist.
+
 Bind the AgentSpace-side Feishu prerequisites before running live smoke. The settings page shows unbound chat/user suggestions from redacted inbound events, and when `AGENT_SPACE_APP_URL` / `NEXT_PUBLIC_AGENT_SPACE_APP_URL` / `NEXT_PUBLIC_APP_URL` is configured, unbound Feishu chat/user notices include a direct link back to the matching workspace integrations binding panel. The CLI outputs below redact external ids in their results:
 
 ```bash

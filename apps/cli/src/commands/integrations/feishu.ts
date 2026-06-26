@@ -97,6 +97,7 @@ const FEISHU_CLI_PLACEHOLDERS = {
   integrationId: "CHANGE_ME_FEISHU_INTEGRATION_ID",
   agentSpaceChannel: "CHANGE_ME_AGENTSPACE_CHANNEL",
   agentName: "CHANGE_ME_AGENT_NAME",
+  secondAgentName: "CHANGE_ME_SECOND_AGENT_NAME",
   agentSpaceUserId: "CHANGE_ME_AGENTSPACE_USER_ID",
   approvalId: "CHANGE_ME_FEISHU_APPROVAL_ID",
   feishuChatId: "CHANGE_ME_FEISHU_CHAT_ID",
@@ -4167,6 +4168,8 @@ export function buildFeishuSmokePlanReport(input: BuildFeishuSmokePlanReportInpu
   const hasBaseBinding = readiness.integrations.some((item) => item.resourceBindings.baseWritable > 0);
   const readyForBot = readiness.readyForBotSmokeCount > 0;
   const readyForDataPlane = readiness.readyForDataPlaneSmokeCount > 0;
+  const agentBotIntegrationCount = readiness.integrations.filter((item) => item.agentId).length;
+  const hasSecondAgentBot = agentBotIntegrationCount >= 2;
   const webSocketCandidate = workerCandidate?.transportMode === "websocket_worker"
     ? workerCandidate
     : readiness.integrations.find((item) => item.transportMode === "websocket_worker");
@@ -4362,20 +4365,42 @@ export function buildFeishuSmokePlanReport(input: BuildFeishuSmokePlanReportInpu
         issues: hasIntegration ? [] : ["integration_missing"],
       },
       {
+        id: "bind_second_feishu_agent_bot",
+        area: "setup",
+        title: "Bind second AgentSpace agent to its Feishu bot",
+        status: hasSecondAgentBot ? "done" : hasIntegration && credentialEncryptionReady ? "pending" : "blocked",
+        detail: hasSecondAgentBot
+          ? `Found ${agentBotIntegrationCount} agent-scoped Feishu bot binding records for multi-agent smoke.`
+          : "Create a second Feishu custom app, such as HermesAgent Bot, and bind it to a different AgentSpace agent before testing same-group reuse and thread collaboration.",
+        command: hasSecondAgentBot
+          ? undefined
+          : `agent-space integrations feishu bind-agent-bot --workspace-id ${readiness.workspaceId} --agent ${FEISHU_CLI_PLACEHOLDERS.secondAgentName} --env-file scripts/feishu/.env --app-id-env FEISHU_SECOND_AGENT_APP_ID --app-secret-env FEISHU_SECOND_AGENT_APP_SECRET --json`,
+        issues: hasSecondAgentBot
+          ? []
+          : hasIntegration
+            ? credentialEncryptionIssues
+            : ["integration_missing", ...credentialEncryptionIssues],
+      },
+      {
         id: "live_multi_agent_bot_channel_reuse",
         area: "bot",
         title: "Live smoke: second agent bot reuses channel",
-        status: hasIntegration ? "pending" : "blocked",
-        detail: "Bind a second AgentSpace agent to a second Feishu bot, add it to the same Feishu group, and verify AgentSpace reuses the existing channel, adds only that agent membership, and records linkedFromBindingId instead of creating a duplicate channel.",
-        issues: hasIntegration ? [] : ["integration_missing"],
+        status: hasSecondAgentBot ? "pending" : "blocked",
+        detail: "After the second agent bot binding exists, add that bot to the same Feishu group and verify AgentSpace reuses the existing channel, adds only that agent membership, and records linkedFromBindingId instead of creating a duplicate channel.",
+        issues: hasSecondAgentBot ? [] : ["second_agent_bot_missing"],
       },
       {
         id: "live_multi_agent_thread_collaboration",
         area: "bot",
         title: "Live smoke: second agent bot joins an active thread",
-        status: readyForBot ? "pending" : "blocked",
-        detail: "Mention one agent-specific Feishu bot in a mapped group thread, then mention a second agent bot in that same Feishu thread. Verify AgentSpace keeps separate thread bindings, records threadCollaboration=true with collaborator agent ids, and sends the collaboration card without raw Feishu ids.",
-        issues: readyForBot ? [] : botIssues,
+        status: readyForBot && hasSecondAgentBot ? "pending" : "blocked",
+        detail: "Mention one agent-specific Feishu bot in a mapped group thread, then mention the second agent bot in that same Feishu thread. Verify AgentSpace keeps separate thread bindings, records threadCollaboration=true with collaborator agent ids, and sends the collaboration card without raw Feishu ids.",
+        issues: readyForBot && hasSecondAgentBot
+          ? []
+          : uniqueStrings([
+            ...botIssues,
+            ...(hasSecondAgentBot ? [] : ["second_agent_bot_missing"]),
+          ]),
       },
       {
         id: "live_external_guest_agent_bot_mention",
