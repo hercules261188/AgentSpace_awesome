@@ -99,6 +99,26 @@ test("buildFeishuTextOutboundMessages splits long replies while preserving the F
   assert.equal(reconstructed, "第一段内容 second paragraph with enough text to split");
 });
 
+test("buildFeishuTextOutboundMessages labels agent-scoped text replies in every chunk", () => {
+  const messages = buildFeishuTextOutboundMessages({
+    targetExternalChatId: "oc_general",
+    targetExternalThreadId: "om_source_1",
+    text: "Agent reply content that should split into multiple Feishu text payloads.",
+    agentId: "Atlas",
+    maxTextBytes: 46,
+  });
+
+  assert.ok(messages.length > 1);
+  const reconstructed = messages.map((message) => {
+    const content = JSON.parse(String(message.payload.content)) as { text: string };
+    assert.match(content.text, /^Atlas · AgentSpace\n/);
+    return content.text
+      .replace(/^Atlas · AgentSpace\n/, "")
+      .replace(/^\[\d+\/\d+\]\n/, "");
+  }).join("");
+  assert.equal(reconstructed, "Agent reply content that should split into multiple Feishu text payloads.");
+});
+
 test("buildFeishuAttachmentOutboundMessage stores only attachment metadata for deferred upload", () => {
   const outbound = buildFeishuAttachmentOutboundMessage({
     targetExternalChatId: "oc_general",

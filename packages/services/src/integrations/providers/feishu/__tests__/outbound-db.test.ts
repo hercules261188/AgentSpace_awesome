@@ -317,6 +317,11 @@ test("Feishu replies without agent id reuse the source agent bot integration", d
   assert.equal(queuedOutbox[0]?.integrationId, agentBotIntegration.id);
   assert.equal(queuedOutbox[0]?.targetExternalChatId, "oc_agent_bot");
   assert.equal(queuedOutbox[0]?.targetExternalThreadId, "om_root");
+  const payload = JSON.parse(queuedOutbox[0]?.payloadJson ?? "{}") as {
+    content?: string;
+  };
+  const content = JSON.parse(String(payload.content)) as { text?: string };
+  assert.equal(content.text, "Atlas · AgentSpace\nAtlas reply for Feishu");
 });
 
 test("Feishu replies do not fall back to workspace bot when the source agent bot is disabled", databaseTestOptions, () => {

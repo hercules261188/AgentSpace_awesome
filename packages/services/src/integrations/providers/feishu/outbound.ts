@@ -364,12 +364,18 @@ export function buildFeishuTextOutboundMessages(input: {
   text: string;
   targetExternalThreadId?: string;
   maxTextBytes?: number;
+  agentId?: string;
 }): ExternalOutboundMessagePayload[] {
-  return splitFeishuTextMessageChunks(input.text, input.maxTextBytes).map((text) =>
+  const agentPrefix = buildFeishuTextAgentPrefix(input.agentId);
+  const maxTextBytes = input.maxTextBytes ?? FEISHU_TEXT_MESSAGE_MAX_BYTES;
+  const textMaxBytes = agentPrefix
+    ? Math.max(1, maxTextBytes - Buffer.byteLength(agentPrefix, "utf8"))
+    : maxTextBytes;
+  return splitFeishuTextMessageChunks(input.text, textMaxBytes).map((text) =>
     buildFeishuTextOutboundMessage({
       targetExternalChatId: input.targetExternalChatId,
       targetExternalThreadId: input.targetExternalThreadId,
-      text,
+      text: agentPrefix ? `${agentPrefix}${text}` : text,
   }));
 }
 
@@ -426,6 +432,11 @@ export function splitFeishuTextMessageChunks(
   return chunks.map((chunk, index) => `[${index + 1}/${chunks.length}]\n${chunk}`);
 }
 
+function buildFeishuTextAgentPrefix(agentId: string | undefined): string {
+  const agentLabel = agentId?.trim();
+  return agentLabel ? `${agentLabel} · AgentSpace\n` : "";
+}
+
 export function queueFeishuOutboundMessageSync(input: {
   context: IntegrationRuntimeContext;
   message: AgentSpaceOutboundMessage;
@@ -447,6 +458,10 @@ export function queueFeishuOutboundMessageSync(input: {
     targetExternalThreadId: input.message.externalThreadId,
     text: input.message.text,
     attachments: input.message.attachments,
+    agentId: readExternalIntegrationSync({
+      workspaceId: input.context.workspaceId,
+      integrationId: input.context.integrationId,
+    })?.agentId,
   }).map((outbound) => enqueueExternalOutboundMessageSync({
     context: input.context,
     channelBindingId: channelBinding.id,
@@ -491,6 +506,7 @@ export function queueFeishuChannelReplyOutboxSync(input: {
       targetExternalThreadId: resolveFeishuReplyTargetExternalMessageId(sourceMapping),
       text: input.text,
       attachments: input.attachments,
+      agentId: integration.agentId,
     })) {
       outboxItems.push(enqueueExternalOutboundMessageSync({
         context: {
@@ -662,12 +678,14 @@ function buildFeishuOutboundMessages(input: {
   attachments?: MessageAttachment[];
   targetExternalThreadId?: string;
   maxTextBytes?: number;
+  agentId?: string;
 }): ExternalOutboundMessagePayload[] {
   const textMessages = buildFeishuTextOutboundMessages({
     targetExternalChatId: input.targetExternalChatId,
     targetExternalThreadId: input.targetExternalThreadId,
     text: input.text,
     maxTextBytes: input.maxTextBytes,
+    agentId: input.agentId,
   });
   const attachmentMessages = (input.attachments ?? [])
     .filter((attachment) => !attachment.deletedAt)
