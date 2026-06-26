@@ -347,6 +347,7 @@ function prepareFeishuInboundDispatchSync(input: ProcessFeishuInboundEventInput)
       message,
       agentId: agentBotRoute?.agentId,
       botBindingId: agentBotRoute?.binding.id,
+      agentBotMentioned: agentBotRoute?.botMentioned,
       reasonCode,
       dispatchStatus: "ignored",
     });
@@ -395,6 +396,7 @@ function prepareFeishuInboundDispatchSync(input: ProcessFeishuInboundEventInput)
       mappedChannelName: channelBinding.channelName,
       agentId: agentBotRoute?.agentId,
       botBindingId: agentBotRoute?.binding.id,
+      agentBotMentioned: agentBotRoute?.botMentioned,
       reasonCode,
       dispatchStatus: "ignored",
     });
@@ -496,6 +498,7 @@ function prepareFeishuInboundDispatchSync(input: ProcessFeishuInboundEventInput)
           actorType: "external_guest",
           agentId: route.agentId,
           botBindingId: route.binding.id,
+          agentBotMentioned: route.botMentioned,
           externalGuestActor,
           reasonCode: "empty_message",
           dispatchStatus: "ignored",
@@ -532,6 +535,7 @@ function prepareFeishuInboundDispatchSync(input: ProcessFeishuInboundEventInput)
           actorType: "external_guest",
           agentId: route.agentId,
           botBindingId: route.binding.id,
+          agentBotMentioned: route.botMentioned,
           externalGuestActor,
           externalGuestDecision: guestDecision,
           reasonCode: routeGuard.reasonCode,
@@ -562,6 +566,7 @@ function prepareFeishuInboundDispatchSync(input: ProcessFeishuInboundEventInput)
         actorType: "external_guest",
         agentId: route.agentId,
         botBindingId: route.binding.id,
+        agentBotMentioned: route.botMentioned,
         externalGuestActor,
         externalGuestDecision: guestDecision,
         threadContinuation,
@@ -609,6 +614,7 @@ function prepareFeishuInboundDispatchSync(input: ProcessFeishuInboundEventInput)
       externalGuestDecision: guestDecision ?? undefined,
       agentId: agentBotRoute?.agentId,
       botBindingId: agentBotRoute?.binding.id,
+      agentBotMentioned: agentBotRoute?.botMentioned,
       reasonCode: blockedReasonCode,
       dispatchStatus: "ignored",
     });
@@ -664,6 +670,7 @@ function prepareFeishuInboundDispatchSync(input: ProcessFeishuInboundEventInput)
       actorType: "user",
       agentId: agentBotRoute?.agentId,
       botBindingId: agentBotRoute?.binding.id,
+      agentBotMentioned: agentBotRoute?.botMentioned,
       reasonCode: "external_channel_access_denied",
       dispatchStatus: "ignored",
     });
@@ -703,6 +710,7 @@ function prepareFeishuInboundDispatchSync(input: ProcessFeishuInboundEventInput)
       actorType: "user",
       agentId: agentBotRoute.agentId,
       botBindingId: agentBotRoute.binding.id,
+      agentBotMentioned: agentBotRoute.botMentioned,
       reasonCode: "feishu_agent_bot_mention_required",
       dispatchStatus: "ignored",
     });
@@ -735,6 +743,7 @@ function prepareFeishuInboundDispatchSync(input: ProcessFeishuInboundEventInput)
       actorType: "user",
       agentId: agentBotRoute?.agentId,
       botBindingId: agentBotRoute?.binding.id,
+      agentBotMentioned: agentBotRoute?.botMentioned,
       reasonCode: "empty_message",
       dispatchStatus: "ignored",
     });
@@ -771,6 +780,7 @@ function prepareFeishuInboundDispatchSync(input: ProcessFeishuInboundEventInput)
       actorType: "user",
       agentId: agentBotRoute?.agentId,
       botBindingId: agentBotRoute?.binding.id,
+      agentBotMentioned: agentBotRoute?.botMentioned,
       reasonCode: routeGuard.reasonCode,
       dispatchStatus: "ignored",
     });
@@ -796,6 +806,7 @@ function prepareFeishuInboundDispatchSync(input: ProcessFeishuInboundEventInput)
     actorType: "user",
     agentId: agentBotRoute?.agentId,
     botBindingId: agentBotRoute?.binding.id,
+    agentBotMentioned: agentBotRoute?.botMentioned,
     dispatchStatus: "dispatching",
   });
   const displayName = user.displayName || userBinding.displayName || externalSenderId;
@@ -921,6 +932,7 @@ function dispatchPreparedFeishuInboundEventSync(input: FeishuInboundPreparedDisp
     externalGuestDecision: input.externalGuestDecision,
     agentId: input.agentId,
     botBindingId: input.botBindingId,
+    agentBotMentioned: input.agentBotMentioned,
     taskQueueId: dispatchedTask?.id,
     routerSessionId: dispatchedTask?.routerSessionId,
     threadBindingId: threadBinding?.id,
@@ -1452,6 +1464,7 @@ function finishFailedDispatch(input: FeishuInboundPreparedDispatch & {
     externalGuestDecision: input.externalGuestDecision,
     agentId: input.agentId,
     botBindingId: input.botBindingId,
+    agentBotMentioned: input.agentBotMentioned,
     threadContinuation: input.threadContinuation,
     reasonCode: input.reasonCode,
     dispatchStatus: "failed",
@@ -1536,6 +1549,7 @@ function createFeishuInboundMapping(input: {
   externalGuestDecision?: FeishuExternalGuestDecision;
   agentId?: string;
   botBindingId?: string;
+  agentBotMentioned?: boolean;
   taskQueueId?: string;
   routerSessionId?: string;
   threadBindingId?: string;
@@ -1574,6 +1588,7 @@ function createFeishuInboundMapping(input: {
       externalGuestUnboundUserMode: input.externalGuestDecision?.policy.unboundUserMode,
       agentId: input.agentId,
       botBindingId: input.botBindingId,
+      agentBotMentioned: input.agentBotMentioned,
       threadBindingId: input.threadBindingId,
       threadCollaboration: input.threadCollaboration ? true : undefined,
       threadCollaboratorAgentIds: input.threadCollaboration?.previousAgentIds,

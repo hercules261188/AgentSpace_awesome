@@ -1170,10 +1170,10 @@ test("Feishu evidence report summarizes AgentSpace-side live smoke proof without
   assert.equal(item?.bot.outboundMessageMappings, 2);
   assert.equal(item?.bot.correlatedReplyMappings, 2);
   assert.equal(item?.nativeExperience.satisfied, true);
-  assert.equal(item?.nativeExperience.agentBotRouteEvidence, 4);
+  assert.equal(item?.nativeExperience.agentBotRouteEvidence, 2);
   assert.equal(item?.nativeExperience.nativeBotReplyEvidence, 2);
-  assert.equal(item?.nativeExperience.boundUserMentionEvidence, 2);
-  assert.equal(item?.nativeExperience.externalGuestMentionEvidence, 2);
+  assert.equal(item?.nativeExperience.boundUserMentionEvidence, 1);
+  assert.equal(item?.nativeExperience.externalGuestMentionEvidence, 1);
   assert.equal(item?.nativeExperience.agentChannelPolicyDeniedEvidence, 1);
   assert.equal(item?.nativeExperience.botSenderLoopGuardEvidence, 1);
   assert.equal(item?.nativeExperience.autoProvisionedChannelBindings, 2);
@@ -1778,6 +1778,31 @@ test("Feishu evidence report requires agent policy denial evidence without a bot
   assert.equal(item?.nativeExperience.agentChannelPolicyDeniedEvidence, 0);
   assert.ok(item?.issues.includes("agent_channel_policy_disabled_evidence_missing"));
   assert.equal(JSON.stringify(report).includes("om_secret_policy_violation_reply"), false);
+});
+
+test("Feishu evidence report requires native route evidence from direct bot mentions", () => {
+  const complete = buildCompleteFeishuEvidenceInput();
+  const report = buildFeishuEvidenceReport({
+    ...complete,
+    requiredEvidence: "native",
+    messageMappingsByIntegrationId: {
+      "integration-evidence": complete.messageMappingsByIntegrationId["integration-evidence"].map((mapping) =>
+        withAgentBotMentioned(mapping, false)
+      ),
+    },
+  });
+
+  assert.equal(report.strictSatisfied, false);
+  assert.equal(report.summary.nativeExperienceSatisfiedCount, 0);
+  const [item] = report.integrations;
+  assert.equal(item?.nativeExperience.agentBotRouteEvidence, 0);
+  assert.equal(item?.nativeExperience.boundUserMentionEvidence, 0);
+  assert.equal(item?.nativeExperience.externalGuestMentionEvidence, 0);
+  assert.equal(item?.nativeExperience.agentChannelPolicyDeniedEvidence, 0);
+  assert.ok(item?.issues.includes("agent_bot_route_evidence_missing"));
+  assert.ok(item?.issues.includes("bound_user_bot_mention_evidence_missing"));
+  assert.ok(item?.issues.includes("external_guest_bot_mention_evidence_missing"));
+  assert.ok(item?.issues.includes("agent_channel_policy_disabled_evidence_missing"));
 });
 
 test("Feishu evidence report requires thread collaboration with a different agent", () => {
@@ -4597,7 +4622,7 @@ test("Feishu smoke plan converts readiness into live smoke checklist without ext
     },
     {
       key: "native_agent_bot",
-      required: "agent_bot_route + bound_user_bot_mention + external_guest_bot_mention + bot_added_auto_provision + first_message_auto_provision + multi_agent_channel_reuse + thread_task_binding + thread_continuation + thread_collaboration + bot_sender_loop_guard + agent_channel_policy_denial_without_reply",
+      required: "direct_agent_bot_route + bound_user_bot_mention + external_guest_bot_mention + bot_added_auto_provision + first_message_auto_provision + multi_agent_channel_reuse + thread_task_binding + thread_continuation + thread_collaboration + bot_sender_loop_guard + agent_channel_policy_denial_without_reply",
     },
     {
       key: "guest_policy",
@@ -5147,6 +5172,7 @@ function buildMessageMapping(
   options: {
     actorType?: "user" | "external_guest";
     externalGuestPolicyDecision?: "allow" | "ignore" | "require_identity";
+    agentBotMentioned?: boolean;
   } = {},
 ) {
   const actorType = options.actorType ?? "user";
@@ -5189,6 +5215,7 @@ function buildMessageMapping(
             }),
           agentId: "Atlas",
           botBindingId: integrationId,
+          agentBotMentioned: options.agentBotMentioned ?? true,
           threadBindingId: `thread-${integrationId}`,
         }),
       }
@@ -5221,6 +5248,20 @@ function withExternalGuestUserIdentity<T extends { metadataJson?: string }>(mapp
     metadataJson: JSON.stringify({
       ...metadata,
       userId: "user-should-not-exist",
+    }),
+  };
+}
+
+function withAgentBotMentioned<T extends { metadataJson?: string }>(mapping: T, agentBotMentioned: boolean): T {
+  const metadata = JSON.parse(mapping.metadataJson ?? "{}") as Record<string, unknown>;
+  if (metadata.provider !== "feishu" || !("agentBotMentioned" in metadata)) {
+    return mapping;
+  }
+  return {
+    ...mapping,
+    metadataJson: JSON.stringify({
+      ...metadata,
+      agentBotMentioned,
     }),
   };
 }
@@ -5275,6 +5316,7 @@ function buildExternalGuestReplyAllMapping(integrationId: string) {
       externalGuestUnboundUserMode: "reply_all",
       agentId: "Atlas",
       botBindingId: integrationId,
+      agentBotMentioned: false,
       threadBindingId: `thread-${integrationId}`,
     }),
     createdAt: "2026-06-24T00:00:01.000Z",
@@ -5304,6 +5346,7 @@ function buildThreadContinuationMapping(integrationId: string) {
       userId: "user-1",
       agentId: "Atlas",
       botBindingId: integrationId,
+      agentBotMentioned: false,
       threadBindingId: `thread-${integrationId}`,
       threadContinuation: true,
     }),
@@ -5336,6 +5379,7 @@ function buildAgentChannelPolicyDeniedMapping(integrationId: string) {
       externalGuestUnboundUserMode: "reply_on_mention",
       agentId: "Atlas",
       botBindingId: integrationId,
+      agentBotMentioned: true,
     }),
     createdAt: "2026-06-24T00:00:01.000Z",
   } as never;
@@ -5360,6 +5404,7 @@ function buildBotSenderLoopGuardMapping(integrationId: string) {
       reasonCode: "feishu_bot_sender_ignored",
       agentId: "Atlas",
       botBindingId: integrationId,
+      agentBotMentioned: false,
     }),
     createdAt: "2026-06-24T00:00:01.000Z",
   } as never;
@@ -5397,6 +5442,7 @@ function buildPolicyBlockedMessageMapping(
       externalGuestUnboundUserMode: input.unboundUserMode,
       agentId: "Atlas",
       botBindingId: integrationId,
+      agentBotMentioned: input.reasonCode !== "feishu_external_guest_bot_mention_required",
     }),
     createdAt: "2026-06-24T00:00:01.000Z",
   } as never;

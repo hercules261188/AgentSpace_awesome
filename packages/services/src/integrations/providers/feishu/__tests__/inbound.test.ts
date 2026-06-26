@@ -1085,6 +1085,7 @@ test("unbound Feishu users can dispatch as a governed external guest on agent bo
   const metadata = JSON.parse(mapping.metadataJson) as Record<string, unknown>;
   assert.equal(metadata.actorType, "external_guest");
   assert.equal(metadata.externalGuestPermissionProfile, "channel_context_only");
+  assert.equal(metadata.agentBotMentioned, true);
   assert.deepEqual(metadata.externalGuestRequireIdentityFor, [
     "writes",
     "approvals",
@@ -1150,6 +1151,7 @@ test("external guest reply_on_mention policy allows same thread follow-ups witho
   assert.equal(metadata.externalGuestPolicyDecision, "allow");
   assert.equal(metadata.externalGuestPolicyReasonCode, "feishu_external_guest_thread_continuation_allowed");
   assert.equal(metadata.externalGuestUnboundUserMode, "reply_on_mention");
+  assert.equal(metadata.agentBotMentioned, false);
   assert.equal(metadata.threadContinuation, true);
   assert.equal(metadata.agentId, "Atlas");
   assert.equal(metadata.botBindingId, fixtures.integration.id);
@@ -1202,6 +1204,7 @@ test("agent bot require_identity policy sends an identity binding card without d
   assert.equal(metadata.externalGuestPolicyReasonCode, "feishu_external_guest_identity_required");
   assert.equal(metadata.externalGuestUnboundUserMode, "require_identity");
   assert.equal(metadata.externalGuestPermissionProfile, "none");
+  assert.equal(metadata.agentBotMentioned, true);
   assert.match(String(metadata.externalGuestReference), /^[a-f0-9]{64}$/);
   assert.doesNotMatch(mapping.metadataJson, /oc_general|ou_mina|on_mina|om-agent-bot-guest-require-identity/);
 
@@ -1409,6 +1412,7 @@ test("agent bot reply_all policy dispatches unmentioned unbound Feishu users to 
   assert.equal(metadata.externalGuestUnboundUserMode, "reply_all");
   assert.equal(metadata.agentId, "Atlas");
   assert.equal(metadata.botBindingId, fixtures.integration.id);
+  assert.equal(metadata.agentBotMentioned, false);
   assert.doesNotMatch(mapping.metadataJson, /oc_general|ou_mina|on_mina|om-agent-bot-guest-reply-all/);
 });
 
@@ -1451,6 +1455,7 @@ test("agent bot channel policy disabled ignores Feishu bot mentions without disp
   assert.equal(metadata.reasonCode, "feishu_agent_channel_member_access_disabled");
   assert.equal(metadata.agentId, "Atlas");
   assert.equal(metadata.botBindingId, fixtures.integration.id);
+  assert.equal(metadata.agentBotMentioned, true);
   assert.doesNotMatch(mapping.metadataJson, /oc_general|ou_mina|on_mina|om-agent-bot-channel-disabled/);
 });
 

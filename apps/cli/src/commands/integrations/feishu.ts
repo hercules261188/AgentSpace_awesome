@@ -5803,6 +5803,7 @@ function countFeishuAgentBotRouteEvidence(
     const metadata = readJsonRecord(mapping.metadataJson);
     return metadata?.provider === FEISHU_PROVIDER_ID &&
       metadata.dispatchStatus === "sent" &&
+      metadata.agentBotMentioned === true &&
       typeof metadata.agentId === "string" &&
       metadata.agentId.trim().length > 0 &&
       typeof metadata.botBindingId === "string" &&
@@ -5822,6 +5823,7 @@ function countFeishuNativeActorMentionEvidence(
     if (
       metadata?.provider !== FEISHU_PROVIDER_ID ||
       metadata.dispatchStatus !== "sent" ||
+      metadata.agentBotMentioned !== true ||
       metadata.actorType !== actorType ||
       typeof metadata.agentId !== "string" ||
       metadata.agentId.trim().length === 0 ||
@@ -5865,6 +5867,7 @@ function countFeishuAgentChannelPolicyDeniedEvidence(
       metadata.botBindingId.trim().length > 0 &&
       typeof metadata.externalChatReference === "string" &&
       metadata.externalChatReference.trim().length > 0 &&
+      metadata.agentBotMentioned === true &&
       Boolean(reasonCode && policyDenialReasonCodes.has(reasonCode)) &&
       !hasFeishuCorrelatedOutboundReply(mappings, mapping);
   }).length;
