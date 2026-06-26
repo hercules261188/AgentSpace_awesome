@@ -44,6 +44,7 @@ import {
   drainFeishuOutboxMessages,
   executeBoundFeishuReadDataOperation,
   fetchFeishuTenantAccessToken,
+  FEISHU_AGENT_BOT_REQUIRED_CREDENTIAL_FIELDS,
   FEISHU_BOT_SMOKE_SCOPES,
   FEISHU_DATA_PLANE_SMOKE_SCOPES,
   FEISHU_DEFAULT_SCOPES,
@@ -123,6 +124,7 @@ export interface FeishuReadinessReport {
 export interface FeishuIntegrationReadiness {
   id: string;
   displayName: string;
+  agentId?: string;
   status: string;
   transportMode: string;
   appConfigured: boolean;
@@ -4186,6 +4188,7 @@ export function buildFeishuSmokePlanReport(input: BuildFeishuSmokePlanReportInpu
     hasIntegration,
     hasAppUrl: Boolean(smokeHarness.appUrl),
     callbackUrl: smokeHarness.callbackUrl,
+    requiredCredentialFields: resolveFeishuCliOpenPlatformRequiredCredentialFields(setupCandidate),
   });
   const runtimeSetup = buildFeishuRuntimeSetupSummary(input.runtimeEnv);
   const workerHarness = buildFeishuWorkerHarnessSummary({
@@ -6230,7 +6233,8 @@ function buildFeishuIntegrationReadiness(input: {
   const missingBotScopes = findMissingFeishuReadinessScopes(availableScopes, FEISHU_BOT_SMOKE_SCOPES);
   const missingDataPlaneScopes = findMissingFeishuReadinessScopes(availableScopes, FEISHU_DATA_PLANE_SMOKE_SCOPES);
   const appConfigured = Boolean(input.integration.appId?.trim());
-  const credentialsConfigured = credentialSummary.hasAppSecret && credentialSummary.hasVerificationToken;
+  const credentialsConfigured = credentialSummary.hasAppSecret &&
+    (!doesFeishuReadinessRequireVerificationToken(input.integration) || credentialSummary.hasVerificationToken);
   const healthStatus = input.integration.lastHealthStatus ?? "unknown";
   const issues = buildFeishuReadinessIssues({
     integration: input.integration,
@@ -6294,6 +6298,7 @@ function buildFeishuIntegrationReadiness(input: {
   return {
     id: input.integration.id,
     displayName: input.integration.displayName,
+    agentId: input.integration.agentId,
     status: input.integration.status,
     transportMode: input.integration.transportMode,
     appConfigured,
@@ -6352,25 +6357,33 @@ function buildFeishuReadinessSetupChecks(input: {
   failedOutboxCount: number;
   pendingOutboxWithErrorsCount: number;
 }): FeishuReadinessSetupCheck[] {
+  const requiresVerificationToken = doesFeishuReadinessRequireVerificationToken(input.integration);
+  const hasCoreCredentials = input.appConfigured &&
+    input.hasAppSecret &&
+    (!requiresVerificationToken || input.hasVerificationToken);
+  const missingRecommendedEncryptKey = requiresVerificationToken && hasCoreCredentials && !input.hasEncryptKey;
   const credentialsIssues = [
     ...(!input.appConfigured ? ["app_id_missing"] : []),
     ...(!input.hasAppSecret ? ["app_secret_missing"] : []),
-    ...(!input.hasVerificationToken ? ["verification_token_missing"] : []),
-    ...(!input.hasEncryptKey ? ["encrypt_key_missing"] : []),
+    ...(requiresVerificationToken && !input.hasVerificationToken ? ["verification_token_missing"] : []),
+    ...(missingRecommendedEncryptKey ? ["encrypt_key_missing"] : []),
   ];
-  const hasCoreCredentials = input.appConfigured && input.hasAppSecret && input.hasVerificationToken;
   const outboxIssueCount = input.failedOutboxCount + input.pendingOutboxWithErrorsCount;
 
   return [
     {
       key: "credentials",
-      status: credentialsIssues.length === 0 ? "ready" : hasCoreCredentials ? "attention" : "missing",
-      current: credentialsIssues.length === 0
+      status: hasCoreCredentials
+        ? missingRecommendedEncryptKey ? "attention" : "ready"
+        : "missing",
+      current: hasCoreCredentials && !missingRecommendedEncryptKey
         ? "complete"
-        : hasCoreCredentials
+        : missingRecommendedEncryptKey
           ? "missing_encrypt_key"
           : "incomplete",
-      required: "app_id/app_secret/verification_token/encrypt_key",
+      required: requiresVerificationToken
+        ? "app_id/app_secret/verification_token"
+        : "app_id/app_secret",
       issues: credentialsIssues,
     },
     {
@@ -6427,6 +6440,12 @@ function buildFeishuReadinessSetupChecks(input: {
       ],
     },
   ];
+}
+
+function doesFeishuReadinessRequireVerificationToken(
+  integration: Pick<ExternalIntegrationRecord, "transportMode">,
+): boolean {
+  return integration.transportMode === "http_webhook";
 }
 
 function buildCountReadinessSetupCheck(
@@ -6700,6 +6719,7 @@ function buildFeishuOpenPlatformSetupSummary(input: {
   hasIntegration: boolean;
   hasAppUrl: boolean;
   callbackUrl?: string;
+  requiredCredentialFields?: readonly string[];
 }): FeishuOpenPlatformSetupSummary {
   return {
     callbackUrlStatus: input.callbackUrl
@@ -6709,12 +6729,21 @@ function buildFeishuOpenPlatformSetupSummary(input: {
         : "integration_missing",
     ...(input.callbackUrl ? { callbackUrl: input.callbackUrl } : {}),
     developerConsoleUrl: FEISHU_OPEN_PLATFORM_CONSOLE_URLS.appList,
-    requiredCredentialFields: [...FEISHU_REQUIRED_CREDENTIAL_FIELDS],
+    requiredCredentialFields: [...(input.requiredCredentialFields ?? FEISHU_REQUIRED_CREDENTIAL_FIELDS)],
     requiredEvents: [...FEISHU_REQUIRED_EVENTS],
     botScopes: [...FEISHU_BOT_SMOKE_SCOPES],
     dataPlaneScopes: [...FEISHU_DATA_PLANE_SMOKE_SCOPES],
     setupSteps: buildFeishuOpenPlatformSetupSteps(),
   };
+}
+
+function resolveFeishuCliOpenPlatformRequiredCredentialFields(
+  integration: FeishuIntegrationReadiness | undefined,
+): readonly string[] {
+  if (!integration || (integration.agentId && integration.transportMode === "websocket_worker")) {
+    return FEISHU_AGENT_BOT_REQUIRED_CREDENTIAL_FIELDS;
+  }
+  return FEISHU_REQUIRED_CREDENTIAL_FIELDS;
 }
 
 function buildFeishuOpenPlatformSetupSteps(): FeishuOpenPlatformSetupStep[] {

@@ -68,7 +68,7 @@ export function FeishuHealthPanel({
                   <span>{tx("频道绑定", "Channels")}: {integration.channelBindingCount}</span>
                   <span>{tx("资源绑定", "Resources")}: {integration.resourceBindingCount}</span>
                   <span>{tx("用户绑定", "Users")}: {integration.userBindingCount}</span>
-                  <span>{tx("凭据", "Credentials")}: {integration.hasAppSecret && integration.hasVerificationToken ? tx("已保存", "Stored") : tx("不完整", "Incomplete")}</span>
+                  <span>{tx("凭据", "Credentials")}: {hasRequiredFeishuCredentials(integration) ? tx("已保存", "Stored") : tx("不完整", "Incomplete")}</span>
                   <span>{tx("健康状态", "Health")}: {translateHealthStatus(integration.lastHealthStatus, tx)}</span>
                   <span>{tx("上次检查", "Last Check")}: {integration.lastHealthCheckedAt ?? tx("未检查", "Not checked")}</span>
                 </div>
@@ -311,6 +311,13 @@ function FeishuInboundBindingSuggestion({
       </button>
     </div>
   );
+}
+
+function hasRequiredFeishuCredentials(
+  integration: Pick<FeishuIntegrationSettingsItem, "transportMode" | "hasAppSecret" | "hasVerificationToken">,
+): boolean {
+  return integration.hasAppSecret &&
+    (integration.transportMode !== "http_webhook" || integration.hasVerificationToken);
 }
 
 function FeishuSetupGuide({

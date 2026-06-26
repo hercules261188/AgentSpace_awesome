@@ -153,7 +153,7 @@ describe("workspace settings route", () => {
     mockListFeishuAvailableUsers.mockReturnValue([{ userId: "user-1", displayName: "Mina", role: "owner" }]);
     mockListFeishuIntegrationSettingsItems.mockReturnValue([{ id: "feishu-1" }]);
     mockBuildFeishuIntegrationCreationGuide.mockReturnValue({
-      requiredCredentialFields: ["app_id", "app_secret", "verification_token", "encrypt_key"],
+      requiredCredentialFields: ["app_id", "app_secret", "verification_token"],
       requiredEvents: ["im.message.receive_v1", "im.chat.member.bot.added_v1", "card.action.trigger"],
       requiredScopes: ["im:message", "docx:document", "sheets:spreadsheet", "bitable:app"],
       eventCallbackPath: "/api/integrations/feishu/events",
@@ -284,7 +284,7 @@ describe("workspace settings route", () => {
     expect(data.feishuAvailableChannels).toEqual([{ name: "general", kind: "group" }]);
     expect(data.feishuAvailableUsers).toEqual([{ userId: "user-1", displayName: "Mina", role: "owner" }]);
     expect(data.feishuIntegrationCreationGuide).toEqual({
-      requiredCredentialFields: ["app_id", "app_secret", "verification_token", "encrypt_key"],
+      requiredCredentialFields: ["app_id", "app_secret", "verification_token"],
       requiredEvents: ["im.message.receive_v1", "im.chat.member.bot.added_v1", "card.action.trigger"],
       requiredScopes: ["im:message", "docx:document", "sheets:spreadsheet", "bitable:app"],
       eventCallbackPath: "/api/integrations/feishu/events",

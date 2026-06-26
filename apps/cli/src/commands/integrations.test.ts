@@ -247,7 +247,6 @@ test("Feishu create CLI stores encrypted credentials and returns redacted setup 
     "app_id",
     "app_secret",
     "verification_token",
-    "encrypt_key",
   ]);
   assert.deepEqual(report.openPlatformSetup.requiredEvents, ["im.message.receive_v1", "im.chat.member.bot.added_v1", "card.action.trigger"]);
   assert.deepEqual(report.openPlatformSetup.botScopes, [
@@ -3812,9 +3811,10 @@ test("Feishu readiness report summarizes manual smoke prerequisites without exte
     missingForDataPlaneSmoke: [],
   });
   const readyCredentialCheck = ready?.setupChecks.find((check) => check.key === "credentials");
-  assert.equal(readyCredentialCheck?.status, "attention");
-  assert.equal(readyCredentialCheck?.current, "missing_encrypt_key");
-  assert.deepEqual(readyCredentialCheck?.issues, ["encrypt_key_missing"]);
+  assert.equal(readyCredentialCheck?.status, "ready");
+  assert.equal(readyCredentialCheck?.current, "complete");
+  assert.equal(readyCredentialCheck?.required, "app_id/app_secret");
+  assert.deepEqual(readyCredentialCheck?.issues, []);
   assert.equal(ready?.setupChecks.find((check) => check.key === "chat_binding")?.status, "ready");
   assert.equal(ready?.setupChecks.find((check) => check.key === "doc_binding")?.status, "ready");
   assert.equal(ready?.setupChecks.find((check) => check.key === "sheet_binding")?.status, "ready");
@@ -3830,7 +3830,6 @@ test("Feishu readiness report summarizes manual smoke prerequisites without exte
     "app_id_missing",
     "app_secret_missing",
     "verification_token_missing",
-    "encrypt_key_missing",
   ]);
   assert.equal(missing?.setupChecks.find((check) => check.key === "chat_binding")?.status, "missing");
   assert.equal(missing?.setupChecks.find((check) => check.key === "user_binding")?.status, "missing");
@@ -3855,6 +3854,56 @@ test("Feishu readiness report summarizes manual smoke prerequisites without exte
   assert.equal(serialized.includes("shtcn_secret"), false);
   assert.equal(serialized.includes("tbl_secret"), false);
   assert.equal(serialized.includes("payload-secret"), false);
+});
+
+test("Feishu readiness treats WebSocket agent bots with app credentials as complete", () => {
+  const report = buildFeishuReadinessReport({
+    workspaceId: "workspace-1",
+    integrations: [
+      buildIntegrationRecord({
+        id: "agent-bot-codex",
+        displayName: "Codex Feishu Bot",
+        agentId: "Codex",
+        lastHealthStatus: "healthy",
+        transportMode: "websocket_worker",
+        encryptedCredentialsJson: JSON.stringify({
+          appSecret: "encrypted-app-secret",
+        }),
+      }),
+    ],
+    channelBindingsByIntegrationId: {
+      "agent-bot-codex": [buildChannelBinding("agent-bot-codex", {
+        agentId: "Codex",
+        botBindingId: "agent-bot-codex",
+      })],
+    },
+    userBindingsByIntegrationId: {
+      "agent-bot-codex": [buildUserBinding("agent-bot-codex")],
+    },
+    resourceBindingsByIntegrationId: {
+      "agent-bot-codex": [],
+    },
+    failedOutboxByIntegrationId: {
+      "agent-bot-codex": [],
+    },
+    pendingOutboxByIntegrationId: {
+      "agent-bot-codex": [],
+    },
+  });
+
+  assert.equal(report.readyForBotSmokeCount, 1);
+  assert.equal(report.readyForWorkerSmokeCount, 1);
+  const agentBot = report.integrations.find((item) => item.id === "agent-bot-codex");
+  assert.equal(agentBot?.credentialsConfigured, true);
+  assert.equal(agentBot?.readyForBotSmoke, true);
+  assert.equal(agentBot?.readyForWorkerSmoke, true);
+  assert.deepEqual(agentBot?.setupChecks.find((check) => check.key === "credentials"), {
+    key: "credentials",
+    status: "ready",
+    current: "complete",
+    required: "app_id/app_secret",
+    issues: [],
+  });
 });
 
 test("Feishu readiness report requires writable Doc, Sheet, and Base bindings for data-plane smoke", () => {
@@ -4232,7 +4281,6 @@ test("Feishu smoke plan converts readiness into live smoke checklist without ext
     "app_id",
     "app_secret",
     "verification_token",
-    "encrypt_key",
   ]);
   assert.deepEqual(report.appSetup.requiredEvents, ["im.message.receive_v1", "im.chat.member.bot.added_v1", "card.action.trigger"]);
   assert.deepEqual(report.appSetup.botScopes, [
@@ -4553,6 +4601,7 @@ test("Feishu smoke plan includes CLI agent bot bind command when no integration 
   const createStep = report.steps.find((step) => step.id === "bind_feishu_agent_bot");
 
   assert.equal(report.integrationCount, 0);
+  assert.deepEqual(report.appSetup.requiredCredentialFields, ["app_id", "app_secret"]);
   assert.equal(report.runtimeSetup.credentialEncryption.status, "missing");
   assert.equal(encryptionStep?.status, "pending");
   assert.match(encryptionStep?.command ?? "", /AGENT_SPACE_FEISHU_CREDENTIAL_ENCRYPTION_KEY/);

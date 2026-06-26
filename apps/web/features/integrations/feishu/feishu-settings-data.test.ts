@@ -37,6 +37,7 @@ vi.mock("@agent-space/db", () => ({
 }));
 
 vi.mock("@agent-space/services", () => ({
+  FEISHU_AGENT_BOT_REQUIRED_CREDENTIAL_FIELDS: ["app_id", "app_secret"],
   FEISHU_DEFAULT_SCOPES: [
     "im:message",
     "im:message:send_as_bot",
@@ -72,7 +73,7 @@ vi.mock("@agent-space/services", () => ({
     },
   ],
   FEISHU_PROVIDER_ID: "feishu",
-  FEISHU_REQUIRED_CREDENTIAL_FIELDS: ["app_id", "app_secret", "verification_token", "encrypt_key"],
+  FEISHU_REQUIRED_CREDENTIAL_FIELDS: ["app_id", "app_secret", "verification_token"],
   FEISHU_REQUIRED_EVENTS: ["im.message.receive_v1", "im.chat.member.bot.added_v1", "card.action.trigger"],
   listActiveEmployeesSync: mockListActiveEmployeesSync,
   sanitizeFeishuOperationResponseSummary: (summary: Record<string, unknown> | undefined) => summary,
@@ -219,7 +220,7 @@ describe("Feishu settings data", () => {
       workspaceId: "workspace-1",
       appUrl: "https://agent.test",
     })).toEqual({
-      requiredCredentialFields: ["app_id", "app_secret", "verification_token", "encrypt_key"],
+      requiredCredentialFields: ["app_id", "app_secret", "verification_token"],
       requiredEvents: ["im.message.receive_v1", "im.chat.member.bot.added_v1", "card.action.trigger"],
       requiredScopes: [
         "im:message",
@@ -373,7 +374,7 @@ describe("Feishu settings data", () => {
     expect(item?.callbackUrl).toContain("/api/integrations/feishu/events");
     expect(item?.hasAppSecret).toBe(true);
     expect(item?.setupGuide).toEqual({
-      requiredCredentialFields: ["app_id", "app_secret", "verification_token", "encrypt_key"],
+      requiredCredentialFields: ["app_id", "app_secret", "verification_token"],
       requiredEvents: ["im.message.receive_v1", "im.chat.member.bot.added_v1", "card.action.trigger"],
       requiredScopes: [
         "im:message",
@@ -403,7 +404,7 @@ describe("Feishu settings data", () => {
           key: "credentials",
           status: "ready",
           current: "complete",
-          required: "app_id/app_secret/verification_token/encrypt_key",
+          required: "app_id/app_secret/verification_token",
         },
         {
           key: "callback_or_worker",
@@ -709,6 +710,7 @@ describe("Feishu settings data", () => {
         id: "agent-bot-atlas",
         displayName: "Atlas Feishu Bot",
         agentId: "Atlas",
+        transportMode: "websocket_worker",
         configJson: JSON.stringify({
           channelAutoProvisioning: {
             botAdded: "pending_admin_review",
@@ -726,6 +728,7 @@ describe("Feishu settings data", () => {
         id: "agent-bot-hermes",
         displayName: "Hermes Feishu Bot",
         agentId: "Hermes",
+        transportMode: "websocket_worker",
         configJson: JSON.stringify({
           externalGuestPolicy: {
             requireIdentityFor: ["writes", "admin_panel", "writes", "runtime_sensitive_tools"],
@@ -736,6 +739,7 @@ describe("Feishu settings data", () => {
         id: "agent-bot-vega",
         displayName: "Vega Feishu Bot",
         agentId: "Vega",
+        transportMode: "websocket_worker",
         configJson: JSON.stringify({
           externalGuestPolicy: {
             requireIdentityFor: [],
@@ -746,6 +750,7 @@ describe("Feishu settings data", () => {
         id: "agent-bot-codex",
         displayName: "Codex Feishu Bot",
         agentId: "Codex",
+        transportMode: "websocket_worker",
       }),
     ]);
 
@@ -780,6 +785,13 @@ describe("Feishu settings data", () => {
     expect(atlas?.setupGuide?.commands.channelBindings).toBe(
       "agent-space integrations feishu channel-bindings --workspace-id workspace-1 --integration agent-bot-atlas --json",
     );
+    expect(atlas?.setupGuide?.requiredCredentialFields).toEqual(["app_id", "app_secret"]);
+    expect(atlas?.setupGuide?.checks.find((check) => check.key === "credentials")).toEqual({
+      key: "credentials",
+      status: "ready",
+      current: "complete",
+      required: "app_id/app_secret",
+    });
     expect(hermes?.externalGuestPolicy?.requireIdentityFor).toEqual([
       "writes",
       "runtime_sensitive_tools",

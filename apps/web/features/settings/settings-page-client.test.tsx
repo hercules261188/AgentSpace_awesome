@@ -1963,8 +1963,14 @@ function buildFeishuSetupGuide(options: { agentBot?: boolean } = {}): NonNullabl
   const readinessFlags = options.agentBot
     ? "--workspace-id workspace-1 --agent Codex"
     : "--workspace-id workspace-1 --integration feishu-1";
+  const requiredCredentialFields = options.agentBot
+    ? ["app_id", "app_secret"]
+    : ["app_id", "app_secret", "verification_token"];
+  const requiredCredentialSummary = options.agentBot
+    ? "app_id/app_secret"
+    : "app_id/app_secret/verification_token";
   return {
-    requiredCredentialFields: ["app_id", "app_secret", "verification_token", "encrypt_key"],
+    requiredCredentialFields,
     requiredEvents: ["im.message.receive_v1", "im.chat.member.bot.added_v1", "card.action.trigger"],
     requiredScopes: ["im:message", "docx:document", "sheets:spreadsheet", "bitable:app"],
     eventCallbackPath: "/api/integrations/feishu/events",
@@ -1975,7 +1981,7 @@ function buildFeishuSetupGuide(options: { agentBot?: boolean } = {}): NonNullabl
         key: "credentials",
         status: "ready",
         current: "complete",
-        required: "app_id/app_secret/verification_token/encrypt_key",
+        required: requiredCredentialSummary,
       },
       {
         key: "doc_binding",
@@ -2033,7 +2039,7 @@ function buildFeishuCreationGuide(): NonNullable<
   ComponentProps<typeof SettingsPageClient>["feishuIntegrationCreationGuide"]
 > {
   return {
-    requiredCredentialFields: ["app_id", "app_secret", "verification_token", "encrypt_key"],
+    requiredCredentialFields: ["app_id", "app_secret", "verification_token"],
     requiredEvents: ["im.message.receive_v1", "im.chat.member.bot.added_v1", "card.action.trigger"],
     requiredScopes: [
       "im:message",

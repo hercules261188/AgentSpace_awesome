@@ -27,12 +27,22 @@ export const FEISHU_REQUIRED_EVENTS = [
   "card.action.trigger",
 ] as const;
 
-export const FEISHU_REQUIRED_CREDENTIAL_FIELDS = [
+export const FEISHU_AGENT_BOT_REQUIRED_CREDENTIAL_FIELDS = [
+  "app_id",
+  "app_secret",
+] as const;
+
+export const FEISHU_EVENT_CALLBACK_REQUIRED_CREDENTIAL_FIELDS = [
   "app_id",
   "app_secret",
   "verification_token",
+] as const;
+
+export const FEISHU_RECOMMENDED_CREDENTIAL_FIELDS = [
   "encrypt_key",
 ] as const;
+
+export const FEISHU_REQUIRED_CREDENTIAL_FIELDS = FEISHU_EVENT_CALLBACK_REQUIRED_CREDENTIAL_FIELDS;
 
 export const FEISHU_OPEN_PLATFORM_CONSOLE_URLS = {
   appList: "https://open.feishu.cn/app",

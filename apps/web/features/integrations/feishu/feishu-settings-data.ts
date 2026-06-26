@@ -12,6 +12,7 @@ import {
   type WorkspaceRole,
 } from "@agent-space/db";
 import {
+  FEISHU_AGENT_BOT_REQUIRED_CREDENTIAL_FIELDS,
   FEISHU_DEFAULT_SCOPES,
   FEISHU_EVENT_CALLBACK_PATH,
   FEISHU_FINAL_EVIDENCE_GATE_REQUIREMENTS,
@@ -421,7 +422,10 @@ function buildFeishuIntegrationSetupGuide(input: {
     : "readiness";
   const appUrlFlag = `--app-url ${input.appUrl?.trim() || FEISHU_PUBLIC_APP_URL_PLACEHOLDER}`;
   return {
-    requiredCredentialFields: [...FEISHU_REQUIRED_CREDENTIAL_FIELDS],
+    requiredCredentialFields: resolveFeishuSetupGuideRequiredCredentialFields({
+      agentId: input.agentId,
+      transportMode: input.transportMode,
+    }),
     requiredEvents: [...FEISHU_REQUIRED_EVENTS],
     requiredScopes: [...FEISHU_DEFAULT_SCOPES],
     eventCallbackPath: FEISHU_EVENT_CALLBACK_PATH,
@@ -456,6 +460,15 @@ function buildFeishuOpenPlatformSetupSteps(): FeishuIntegrationSetupGuide["openP
     consoleUrl: step.consoleUrl,
     required: [...step.required],
   }));
+}
+
+function resolveFeishuSetupGuideRequiredCredentialFields(input: {
+  agentId?: string;
+  transportMode: string;
+}): string[] {
+  return input.agentId && input.transportMode === "websocket_worker"
+    ? [...FEISHU_AGENT_BOT_REQUIRED_CREDENTIAL_FIELDS]
+    : [...FEISHU_REQUIRED_CREDENTIAL_FIELDS];
 }
 
 function buildFeishuEvidenceGates(transportMode: string): FeishuIntegrationSetupGuide["evidenceGates"] {
@@ -514,9 +527,7 @@ function buildFeishuIntegrationSetupChecks(input: {
 }): FeishuIntegrationSetupCheck[] {
   const requiresVerificationToken = input.transportMode === "http_webhook";
   const hasCoreCredentials = input.hasAppSecret && (!requiresVerificationToken || input.hasVerificationToken);
-  const hasCompleteCredentials = requiresVerificationToken
-    ? hasCoreCredentials && input.hasEncryptKey
-    : hasCoreCredentials;
+  const missingRecommendedEncryptKey = requiresVerificationToken && hasCoreCredentials && !input.hasEncryptKey;
   const callbackStatus = resolveFeishuCallbackOrWorkerStatus({
     transportMode: input.transportMode,
     callbackUrl: input.callbackUrl,
@@ -534,14 +545,16 @@ function buildFeishuIntegrationSetupChecks(input: {
   return [
     {
       key: "credentials",
-      status: hasCompleteCredentials ? "ready" : hasCoreCredentials ? "attention" : "missing",
-      current: hasCompleteCredentials
+      status: hasCoreCredentials
+        ? missingRecommendedEncryptKey ? "attention" : "ready"
+        : "missing",
+      current: hasCoreCredentials && !missingRecommendedEncryptKey
         ? "complete"
-        : hasCoreCredentials
+        : missingRecommendedEncryptKey
           ? "missing_encrypt_key"
           : "incomplete",
       required: requiresVerificationToken
-        ? "app_id/app_secret/verification_token/encrypt_key"
+        ? "app_id/app_secret/verification_token"
         : "app_id/app_secret",
     },
     {
