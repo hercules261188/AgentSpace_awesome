@@ -494,6 +494,7 @@ export interface FeishuIntegrationEvidence {
     agentBotRouteEvidence: number;
     boundUserMentionEvidence: number;
     externalGuestMentionEvidence: number;
+    agentChannelPolicyDeniedEvidence: number;
     autoProvisionedChannelBindings: number;
     botAddedAutoProvisionedChannelBindings: number;
     firstMessageAutoProvisionedChannelBindings: number;
@@ -4291,6 +4292,7 @@ function buildFeishuIntegrationEvidence(input: {
   const agentBotRouteEvidence = countFeishuAgentBotRouteEvidence(input.messageMappings);
   const boundUserMentionEvidence = countFeishuNativeActorMentionEvidence(input.messageMappings, "user");
   const externalGuestMentionEvidence = countFeishuNativeActorMentionEvidence(input.messageMappings, "external_guest");
+  const agentChannelPolicyDeniedEvidence = countFeishuAgentChannelPolicyDeniedEvidence(input.messageMappings);
   const externalGuestAllowedEvidence = countFeishuExternalGuestPolicyEvidence(input.messageMappings, {
     decision: "allow",
     dispatchStatus: "sent",
@@ -4367,6 +4369,7 @@ function buildFeishuIntegrationEvidence(input: {
   const nativeExperienceSatisfied = agentBotRouteEvidence > 0 &&
     boundUserMentionEvidence > 0 &&
     externalGuestMentionEvidence > 0 &&
+    agentChannelPolicyDeniedEvidence > 0 &&
     autoProvisionedChannelBindings > 0 &&
     botAddedAutoProvisionedChannelBindings > 0 &&
     firstMessageAutoProvisionedChannelBindings > 0 &&
@@ -4412,6 +4415,7 @@ function buildFeishuIntegrationEvidence(input: {
     agentBotRouteEvidence,
     boundUserMentionEvidence,
     externalGuestMentionEvidence,
+    agentChannelPolicyDeniedEvidence,
     externalGuestAllowedEvidence,
     externalGuestRequireIdentityEvidence,
     externalGuestIgnoreEvidence,
@@ -4463,6 +4467,7 @@ function buildFeishuIntegrationEvidence(input: {
       agentBotRouteEvidence,
       boundUserMentionEvidence,
       externalGuestMentionEvidence,
+      agentChannelPolicyDeniedEvidence,
       autoProvisionedChannelBindings,
       botAddedAutoProvisionedChannelBindings,
       firstMessageAutoProvisionedChannelBindings,
@@ -4668,6 +4673,7 @@ function buildFeishuEvidenceIssues(input: {
   agentBotRouteEvidence: number;
   boundUserMentionEvidence: number;
   externalGuestMentionEvidence: number;
+  agentChannelPolicyDeniedEvidence: number;
   externalGuestAllowedEvidence: number;
   externalGuestRequireIdentityEvidence: number;
   externalGuestIgnoreEvidence: number;
@@ -4724,6 +4730,9 @@ function buildFeishuEvidenceIssues(input: {
     }
     if (input.externalGuestMentionEvidence === 0) {
       issues.push("external_guest_bot_mention_evidence_missing");
+    }
+    if (input.agentChannelPolicyDeniedEvidence === 0) {
+      issues.push("agent_channel_policy_disabled_evidence_missing");
     }
     if (input.autoProvisionedChannelBindings === 0) {
       issues.push("channel_auto_provision_evidence_missing");
@@ -4916,6 +4925,12 @@ function mapFeishuEvidenceIssueToRemediationSpec(input: {
         stepId: "live_unmentioned_guest_message_ignored",
         title: "Live smoke: unmentioned guest message is ignored",
         detail: "With reply_on_mention enabled, send an unbound Feishu message that does not mention the agent bot and verify AgentSpace records the bot-mention-required decision without dispatching.",
+      };
+    case "agent_channel_policy_disabled_evidence_missing":
+      return {
+        stepId: "live_agent_channel_policy_disabled",
+        title: "Live smoke: disabled agent/channel policy blocks replies",
+        detail: "Disable the agent's channel-member access or remove the agent from the mapped AgentSpace channel, mention the Feishu agent bot, and verify AgentSpace records the policy denial without writing a channel message, queueing a task, or sending a bot reply.",
       };
     case "channel_auto_provision_evidence_missing":
       return {
@@ -5115,6 +5130,34 @@ function countFeishuNativeActorMentionEvidence(
         metadata.externalGuestPermissionProfile.trim().length > 0;
     }
     return typeof metadata.userId === "string" && metadata.userId.trim().length > 0;
+  }).length;
+}
+
+function countFeishuAgentChannelPolicyDeniedEvidence(
+  mappings: readonly ExternalMessageMappingRecord[],
+): number {
+  const policyDenialReasonCodes = new Set([
+    "feishu_agent_not_enabled_in_channel",
+    "feishu_agent_channel_member_access_disabled",
+    "feishu_agent_unavailable_to_actor",
+    "feishu_agent_runtime_unavailable",
+    "feishu_agent_runtime_unavailable_to_actor",
+  ]);
+  return mappings.filter((mapping) => {
+    if (mapping.direction !== "inbound" || mapping.taskQueueId || mapping.agentSpaceMessageId) {
+      return false;
+    }
+    const metadata = readJsonRecord(mapping.metadataJson);
+    const reasonCode = typeof metadata?.reasonCode === "string" ? metadata.reasonCode : undefined;
+    return metadata?.provider === FEISHU_PROVIDER_ID &&
+      metadata.dispatchStatus === "ignored" &&
+      typeof metadata.agentId === "string" &&
+      metadata.agentId.trim().length > 0 &&
+      typeof metadata.botBindingId === "string" &&
+      metadata.botBindingId.trim().length > 0 &&
+      typeof metadata.externalChatReference === "string" &&
+      metadata.externalChatReference.trim().length > 0 &&
+      Boolean(reasonCode && policyDenialReasonCodes.has(reasonCode));
   }).length;
 }
 

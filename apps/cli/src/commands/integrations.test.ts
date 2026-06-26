@@ -937,6 +937,7 @@ test("Feishu evidence report summarizes AgentSpace-side live smoke proof without
           externalGuestPolicyDecision: "allow",
         }),
         buildMessageMapping("integration-evidence", "outbound", "om_secret_restart_reply", "om_secret_restart_inbound"),
+        buildAgentChannelPolicyDeniedMapping("integration-evidence"),
         ...buildGuestPolicyEvidenceMappings("integration-evidence"),
       ],
     },
@@ -985,13 +986,14 @@ test("Feishu evidence report summarizes AgentSpace-side live smoke proof without
   assert.equal(report.summary.failureVisibleCount, 1);
   const [item] = report.integrations;
   assert.equal(item?.bot.satisfied, true);
-  assert.equal(item?.bot.inboundMessageMappings, 5);
+  assert.equal(item?.bot.inboundMessageMappings, 6);
   assert.equal(item?.bot.outboundMessageMappings, 2);
   assert.equal(item?.bot.correlatedReplyMappings, 2);
   assert.equal(item?.nativeExperience.satisfied, true);
   assert.equal(item?.nativeExperience.agentBotRouteEvidence, 2);
   assert.equal(item?.nativeExperience.boundUserMentionEvidence, 1);
   assert.equal(item?.nativeExperience.externalGuestMentionEvidence, 1);
+  assert.equal(item?.nativeExperience.agentChannelPolicyDeniedEvidence, 1);
   assert.equal(item?.nativeExperience.autoProvisionedChannelBindings, 2);
   assert.equal(item?.nativeExperience.botAddedAutoProvisionedChannelBindings, 1);
   assert.equal(item?.nativeExperience.firstMessageAutoProvisionedChannelBindings, 1);
@@ -1373,12 +1375,14 @@ test("Feishu evidence report gates native agent bot experience proof", () => {
   assert.equal(item?.nativeExperience.agentBotRouteEvidence, 1);
   assert.equal(item?.nativeExperience.boundUserMentionEvidence, 1);
   assert.equal(item?.nativeExperience.externalGuestMentionEvidence, 0);
+  assert.equal(item?.nativeExperience.agentChannelPolicyDeniedEvidence, 0);
   assert.equal(item?.nativeExperience.autoProvisionedChannelBindings, 0);
   assert.equal(item?.nativeExperience.botAddedAutoProvisionedChannelBindings, 0);
   assert.equal(item?.nativeExperience.firstMessageAutoProvisionedChannelBindings, 0);
   assert.equal(item?.nativeExperience.reusedProviderChannelBindings, 0);
   assert.equal(item?.nativeExperience.threadTaskBindings, 0);
   assert.ok(item?.issues.includes("external_guest_bot_mention_evidence_missing"));
+  assert.ok(item?.issues.includes("agent_channel_policy_disabled_evidence_missing"));
   assert.ok(item?.issues.includes("channel_auto_provision_evidence_missing"));
   assert.ok(item?.issues.includes("bot_added_auto_provision_evidence_missing"));
   assert.ok(item?.issues.includes("first_message_auto_provision_evidence_missing"));
@@ -1401,6 +1405,7 @@ test("Feishu evidence report gates external guest policy proof", () => {
           externalGuestPolicyDecision: "allow",
         }),
         buildMessageMapping("integration-evidence", "outbound", "om_secret_restart_reply", "om_secret_restart_inbound"),
+        buildAgentChannelPolicyDeniedMapping("integration-evidence"),
         buildPolicyBlockedMessageMapping("integration-evidence", {
           externalMessageId: "om_secret_guest_require_identity",
           decision: "require_identity",
@@ -1696,6 +1701,7 @@ test("Feishu evidence report blocks strict gates when local proof is incomplete"
   assert.ok(item?.issues.includes("base_mutate_evidence_missing"));
   assert.ok(item?.issues.includes("agent_bot_route_evidence_missing"));
   assert.ok(item?.issues.includes("external_guest_bot_mention_evidence_missing"));
+  assert.ok(item?.issues.includes("agent_channel_policy_disabled_evidence_missing"));
   assert.ok(item?.issues.includes("channel_auto_provision_evidence_missing"));
   assert.ok(item?.issues.includes("bot_added_auto_provision_evidence_missing"));
   assert.ok(item?.issues.includes("first_message_auto_provision_evidence_missing"));
@@ -1711,6 +1717,7 @@ test("Feishu evidence report blocks strict gates when local proof is incomplete"
     "live_bot_message_reply",
     "live_agent_bot_direct_mention",
     "live_external_guest_agent_bot_mention",
+    "live_agent_channel_policy_disabled",
     "live_agent_bot_channel_auto_provision",
     "live_agent_bot_first_message_auto_provision",
     "live_multi_agent_bot_channel_reuse",
@@ -1739,6 +1746,10 @@ test("Feishu evidence report blocks strict gates when local proof is incomplete"
   );
   assert.ok(guestMentionRemediation?.issues.includes("external_guest_bot_mention_evidence_missing"));
   assert.ok(guestMentionRemediation?.issues.includes("external_guest_policy_allow_evidence_missing"));
+  const agentChannelPolicyRemediation = item?.remediationSteps.find((step) =>
+    step.stepId === "live_agent_channel_policy_disabled"
+  );
+  assert.ok(agentChannelPolicyRemediation?.issues.includes("agent_channel_policy_disabled_evidence_missing"));
   const autoProvisionRemediation = item?.remediationSteps.find((step) =>
     step.stepId === "live_agent_bot_channel_auto_provision"
   );
@@ -4144,6 +4155,7 @@ function buildCompleteFeishuEvidenceInput() {
           externalGuestPolicyDecision: "allow",
         }),
         buildMessageMapping("integration-evidence", "outbound", "om_secret_restart_reply", "om_secret_restart_inbound"),
+        buildAgentChannelPolicyDeniedMapping("integration-evidence"),
         ...buildGuestPolicyEvidenceMappings("integration-evidence"),
       ],
     },
@@ -4262,6 +4274,36 @@ function buildGuestPolicyEvidenceMappings(integrationId: string) {
       unboundUserMode: "reply_on_mention",
     }),
   ];
+}
+
+function buildAgentChannelPolicyDeniedMapping(integrationId: string) {
+  return {
+    id: `inbound-${integrationId}-om_secret_agent_policy_disabled`,
+    workspaceId: "workspace-1",
+    integrationId,
+    channelBindingId: `channel-${integrationId}`,
+    direction: "inbound",
+    externalMessageId: "om_secret_agent_policy_disabled",
+    externalThreadId: "om_secret_agent_policy_disabled",
+    externalSenderId: "ou_secret",
+    externalEventId: "evt_secret",
+    metadataJson: JSON.stringify({
+      provider: "feishu",
+      externalChatReference: "chat-ref-hash",
+      mappedChannelName: "general",
+      dispatchStatus: "ignored",
+      reasonCode: "feishu_agent_channel_member_access_disabled",
+      actorType: "external_guest",
+      externalGuestReference: "guest-ref-hash",
+      externalGuestPermissionProfile: "channel_context_only",
+      externalGuestPolicyDecision: "allow",
+      externalGuestPolicyReasonCode: "feishu_external_guest_allowed",
+      externalGuestUnboundUserMode: "reply_on_mention",
+      agentId: "Atlas",
+      botBindingId: integrationId,
+    }),
+    createdAt: "2026-06-24T00:00:01.000Z",
+  } as never;
 }
 
 function buildPolicyBlockedMessageMapping(
