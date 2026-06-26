@@ -383,6 +383,55 @@ test("agent bot first messages auto-provision a channel and route @bot to the ag
   assert.equal(JSON.parse(mapping.metadataJson).threadBindingId, threadBinding.id);
 });
 
+test("agent bot ignores bot sender messages before auto-provisioning or dispatch", databaseTestOptions, () => {
+  const fixtures = seedBoundFeishuWorkspace({
+    agentBot: true,
+    bindChannel: false,
+    bindUser: false,
+  });
+
+  const result = processFeishuInboundEventSync({
+    context: {
+      workspaceId: DEFAULT_WORKSPACE_ID,
+      integrationId: fixtures.integration.id,
+      provider: FEISHU_PROVIDER_ID,
+    },
+    payload: buildFeishuMessagePayload({
+      eventId: "evt-agent-bot-loop",
+      messageId: "om-agent-bot-loop",
+      chatId: "oc_bot_loop",
+      chatName: "Bot Loop Room",
+      senderOpenId: "ou_bot_atlas",
+      senderType: "app",
+      text: '<at user_id="ou_bot_atlas">@Atlas Bot</at> do not loop',
+    }),
+  });
+
+  assert.equal(result.dispatchStatus, "ignored");
+  assert.equal(result.reasonCode, "feishu_bot_sender_ignored");
+  assert.equal(result.noticeOutbox, undefined);
+  assert.equal(countHumanMessages(), 0);
+  assert.equal(listQueuedTasksSync({ workspaceId: DEFAULT_WORKSPACE_ID }).length, 0);
+  assert.equal(readExternalChannelBindingByExternalChatSync({
+    workspaceId: DEFAULT_WORKSPACE_ID,
+    integrationId: fixtures.integration.id,
+    externalChatId: "oc_bot_loop",
+  }), null);
+
+  const mapping = readExternalMessageMappingByExternalMessageSync({
+    workspaceId: DEFAULT_WORKSPACE_ID,
+    integrationId: fixtures.integration.id,
+    externalMessageId: "om-agent-bot-loop",
+  });
+  assert.ok(mapping);
+  const metadata = JSON.parse(mapping.metadataJson) as Record<string, unknown>;
+  assert.equal(metadata.dispatchStatus, "ignored");
+  assert.equal(metadata.reasonCode, "feishu_bot_sender_ignored");
+  assert.equal(metadata.agentId, "Atlas");
+  assert.equal(metadata.botBindingId, fixtures.integration.id);
+  assert.doesNotMatch(mapping.metadataJson, /oc_bot_loop|ou_bot_atlas|om-agent-bot-loop/);
+});
+
 test("bot added events reuse an existing Feishu chat channel for additional agent bots", databaseTestOptions, () => {
   const fixtures = seedBoundFeishuWorkspace({ agentBot: true, bindChannel: false });
   createEmployeeSync({
@@ -1354,6 +1403,8 @@ function buildFeishuMessagePayload(input: {
   chatType?: string;
   chatName?: string;
   threadId?: string;
+  senderOpenId?: string;
+  senderType?: string;
   text?: string;
   content?: Record<string, unknown>;
   messageType?: string;
@@ -1368,8 +1419,9 @@ function buildFeishuMessagePayload(input: {
     },
     event: {
       sender: {
+        sender_type: input.senderType,
         sender_id: {
-          open_id: "ou_mina",
+          open_id: input.senderOpenId ?? "ou_mina",
           union_id: "on_mina",
           user_id: "user_feishu_mina",
         },
@@ -1380,6 +1432,7 @@ function buildFeishuMessagePayload(input: {
         chat_name: input.chatName,
         message_id: input.messageId,
         thread_id: input.threadId,
+        sender_type: input.senderType,
         message_type: input.messageType ?? "text",
         content: JSON.stringify(input.content ?? { text: input.text }),
       },

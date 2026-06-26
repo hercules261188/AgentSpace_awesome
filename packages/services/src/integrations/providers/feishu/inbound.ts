@@ -51,6 +51,7 @@ import {
 import {
   ensureFeishuAgentMentionText,
   isFeishuBotAddedToChatPayload,
+  isFeishuBotSenderPayload,
   resolveFeishuAgentBotRouteSync,
   resolveFeishuChatDescriptor,
   type FeishuAgentBotRoute,
@@ -246,6 +247,31 @@ function prepareFeishuInboundDispatchSync(input: ProcessFeishuInboundEventInput)
         reasonCode: "duplicate_external_message",
         mapping: existingMapping,
       },
+    };
+  }
+
+  if (isFeishuBotSenderPayload({
+    payload: message.rawPayload,
+    externalSenderId: message.externalSenderId,
+    binding: agentBotRoute?.binding,
+  })) {
+    const mapping = createFeishuInboundMapping({
+      context: input.context,
+      message,
+      agentId: agentBotRoute?.agentId,
+      botBindingId: agentBotRoute?.binding.id,
+      reasonCode: "feishu_bot_sender_ignored",
+      dispatchStatus: "ignored",
+    });
+    return {
+      ready: false,
+      result: finishIgnored({
+        context: input.context,
+        event,
+        message,
+        reasonCode: "feishu_bot_sender_ignored",
+        mapping,
+      }),
     };
   }
 

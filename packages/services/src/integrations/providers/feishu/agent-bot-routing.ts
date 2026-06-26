@@ -94,6 +94,21 @@ export function ensureFeishuAgentMentionText(input: {
   return text ? `@${agentId} ${text}` : `@${agentId}`;
 }
 
+export function isFeishuBotSenderPayload(input: {
+  payload: Record<string, unknown>;
+  externalSenderId?: string;
+  binding?: FeishuAgentBotBinding;
+}): boolean {
+  const senderType = resolveFeishuSenderType(input.payload);
+  if (senderType === "bot" || senderType === "app" || senderType === "application") {
+    return true;
+  }
+
+  const senderId = input.externalSenderId?.trim();
+  const botOpenId = input.binding ? readFeishuAgentBotOpenId(input.binding) : undefined;
+  return Boolean(senderId && botOpenId && senderId === botOpenId);
+}
+
 function isActiveFeishuAgentBotBinding(
   integration: ExternalIntegrationRecord | null,
 ): integration is FeishuAgentBotBinding {
@@ -122,7 +137,7 @@ function isFeishuAgentBotMentioned(
       return true;
     }
     const mentionOpenId = asString(record.open_id) ?? asString(record.openId);
-    const botOpenId = readBotOpenId(binding);
+    const botOpenId = readFeishuAgentBotOpenId(binding);
     if (mentionOpenId && botOpenId && mentionOpenId === botOpenId) {
       return true;
     }
@@ -137,7 +152,28 @@ function containsAgentMention(text: string, agentId: string): boolean {
   return matches.some((token) => sameValue(token.slice(1), agentId));
 }
 
-function readBotOpenId(binding: FeishuAgentBotBinding): string | undefined {
+function resolveFeishuSenderType(payload: Record<string, unknown>): string | undefined {
+  const event = asRecord(payload.event);
+  const message = asRecord(event?.message);
+  const sender = asRecord(event?.sender);
+  const senderId = asRecord(sender?.sender_id);
+  return normalizeSenderType(
+    asString(sender?.sender_type)
+      ?? asString(sender?.senderType)
+      ?? asString(senderId?.sender_type)
+      ?? asString(senderId?.senderType)
+      ?? asString(event?.sender_type)
+      ?? asString(event?.senderType)
+      ?? asString(message?.sender_type)
+      ?? asString(message?.senderType),
+  );
+}
+
+function normalizeSenderType(value: string | undefined): string | undefined {
+  return value?.trim().toLowerCase().replace(/[_\s-]+/g, "_");
+}
+
+export function readFeishuAgentBotOpenId(binding: FeishuAgentBotBinding): string | undefined {
   const config = parseJsonRecord(binding.configJson);
   const bot = asRecord(config?.bot);
   return asString(bot?.openId) ?? asString(bot?.open_id);

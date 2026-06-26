@@ -792,6 +792,7 @@ describe("SettingsPageClient", () => {
       channelName: "general",
       displayName: "Launch Sheet",
       allowWrite: true,
+      guestReadable: false,
     });
     expect(screen.getByText("sheets.read_range")).toBeInTheDocument();
     expect(screen.getByText(/策略: allow/)).toBeInTheDocument();
@@ -836,6 +837,21 @@ describe("SettingsPageClient", () => {
         verificationToken: "",
         encryptKey: "",
         tenantKey: "",
+        channelAutoProvisioning: {
+          botAdded: "auto_create_channel",
+          firstMessage: "auto_create_if_bot_mentioned",
+          reviewStatus: "approved",
+        },
+        externalGuestPolicy: {
+          unboundUserMode: "reply_on_mention",
+          guestPermissionProfile: "channel_context_only",
+          requireIdentityFor: [
+            "writes",
+            "approvals",
+            "private_resources",
+            "runtime_sensitive_tools",
+          ],
+        },
       });
     });
     expect(await screen.findByText("Agent 飞书 Bot 已绑定。")).toBeInTheDocument();
@@ -916,7 +932,8 @@ describe("SettingsPageClient", () => {
       initialSection: "integrations",
     });
 
-    const createPanel = screen.getByLabelText("创建工作区级飞书集成");
+    const createPanel = screen.getByLabelText("高级：工作区级飞书集成");
+    await user.click(within(createPanel).getByText("高级：工作区级飞书集成"));
     await user.type(within(createPanel).getByLabelText("App ID"), "cli_test");
     await user.type(within(createPanel).getByLabelText("App Secret"), "secret_test");
     await user.click(screen.getByRole("button", { name: "测试连接" }));
@@ -980,6 +997,9 @@ describe("SettingsPageClient", () => {
       initialSection: "integrations",
     });
 
+    const createPanel = screen.getByLabelText("高级：工作区级飞书集成");
+    await user.click(within(createPanel).getByText("高级：工作区级飞书集成"));
+
     const setupSummary = screen.getByLabelText("飞书开放平台配置");
     expect(within(setupSummary).getByText("app_id")).toBeInTheDocument();
     expect(within(setupSummary).getByText("app_secret")).toBeInTheDocument();
@@ -995,7 +1015,6 @@ describe("SettingsPageClient", () => {
     expect(within(setupSummary).getByText("custom.integration.event")).toBeInTheDocument();
     expect(within(setupSummary).getByText("custom.integration.scope")).toBeInTheDocument();
 
-    const createPanel = screen.getByLabelText("创建工作区级飞书集成");
     await user.clear(within(createPanel).getByLabelText("名称"));
     await user.type(within(createPanel).getByLabelText("名称"), "Launch Feishu");
     await user.type(within(createPanel).getByLabelText("App ID"), "cli_launch");
@@ -1055,7 +1074,8 @@ describe("SettingsPageClient", () => {
       initialSection: "integrations",
     });
 
-    const createPanel = screen.getByLabelText("创建工作区级飞书集成");
+    const createPanel = screen.getByLabelText("高级：工作区级飞书集成");
+    await user.click(within(createPanel).getByText("高级：工作区级飞书集成"));
     await user.type(within(createPanel).getByLabelText("App ID"), "cli_launch");
     await user.type(within(createPanel).getByLabelText("App Secret"), "secret_launch");
     await user.type(within(createPanel).getByLabelText("Verification Token"), "verify_launch");
