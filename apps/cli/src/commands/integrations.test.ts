@@ -1528,6 +1528,40 @@ test("Feishu evidence report requires external guest write-deny proof", () => {
   assert.ok(item?.issues.includes("external_guest_write_deny_evidence_missing"));
 });
 
+test("Feishu evidence report rejects incomplete data-plane actor governance context", () => {
+  const report = buildFeishuEvidenceReport({
+    ...buildCompleteFeishuEvidenceInput(),
+    dataOperationsByIntegrationId: {
+      "integration-evidence": [
+        buildDataOperationRun("integration-evidence", "docs.read_document", "doc", "succeeded", {
+          actorType: "user",
+          actorId: "user-1",
+        }, {
+          governanceBotBindingId: null,
+        }),
+        buildAgentRuntimeDocReadRun("integration-evidence"),
+        buildDataOperationRun("integration-evidence", "docs.update_document", "doc", "succeeded"),
+        buildDataOperationRun("integration-evidence", "sheets.read_range", "sheet", "succeeded"),
+        buildDataOperationRun("integration-evidence", "sheets.update_range", "sheet", "succeeded"),
+        buildDataOperationRun("integration-evidence", "base.query_records", "base_table", "succeeded"),
+        buildDataOperationRun("integration-evidence", "base.mutate_records", "base_table", "succeeded"),
+        buildExternalGuestWriteDeniedRun("integration-evidence", {
+          governanceExternalGuestPermissionProfile: null,
+        }),
+      ],
+    },
+  });
+
+  assert.equal(report.strictSatisfied, false);
+  assert.equal(report.summary.dataPlaneSatisfiedCount, 0);
+  const [item] = report.integrations;
+  assert.equal(item?.dataPlane.userActorEvidence, 0);
+  assert.equal(item?.dataPlane.externalGuestActorEvidence, 0);
+  assert.equal(item?.dataPlane.externalGuestWriteDeniedEvidence, 0);
+  assert.ok(item?.issues.includes("user_actor_data_operation_evidence_missing"));
+  assert.ok(item?.issues.includes("external_guest_actor_data_operation_evidence_missing"));
+});
+
 test("Feishu evidence report gates native agent bot experience proof", () => {
   const report = buildFeishuEvidenceReport({
     ...buildCompleteFeishuEvidenceInput(),
@@ -5255,12 +5289,32 @@ function buildAgentRuntimeDocReadRun(integrationId: string) {
   } as never;
 }
 
-function buildExternalGuestWriteDeniedRun(integrationId: string) {
+function buildExternalGuestWriteDeniedRun(
+  integrationId: string,
+  options: Pick<DataOperationRunOptions,
+    "governanceAgentId" |
+    "governanceBotBindingId" |
+    "governanceExternalActorReference" |
+    "governanceExternalGuestPermissionProfile"
+  > = {},
+) {
   return buildDataOperationRun(integrationId, "base.mutate_records", "base_table", "failed", undefined, {
     governanceActorType: "external_guest",
+    ...options,
     errorCode: "feishu.data_operation_external_guest_requires_identity",
     errorMessage: "External Feishu guests must bind an AgentSpace identity before writing governed resources.",
   });
+}
+
+interface DataOperationRunOptions {
+  governanceActorType?: "agent" | "user" | "external_guest" | "system";
+  governanceAgentId?: string | null;
+  governanceBotBindingId?: string | null;
+  governanceActorUserId?: string | null;
+  governanceExternalActorReference?: string | null;
+  governanceExternalGuestPermissionProfile?: string | null;
+  errorCode?: string;
+  errorMessage?: string;
 }
 
 function buildDataOperationRun(
@@ -5275,11 +5329,7 @@ function buildDataOperationRun(
     actorType: "agent",
     actorId: "agent-1",
   },
-  options: {
-    governanceActorType?: "agent" | "user" | "external_guest" | "system";
-    errorCode?: string;
-    errorMessage?: string;
-  } = {},
+  options: DataOperationRunOptions = {},
 ) {
   const approvedWriteSucceeded = status === "succeeded" &&
     (
@@ -5293,6 +5343,11 @@ function buildDataOperationRun(
   const governanceContext = buildFeishuTestGovernanceContext({
     actorType: options.governanceActorType ?? actor.actorType,
     actorId: actor.actorId,
+    agentId: options.governanceAgentId,
+    botBindingId: options.governanceBotBindingId,
+    actorUserId: options.governanceActorUserId,
+    externalActorReference: options.governanceExternalActorReference,
+    externalGuestPermissionProfile: options.governanceExternalGuestPermissionProfile,
   });
   return {
     id: `${status}-${operationType}-${integrationId}`,
@@ -5336,18 +5391,29 @@ function buildDataOperationRun(
 function buildFeishuTestGovernanceContext(input: {
   actorType: "agent" | "user" | "external_guest" | "system";
   actorId?: string;
+  agentId?: string | null;
+  botBindingId?: string | null;
+  actorUserId?: string | null;
+  externalActorReference?: string | null;
+  externalGuestPermissionProfile?: string | null;
 }) {
   return {
     provider: "feishu",
-    agentId: "agent-1",
-    botBindingId: "bot-binding-1",
+    ...(input.agentId === null ? {} : { agentId: input.agentId ?? "agent-1" }),
+    ...(input.botBindingId === null ? {} : { botBindingId: input.botBindingId ?? "bot-binding-1" }),
     channelName: "Launch Room",
     actorType: input.actorType,
-    ...(input.actorType === "user" ? { actorUserId: input.actorId ?? "user-1" } : {}),
+    ...(input.actorType === "user" && input.actorUserId !== null
+      ? { actorUserId: input.actorUserId ?? input.actorId ?? "user-1" }
+      : {}),
     ...(input.actorType === "external_guest"
       ? {
-        externalActorReference: "external-guest-ref-hash",
-        externalGuestPermissionProfile: "channel_context_only",
+        ...(input.externalActorReference === null
+          ? {}
+          : { externalActorReference: input.externalActorReference ?? "external-guest-ref-hash" }),
+        ...(input.externalGuestPermissionProfile === null
+          ? {}
+          : { externalGuestPermissionProfile: input.externalGuestPermissionProfile ?? "channel_context_only" }),
         externalChatReference: "external-chat-ref-hash",
       }
       : {}),

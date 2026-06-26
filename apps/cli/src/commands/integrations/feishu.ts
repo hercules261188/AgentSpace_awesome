@@ -4984,7 +4984,20 @@ function countFeishuGovernanceActorEvidence(
   operations: readonly ExternalDataOperationRunRecord[],
   actorType: "user" | "external_guest",
 ): number {
-  return operations.filter((operation) => readFeishuGovernanceActorType(operation) === actorType).length;
+  return operations.filter((operation) => {
+    const governanceContext = readFeishuGovernanceContext(operation);
+    if (governanceContext?.actorType !== actorType) {
+      return false;
+    }
+    if (!hasNonEmptyString(governanceContext.agentId) || !hasNonEmptyString(governanceContext.botBindingId)) {
+      return false;
+    }
+    if (actorType === "user") {
+      return hasNonEmptyString(governanceContext.actorUserId);
+    }
+    return hasNonEmptyString(governanceContext.externalActorReference) &&
+      hasNonEmptyString(governanceContext.externalGuestPermissionProfile);
+  }).length;
 }
 
 function countFeishuExternalGuestWriteDeniedEvidence(
@@ -4992,6 +5005,7 @@ function countFeishuExternalGuestWriteDeniedEvidence(
 ): number {
   return operations.filter((operation) =>
     readFeishuGovernanceActorType(operation) === "external_guest" &&
+    countFeishuGovernanceActorEvidence([operation], "external_guest") === 1 &&
     operation.status === "failed" &&
     operation.errorCode === "feishu.data_operation_external_guest_requires_identity"
   ).length;
@@ -5000,12 +5014,7 @@ function countFeishuExternalGuestWriteDeniedEvidence(
 function readFeishuGovernanceActorType(
   operation: ExternalDataOperationRunRecord,
 ): "user" | "external_guest" | "agent" | "system" | undefined {
-  const request = readJsonRecord(operation.requestJson);
-  const governanceContext = isRecord(request?.governanceContext)
-    ? request.governanceContext
-    : isRecord(request?.feishuGovernance)
-      ? request.feishuGovernance
-      : undefined;
+  const governanceContext = readFeishuGovernanceContext(operation);
   const actorType = typeof governanceContext?.actorType === "string"
     ? governanceContext.actorType
     : undefined;
@@ -5015,6 +5024,19 @@ function readFeishuGovernanceActorType(
     actorType === "system"
     ? actorType
     : undefined;
+}
+
+function readFeishuGovernanceContext(operation: ExternalDataOperationRunRecord): Record<string, unknown> | undefined {
+  const request = readJsonRecord(operation.requestJson);
+  return isRecord(request?.governanceContext)
+    ? request.governanceContext
+    : isRecord(request?.feishuGovernance)
+      ? request.feishuGovernance
+      : undefined;
+}
+
+function hasNonEmptyString(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0;
 }
 
 function isFeishuApprovalCardActionEventType(eventType: string): boolean {
