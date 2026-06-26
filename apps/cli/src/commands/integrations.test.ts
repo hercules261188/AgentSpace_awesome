@@ -944,14 +944,17 @@ test("Feishu evidence report summarizes AgentSpace-side live smoke proof without
     },
     dataOperationsByIntegrationId: {
       "integration-evidence": [
-        buildDataOperationRun("integration-evidence", "docs.read_document", "doc", "succeeded"),
+        buildDataOperationRun("integration-evidence", "docs.read_document", "doc", "succeeded", {
+          actorType: "user",
+          actorId: "user-1",
+        }),
         buildAgentRuntimeDocReadRun("integration-evidence"),
         buildDataOperationRun("integration-evidence", "docs.update_document", "doc", "succeeded"),
         buildDataOperationRun("integration-evidence", "sheets.read_range", "sheet", "succeeded"),
         buildDataOperationRun("integration-evidence", "sheets.update_range", "sheet", "succeeded"),
         buildDataOperationRun("integration-evidence", "base.query_records", "base_table", "succeeded"),
         buildDataOperationRun("integration-evidence", "base.mutate_records", "base_table", "succeeded"),
-        buildDataOperationRun("integration-evidence", "base.mutate_records", "base_table", "failed"),
+        buildExternalGuestWriteDeniedRun("integration-evidence"),
       ],
     },
   });
@@ -978,6 +981,9 @@ test("Feishu evidence report summarizes AgentSpace-side live smoke proof without
   assert.equal(item?.dataPlane.baseMutateSucceeded, 1);
   assert.equal(item?.dataPlane.baseApprovedMutationsSucceeded, 1);
   assert.equal(item?.dataPlane.baseApprovedMutationSyncSucceeded, 1);
+  assert.equal(item?.dataPlane.userActorEvidence, 1);
+  assert.equal(item?.dataPlane.externalGuestActorEvidence, 1);
+  assert.equal(item?.dataPlane.externalGuestWriteDeniedEvidence, 1);
   assert.equal(item?.worker.correlatedReplyMappings, 2);
   assert.equal(item?.worker.requiredCorrelatedReplies, 2);
   assert.equal(item?.worker.restartRecoverySatisfied, true);
@@ -995,6 +1001,7 @@ test("Feishu evidence report summarizes AgentSpace-side live smoke proof without
   assert.equal(serialized.includes("evt_processed_secret"), false);
   assert.equal(serialized.includes("oc_secret"), false);
   assert.equal(serialized.includes("doccn_secret"), false);
+  assert.equal(serialized.includes("ou_secret"), false);
 });
 
 test("Feishu evidence report requires degraded health for failure visibility smoke", () => {
@@ -1243,6 +1250,68 @@ test("Feishu evidence report requires AgentSpace sync proof for approved Sheet a
   assert.equal(item?.dataPlane.baseApprovedMutationSyncSucceeded, 0);
   assert.ok(item?.issues.includes("sheet_write_agentspace_sync_evidence_missing"));
   assert.ok(item?.issues.includes("base_mutate_agentspace_sync_evidence_missing"));
+});
+
+test("Feishu evidence report requires user and external guest actor provenance", () => {
+  const report = buildFeishuEvidenceReport({
+    ...buildCompleteFeishuEvidenceInput(),
+    dataOperationsByIntegrationId: {
+      "integration-evidence": [
+        buildDataOperationRun("integration-evidence", "docs.read_document", "doc", "succeeded"),
+        buildAgentRuntimeDocReadRun("integration-evidence"),
+        buildDataOperationRun("integration-evidence", "docs.update_document", "doc", "succeeded"),
+        buildDataOperationRun("integration-evidence", "sheets.read_range", "sheet", "succeeded"),
+        buildDataOperationRun("integration-evidence", "sheets.update_range", "sheet", "succeeded"),
+        buildDataOperationRun("integration-evidence", "base.query_records", "base_table", "succeeded"),
+        buildDataOperationRun("integration-evidence", "base.mutate_records", "base_table", "succeeded"),
+        buildDataOperationRun("integration-evidence", "base.mutate_records", "base_table", "failed"),
+      ],
+    },
+  });
+
+  assert.equal(report.strictSatisfied, false);
+  assert.equal(report.summary.dataPlaneSatisfiedCount, 0);
+  const [item] = report.integrations;
+  assert.equal(item?.dataPlane.docApprovedWritesSucceeded, 1);
+  assert.equal(item?.dataPlane.sheetApprovedWriteSyncSucceeded, 1);
+  assert.equal(item?.dataPlane.baseApprovedMutationSyncSucceeded, 1);
+  assert.equal(item?.dataPlane.userActorEvidence, 0);
+  assert.equal(item?.dataPlane.externalGuestActorEvidence, 0);
+  assert.equal(item?.dataPlane.externalGuestWriteDeniedEvidence, 0);
+  assert.ok(item?.issues.includes("user_actor_data_operation_evidence_missing"));
+  assert.ok(item?.issues.includes("external_guest_actor_data_operation_evidence_missing"));
+  assert.equal(JSON.stringify(report).includes("ou_secret"), false);
+});
+
+test("Feishu evidence report requires external guest write-deny proof", () => {
+  const report = buildFeishuEvidenceReport({
+    ...buildCompleteFeishuEvidenceInput(),
+    dataOperationsByIntegrationId: {
+      "integration-evidence": [
+        buildDataOperationRun("integration-evidence", "docs.read_document", "doc", "succeeded", {
+          actorType: "user",
+          actorId: "user-1",
+        }),
+        buildAgentRuntimeDocReadRun("integration-evidence"),
+        buildDataOperationRun("integration-evidence", "docs.update_document", "doc", "succeeded"),
+        buildDataOperationRun("integration-evidence", "sheets.read_range", "sheet", "succeeded"),
+        buildDataOperationRun("integration-evidence", "sheets.update_range", "sheet", "succeeded"),
+        buildDataOperationRun("integration-evidence", "base.query_records", "base_table", "succeeded"),
+        buildDataOperationRun("integration-evidence", "base.mutate_records", "base_table", "succeeded"),
+        buildDataOperationRun("integration-evidence", "sheets.update_range", "sheet", "failed", undefined, {
+          governanceActorType: "external_guest",
+        }),
+      ],
+    },
+  });
+
+  assert.equal(report.strictSatisfied, false);
+  assert.equal(report.summary.dataPlaneSatisfiedCount, 0);
+  const [item] = report.integrations;
+  assert.equal(item?.dataPlane.userActorEvidence, 1);
+  assert.equal(item?.dataPlane.externalGuestActorEvidence, 1);
+  assert.equal(item?.dataPlane.externalGuestWriteDeniedEvidence, 0);
+  assert.ok(item?.issues.includes("external_guest_write_deny_evidence_missing"));
 });
 
 test("Feishu evidence report can gate on redacted OpenAPI live smoke evidence", () => {
@@ -1513,6 +1582,8 @@ test("Feishu evidence report blocks strict gates when local proof is incomplete"
     "live_sheet_read",
     "live_sheet_write_with_approval",
     "live_base_preview_and_update",
+    "live_bound_user_data_operation",
+    "live_external_guest_write_denied",
     "live_failure_visibility",
   ]);
   const botRemediation = item?.remediationSteps.find((step) => step.stepId === "live_bot_message_reply");
@@ -1535,6 +1606,14 @@ test("Feishu evidence report blocks strict gates when local proof is incomplete"
     step.stepId === "live_base_preview_and_update"
   );
   assert.match(baseRemediation?.command ?? "", /--operation plan-base-update/);
+  const userActorRemediation = item?.remediationSteps.find((step) =>
+    step.stepId === "live_bound_user_data_operation"
+  );
+  assert.ok(userActorRemediation?.issues.includes("user_actor_data_operation_evidence_missing"));
+  const guestActorRemediation = item?.remediationSteps.find((step) =>
+    step.stepId === "live_external_guest_write_denied"
+  );
+  assert.ok(guestActorRemediation?.issues.includes("external_guest_actor_data_operation_evidence_missing"));
   const failureRemediation = item?.remediationSteps.find((step) => step.stepId === "live_failure_visibility");
   assert.match(
     failureRemediation?.command ?? "",
@@ -3893,14 +3972,17 @@ function buildCompleteFeishuEvidenceInput() {
     },
     dataOperationsByIntegrationId: {
       "integration-evidence": [
-        buildDataOperationRun("integration-evidence", "docs.read_document", "doc", "succeeded"),
+        buildDataOperationRun("integration-evidence", "docs.read_document", "doc", "succeeded", {
+          actorType: "user",
+          actorId: "user-1",
+        }),
         buildAgentRuntimeDocReadRun("integration-evidence"),
         buildDataOperationRun("integration-evidence", "docs.update_document", "doc", "succeeded"),
         buildDataOperationRun("integration-evidence", "sheets.read_range", "sheet", "succeeded"),
         buildDataOperationRun("integration-evidence", "sheets.update_range", "sheet", "succeeded"),
         buildDataOperationRun("integration-evidence", "base.query_records", "base_table", "succeeded"),
         buildDataOperationRun("integration-evidence", "base.mutate_records", "base_table", "succeeded"),
-        buildDataOperationRun("integration-evidence", "base.mutate_records", "base_table", "failed"),
+        buildExternalGuestWriteDeniedRun("integration-evidence"),
       ],
     },
   };
@@ -4207,12 +4289,17 @@ function buildIntegrationEvent(
 }
 
 function buildAgentRuntimeDocReadRun(integrationId: string) {
+  const governanceContext = buildFeishuTestGovernanceContext({
+    actorType: "agent",
+    actorId: "agent-1",
+  });
   return {
     ...(buildDataOperationRun(integrationId, "docs.read_document", "doc", "succeeded") as Record<string, unknown>),
     requestJson: JSON.stringify({
       source: "lark-cli-result-manifest",
       resultManifestPath: FEISHU_TEST_LARK_CLI_RESULT_MANIFEST_RELATIVE_PATH,
       operationKind: "read",
+      governanceContext,
     }),
     resultJson: JSON.stringify({
       source: "lark-cli",
@@ -4222,6 +4309,14 @@ function buildAgentRuntimeDocReadRun(integrationId: string) {
       },
     }),
   } as never;
+}
+
+function buildExternalGuestWriteDeniedRun(integrationId: string) {
+  return buildDataOperationRun(integrationId, "base.mutate_records", "base_table", "failed", undefined, {
+    governanceActorType: "external_guest",
+    errorCode: "feishu.data_operation_external_guest_requires_identity",
+    errorMessage: "External Feishu guests must bind an AgentSpace identity before writing governed resources.",
+  });
 }
 
 function buildDataOperationRun(
@@ -4236,6 +4331,11 @@ function buildDataOperationRun(
     actorType: "agent",
     actorId: "agent-1",
   },
+  options: {
+    governanceActorType?: "agent" | "user" | "external_guest" | "system";
+    errorCode?: string;
+    errorMessage?: string;
+  } = {},
 ) {
   const approvedWriteSucceeded = status === "succeeded" &&
     (
@@ -4246,6 +4346,10 @@ function buildDataOperationRun(
     );
   const dataTableWriteSucceeded = approvedWriteSucceeded &&
     (operationType === "sheets.update_range" || operationType === "base.mutate_records");
+  const governanceContext = buildFeishuTestGovernanceContext({
+    actorType: options.governanceActorType ?? actor.actorType,
+    actorId: actor.actorId,
+  });
   return {
     id: `${status}-${operationType}-${integrationId}`,
     workspaceId: "workspace-1",
@@ -4257,7 +4361,7 @@ function buildDataOperationRun(
     actorType: actor.actorType,
     actorId: actor.actorId,
     status,
-    requestJson: JSON.stringify({ range: "A1:B2", resource: "doccn_secret" }),
+    requestJson: JSON.stringify({ range: "A1:B2", resource: "doccn_secret", governanceContext }),
     resultJson: JSON.stringify(approvedWriteSucceeded
       ? {
         policyDecision: "approved",
@@ -4274,8 +4378,8 @@ function buildDataOperationRun(
           : {}),
       }
       : {}),
-    errorCode: status === "failed" ? "provider_error" : undefined,
-    errorMessage: status === "failed" ? "provider error for doccn_secret" : undefined,
+    errorCode: status === "failed" ? options.errorCode ?? "provider_error" : undefined,
+    errorMessage: status === "failed" ? options.errorMessage ?? "provider error for doccn_secret" : undefined,
     startedAt: "2026-06-24T00:00:00.000Z",
     finishedAt: status === "succeeded" || status === "failed" || status === "cancelled"
       ? "2026-06-24T00:00:01.000Z"
@@ -4283,4 +4387,25 @@ function buildDataOperationRun(
     createdAt: "2026-06-24T00:00:00.000Z",
     updatedAt: "2026-06-24T00:00:00.000Z",
   } as never;
+}
+
+function buildFeishuTestGovernanceContext(input: {
+  actorType: "agent" | "user" | "external_guest" | "system";
+  actorId?: string;
+}) {
+  return {
+    provider: "feishu",
+    agentId: "agent-1",
+    botBindingId: "bot-binding-1",
+    channelName: "Launch Room",
+    actorType: input.actorType,
+    ...(input.actorType === "user" ? { actorUserId: input.actorId ?? "user-1" } : {}),
+    ...(input.actorType === "external_guest"
+      ? {
+        externalActorReference: "external-guest-ref-hash",
+        externalGuestPermissionProfile: "channel_context_only",
+        externalChatReference: "external-chat-ref-hash",
+      }
+      : {}),
+  };
 }

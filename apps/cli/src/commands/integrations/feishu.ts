@@ -499,6 +499,9 @@ export interface FeishuIntegrationEvidence {
     baseMutateSucceeded: number;
     baseApprovedMutationsSucceeded: number;
     baseApprovedMutationSyncSucceeded: number;
+    userActorEvidence: number;
+    externalGuestActorEvidence: number;
+    externalGuestWriteDeniedEvidence: number;
     satisfied: boolean;
   };
   worker: {
@@ -4270,6 +4273,9 @@ function buildFeishuIntegrationEvidence(input: {
   const baseApprovedMutationSyncSucceeded = countApprovedSyncedFeishuDataTableWriteOperations(input.dataOperations, [
     "base.mutate_records",
   ]);
+  const userActorEvidence = countFeishuGovernanceActorEvidence(input.dataOperations, "user");
+  const externalGuestActorEvidence = countFeishuGovernanceActorEvidence(input.dataOperations, "external_guest");
+  const externalGuestWriteDeniedEvidence = countFeishuExternalGuestWriteDeniedEvidence(input.dataOperations);
   const failedDataOperations = input.dataOperations.filter((operation) => operation.status === "failed").length;
   const botSatisfied = processedInboundEvents > 0 &&
     sentOutboxItems > 0 &&
@@ -4282,7 +4288,10 @@ function buildFeishuIntegrationEvidence(input: {
     sheetReadSucceeded > 0 &&
     sheetApprovedWriteSyncSucceeded > 0 &&
     baseReadSucceeded > 0 &&
-    baseApprovedMutationSyncSucceeded > 0;
+    baseApprovedMutationSyncSucceeded > 0 &&
+    userActorEvidence > 0 &&
+    externalGuestActorEvidence > 0 &&
+    externalGuestWriteDeniedEvidence > 0;
   const requiredWorkerCorrelatedReplies = input.integration.transportMode === "websocket_worker" ? 2 : 0;
   const workerRestartRecoverySatisfied = correlatedReplyMappings >= requiredWorkerCorrelatedReplies;
   const workerApprovalCardActionSatisfied = input.integration.transportMode !== "websocket_worker" ||
@@ -4316,6 +4325,9 @@ function buildFeishuIntegrationEvidence(input: {
     baseMutateSucceeded,
     baseApprovedMutationsSucceeded,
     baseApprovedMutationSyncSucceeded,
+    userActorEvidence,
+    externalGuestActorEvidence,
+    externalGuestWriteDeniedEvidence,
     workerRestartRecoverySatisfied,
     workerApprovalCardActionSatisfied,
     providerFailureVisible,
@@ -4352,6 +4364,9 @@ function buildFeishuIntegrationEvidence(input: {
       baseMutateSucceeded,
       baseApprovedMutationsSucceeded,
       baseApprovedMutationSyncSucceeded,
+      userActorEvidence,
+      externalGuestActorEvidence,
+      externalGuestWriteDeniedEvidence,
       satisfied: dataPlaneSatisfied,
     },
     worker: {
@@ -4458,6 +4473,43 @@ function hasFeishuApprovedDataTableWriteSyncEvidence(operation: ExternalDataOper
   return agentSpaceSync?.dataTableLastApprovedWriteSynced === true;
 }
 
+function countFeishuGovernanceActorEvidence(
+  operations: readonly ExternalDataOperationRunRecord[],
+  actorType: "user" | "external_guest",
+): number {
+  return operations.filter((operation) => readFeishuGovernanceActorType(operation) === actorType).length;
+}
+
+function countFeishuExternalGuestWriteDeniedEvidence(
+  operations: readonly ExternalDataOperationRunRecord[],
+): number {
+  return operations.filter((operation) =>
+    readFeishuGovernanceActorType(operation) === "external_guest" &&
+    operation.status === "failed" &&
+    operation.errorCode === "feishu.data_operation_external_guest_requires_identity"
+  ).length;
+}
+
+function readFeishuGovernanceActorType(
+  operation: ExternalDataOperationRunRecord,
+): "user" | "external_guest" | "agent" | "system" | undefined {
+  const request = readJsonRecord(operation.requestJson);
+  const governanceContext = isRecord(request?.governanceContext)
+    ? request.governanceContext
+    : isRecord(request?.feishuGovernance)
+      ? request.feishuGovernance
+      : undefined;
+  const actorType = typeof governanceContext?.actorType === "string"
+    ? governanceContext.actorType
+    : undefined;
+  return actorType === "user" ||
+    actorType === "external_guest" ||
+    actorType === "agent" ||
+    actorType === "system"
+    ? actorType
+    : undefined;
+}
+
 function isFeishuApprovalCardActionEventType(eventType: string): boolean {
   const normalized = eventType.trim().toLowerCase();
   return normalized === "card.action.trigger" ||
@@ -4497,6 +4549,9 @@ function buildFeishuEvidenceIssues(input: {
   baseMutateSucceeded: number;
   baseApprovedMutationsSucceeded: number;
   baseApprovedMutationSyncSucceeded: number;
+  userActorEvidence: number;
+  externalGuestActorEvidence: number;
+  externalGuestWriteDeniedEvidence: number;
   workerRestartRecoverySatisfied: boolean;
   workerApprovalCardActionSatisfied: boolean;
   providerFailureVisible: boolean;
@@ -4550,6 +4605,14 @@ function buildFeishuEvidenceIssues(input: {
       issues.push("base_mutate_approval_evidence_missing");
     } else if (input.baseApprovedMutationSyncSucceeded === 0) {
       issues.push("base_mutate_agentspace_sync_evidence_missing");
+    }
+    if (input.userActorEvidence === 0) {
+      issues.push("user_actor_data_operation_evidence_missing");
+    }
+    if (input.externalGuestActorEvidence === 0) {
+      issues.push("external_guest_actor_data_operation_evidence_missing");
+    } else if (input.externalGuestWriteDeniedEvidence === 0) {
+      issues.push("external_guest_write_deny_evidence_missing");
     }
   }
   if (input.integration.transportMode === "websocket_worker") {
@@ -4683,6 +4746,21 @@ function mapFeishuEvidenceIssueToRemediationSpec(input: {
         title: "Live smoke: preview and update one Base record",
         detail: "Run the Base preview plus approved Base update smoke so AgentSpace records both safe read evidence and approved data-table sync evidence.",
         command: dataPlaneCommands.liveBaseCommand,
+      };
+    case "user_actor_data_operation_evidence_missing":
+      return {
+        stepId: "live_bound_user_data_operation",
+        title: "Live smoke: bound Feishu user data operation",
+        detail: "Bind one Feishu user to an AgentSpace user, then ask that user to trigger a governed Doc/Sheet/Base operation so the run records governanceContext.actorType=user.",
+        command: dataPlaneCommands.liveDocReadCommand,
+      };
+    case "external_guest_actor_data_operation_evidence_missing":
+    case "external_guest_write_deny_evidence_missing":
+      return {
+        stepId: "live_external_guest_write_denied",
+        title: "Live smoke: external guest write is denied",
+        detail: "From an unbound Feishu user, ask an agent bot to write a bound Sheet/Base resource and verify AgentSpace records external_guest governance plus the identity-required denial.",
+        command: dataPlaneCommands.liveSheetWriteCommand,
       };
     case "websocket_worker_receive_evidence_missing":
       return {
