@@ -4435,6 +4435,15 @@ export function buildFeishuSmokePlanReport(input: BuildFeishuSmokePlanReportInpu
         issues: readyForBot ? [] : botIssues,
       },
       {
+        id: "live_bound_user_data_operation",
+        area: "data-plane",
+        title: "Live smoke: bound Feishu user actor audit",
+        status: readyForBot && readyForDataPlane ? "pending" : "blocked",
+        detail: "From a Feishu user that is bound to an AgentSpace user, ask the concrete agent bot to use a bound Doc/Sheet/Base resource. Verify the data operation records governanceContext.actorType=user, actorUserId, agentId, botBindingId, and safe audit references without raw Feishu ids.",
+        command: dataPlaneSmokeCommands.liveDocReadCommand,
+        issues: readyForBot && readyForDataPlane ? [] : uniqueStrings([...botIssues, ...dataPlaneIssues]),
+      },
+      {
         id: "live_external_guest_write_denied",
         area: "data-plane",
         title: "Live smoke: external guest write requires identity",
