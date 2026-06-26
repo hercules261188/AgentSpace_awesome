@@ -355,7 +355,8 @@ test("agent bot first messages auto-provision a channel and route @bot to the ag
   assert.equal(metadata.reviewStatus, "approved");
   assert.equal(metadata.agentId, "Atlas");
   assert.equal(metadata.botBindingId, fixtures.integration.id);
-  assert.doesNotMatch(binding.metadataJson, /oc_launch/);
+  assert.match(String(metadata.createdByExternalActorReference), /^[a-f0-9]{10}$/);
+  assert.doesNotMatch(binding.metadataJson, /oc_launch|ou_mina|on_mina/);
 
   const threadBinding = readFeishuThreadBindingSync({
     workspaceId: DEFAULT_WORKSPACE_ID,
@@ -826,6 +827,8 @@ test("bot added events reuse an existing Feishu chat channel for additional agen
       eventId: "evt-atlas-bot-added",
       chatId: "oc_shared_group",
       chatName: "Shared Feishu Group",
+      operatorOpenId: "ou_mina",
+      operatorUnionId: "on_mina",
     }),
   });
   const second = processFeishuInboundEventSync({
@@ -838,6 +841,8 @@ test("bot added events reuse an existing Feishu chat channel for additional agen
       eventId: "evt-hermes-bot-added",
       chatId: "oc_shared_group",
       chatName: "Shared Feishu Group",
+      operatorOpenId: "ou_mina",
+      operatorUnionId: "on_mina",
     }),
   });
 
@@ -863,11 +868,16 @@ test("bot added events reuse an existing Feishu chat channel for additional agen
     integrationId: hermesBinding.id,
     externalChatId: "oc_shared_group",
   });
+  const atlasMetadata = JSON.parse(atlasChannelBinding?.metadataJson ?? "{}") as Record<string, unknown>;
+  assert.match(String(atlasMetadata.createdByExternalActorReference), /^[a-f0-9]{10}$/);
+  assert.doesNotMatch(atlasChannelBinding?.metadataJson ?? "", /oc_shared_group|ou_mina|on_mina/);
   assert.equal(hermesChannelBinding?.channelName, first.mappedChannelName);
   const metadata = JSON.parse(hermesChannelBinding?.metadataJson ?? "{}") as Record<string, unknown>;
   assert.equal(metadata.provisionSource, "bot_added");
   assert.equal(metadata.agentId, "Hermes");
   assert.equal(metadata.linkedFromBindingId, atlasChannelBinding?.id);
+  assert.match(String(metadata.createdByExternalActorReference), /^[a-f0-9]{10}$/);
+  assert.doesNotMatch(hermesChannelBinding?.metadataJson ?? "", /oc_shared_group|ou_mina|on_mina/);
 });
 
 test("unbound Feishu users can dispatch as a governed external guest on agent bot mentions", databaseTestOptions, () => {
@@ -1947,6 +1957,8 @@ function buildFeishuBotAddedPayload(input: {
   chatId: string;
   chatName?: string;
   chatType?: string;
+  operatorOpenId?: string;
+  operatorUnionId?: string;
 }): Record<string, unknown> {
   return {
     schema: "2.0",
@@ -1957,6 +1969,14 @@ function buildFeishuBotAddedPayload(input: {
       token: "verify-token",
     },
     event: {
+      operator: input.operatorOpenId || input.operatorUnionId
+        ? {
+          operator_id: {
+            open_id: input.operatorOpenId,
+            union_id: input.operatorUnionId,
+          },
+        }
+        : undefined,
       chat_id: input.chatId,
       chat_type: input.chatType ?? "group",
       chat_name: input.chatName,

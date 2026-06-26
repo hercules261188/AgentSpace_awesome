@@ -319,6 +319,7 @@ function prepareFeishuInboundDispatchSync(input: ProcessFeishuInboundEventInput)
         externalChatType: chatDescriptor.externalChatType,
         externalChatName: chatDescriptor.externalChatName,
         provisionSource: "first_message",
+        createdByExternalActorId: message.externalSenderId,
       });
       channelBinding = provisioned.binding;
       channelAutoProvisionNotice = input.queueNotices === false
@@ -1116,6 +1117,7 @@ function processFeishuBotAddedToChatEventSync(input: {
       externalChatType: chatDescriptor.externalChatType ?? "group",
       externalChatName: chatDescriptor.externalChatName,
       provisionSource: "bot_added",
+      createdByExternalActorId: resolveFeishuAutoProvisionActorId(input.payload),
     });
     const noticeOutbox = input.queueNotices === false
       ? undefined
@@ -1195,6 +1197,50 @@ function resolveFeishuChatType(message: ExternalMessageEnvelope): string | undef
   const event = asRecord(message.rawPayload.event);
   const feishuMessage = asRecord(event?.message);
   return asString(feishuMessage?.chat_type);
+}
+
+function resolveFeishuAutoProvisionActorId(payload: Record<string, unknown>): string | undefined {
+  const event = asRecord(payload.event);
+  const operator = asRecord(event?.operator);
+  const operatorId = asRecord(operator?.operator_id) ?? asRecord(operator?.operatorId);
+  const eventOperatorId = asRecord(event?.operator_id) ?? asRecord(event?.operatorId);
+  const sender = asRecord(event?.sender);
+  const senderId = asRecord(sender?.sender_id) ?? asRecord(sender?.senderId);
+  const eventSenderId = asRecord(event?.sender_id) ?? asRecord(event?.senderId);
+
+  return firstText(
+    readFeishuActorId(operatorId),
+    readFeishuActorId(eventOperatorId),
+    readFeishuActorId(operator),
+    readFeishuActorId(senderId),
+    readFeishuActorId(eventSenderId),
+    readFeishuActorId(sender),
+    asString(event?.open_id),
+    asString(event?.openId),
+    asString(event?.union_id),
+    asString(event?.unionId),
+    asString(event?.user_id),
+    asString(event?.userId),
+  );
+}
+
+function readFeishuActorId(record: Record<string, unknown> | null): string | undefined {
+  if (!record) {
+    return undefined;
+  }
+  return firstText(
+    asString(record.open_id),
+    asString(record.openId),
+    asString(record.union_id),
+    asString(record.unionId),
+    asString(record.user_id),
+    asString(record.userId),
+    asString(record.id),
+  );
+}
+
+function firstText(...values: Array<string | undefined>): string | undefined {
+  return values.find((value) => Boolean(value?.trim()))?.trim();
 }
 
 export function recordFeishuCardActionCallbackIgnoredSync(input: {

@@ -37,6 +37,7 @@ export interface ResolveOrProvisionFeishuChannelBindingInput {
   externalChatType?: string;
   externalChatName?: string;
   provisionSource: Exclude<FeishuChannelProvisionSource, "manual" | "agentspace_created">;
+  createdByExternalActorId?: string;
   createdByUserId?: string;
 }
 
@@ -148,6 +149,7 @@ export function resolveOrProvisionFeishuChannelBindingSync(
         provisionSource: input.provisionSource,
         reviewStatus: readReviewStatus(providerBinding) ?? "approved",
         externalChatId,
+        createdByExternalActorId: input.createdByExternalActorId,
         linkedFromBindingId: providerBinding.id,
       }),
       createdByUserId: input.createdByUserId,
@@ -193,6 +195,7 @@ export function resolveOrProvisionFeishuChannelBindingSync(
       provisionSource: input.provisionSource,
       reviewStatus,
       externalChatId,
+      createdByExternalActorId: input.createdByExternalActorId,
     }),
     createdByUserId: input.createdByUserId,
   });
@@ -314,8 +317,12 @@ function buildChannelBindingMetadata(input: {
   provisionSource: FeishuChannelProvisionSource;
   reviewStatus: FeishuChannelReviewStatus;
   externalChatId: string;
+  createdByExternalActorId?: string;
   linkedFromBindingId?: string;
 }): Record<string, unknown> {
+  const createdByExternalActorReference = input.createdByExternalActorId
+    ? shortHash(input.createdByExternalActorId)
+    : undefined;
   return {
     provider: FEISHU_PROVIDER_ID,
     provisionSource: input.provisionSource,
@@ -324,6 +331,7 @@ function buildChannelBindingMetadata(input: {
     botBindingId: input.integration.id,
     tenantKey: input.integration.tenantKey,
     externalChatReference: shortHash(input.externalChatId),
+    createdByExternalActorReference,
     linkedFromBindingId: input.linkedFromBindingId,
     autoProvisionedAt: new Date().toISOString(),
   };
