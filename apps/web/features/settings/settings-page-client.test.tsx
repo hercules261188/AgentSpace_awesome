@@ -567,7 +567,8 @@ describe("SettingsPageClient", () => {
     expect(screen.queryAllByRole("link", { name: /邀请与访问/i })).toHaveLength(0);
   });
 
-  it("renders the unified permissions center without exposing token fields", () => {
+  it("renders the unified permissions center without exposing token fields", async () => {
+    const user = userEvent.setup();
     const { container } = renderSettingsPage({
       currentMembershipRole: "owner",
       currentUserDisplayName: "Mina",
@@ -595,6 +596,55 @@ describe("SettingsPageClient", () => {
               },
             ],
             children: [
+              {
+                id: "external-guest-policy:feishu-atlas",
+                parentId: "workspace:workspace-mars",
+                resourceType: "external_identity_policy",
+                label: "Atlas Feishu Bot guest policy",
+                status: "active",
+                source: "external_guest_policy",
+                metadata: {
+                  provider: "feishu",
+                  integrationId: "feishu-atlas",
+                  agentId: "Atlas",
+                  transportMode: "websocket_worker",
+                  unboundUserMode: "reply_on_mention",
+                  guestPermissionProfile: "channel_context_only",
+                  requireIdentityFor: ["writes", "approvals", "private_resources"],
+                },
+                bindings: [
+                  {
+                    subjectType: "external_guest",
+                    subjectId: "feishu:feishu-atlas:external_guest",
+                    subjectLabel: "Feishu guests · Atlas Feishu Bot",
+                    permission: "unbound users: reply_on_mention; channel_context_only",
+                    source: "external_guest_policy",
+                    status: "external",
+                    editable: false,
+                  },
+                ],
+                children: [
+                  {
+                    id: "external-guest-interaction:feishu-atlas:guest-1",
+                    parentId: "external-guest-policy:feishu-atlas",
+                    resourceType: "external_identity_policy",
+                    label: "Guest interaction · general",
+                    status: "active",
+                    source: "external_guest_policy",
+                    bindings: [
+                      {
+                        subjectType: "external_guest",
+                        subjectId: "feishu:feishu-atlas:external_guest",
+                        subjectLabel: "Feishu guests · Atlas Feishu Bot",
+                        permission: "guest interaction: allow",
+                        source: "external_guest_policy",
+                        status: "external",
+                        editable: false,
+                      },
+                    ],
+                  },
+                ],
+              },
               {
                 id: "runtime:runtime-1",
                 parentId: "workspace:workspace-mars",
@@ -627,6 +677,33 @@ describe("SettingsPageClient", () => {
             ],
             diagnostics: [],
           },
+          {
+            subjectType: "external_guest",
+            subjectId: "feishu:feishu-atlas:external_guest",
+            subjectLabel: "Feishu guests · Atlas Feishu Bot",
+            status: "external",
+            permissions: [
+              {
+                nodeId: "external-guest-policy:feishu-atlas",
+                resourceType: "external_identity_policy",
+                resourceLabel: "Atlas Feishu Bot guest policy",
+                permission: "unbound users: reply_on_mention; channel_context_only",
+                source: "external_guest_policy",
+                status: "external",
+                editable: false,
+              },
+              {
+                nodeId: "external-guest-interaction:feishu-atlas:guest-1",
+                resourceType: "external_identity_policy",
+                resourceLabel: "Guest interaction · general",
+                permission: "guest interaction: allow",
+                source: "external_guest_policy",
+                status: "external",
+                editable: false,
+              },
+            ],
+            diagnostics: [],
+          },
         ],
         diagnostics: [],
         catalog: {
@@ -647,7 +724,23 @@ describe("SettingsPageClient", () => {
 
     expect(screen.getByText("权限地图")).toBeInTheDocument();
     expect(screen.getAllByText("Mars Labs").length).toBeGreaterThan(0);
+    expect(screen.getByText("Atlas Feishu Bot guest policy")).toBeInTheDocument();
+    expect(screen.getAllByText(/外部身份策略/).length).toBeGreaterThan(0);
     expect(screen.getByText("Codex runtime")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /Atlas Feishu Bot guest policy/ }));
+
+    expect(screen.getByText("Feishu guests · Atlas Feishu Bot")).toBeInTheDocument();
+    expect(screen.getByText(/unbound users: reply_on_mention; channel_context_only/)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Actor 反查" }));
+    await user.click(screen.getByRole("button", { name: /Feishu guests · Atlas Feishu Bot/ }));
+
+    expect(screen.getAllByText("Feishu guests · Atlas Feishu Bot").length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/外部访客/).length).toBeGreaterThan(0);
+    expect(screen.getByText("Guest interaction · general")).toBeInTheDocument();
+    expect(screen.getByText(/guest interaction: allow/)).toBeInTheDocument();
+    expect(screen.getAllByText(/外部访客策略/).length).toBeGreaterThan(0);
     expect(container.textContent).not.toContain("tokenHash");
     expect(container.textContent).not.toContain("accessTokenEncrypted");
     expect(container.textContent).not.toContain("refreshTokenEncrypted");
