@@ -4419,6 +4419,7 @@ test("Feishu smoke plan converts readiness into live smoke checklist without ext
   const bindChat = report.steps.find((step) => step.id === "bind_feishu_chat");
   const bindUser = report.steps.find((step) => step.id === "bind_feishu_user");
   const liveBot = report.steps.find((step) => step.id === "live_bot_message_reply");
+  const liveDirectMention = report.steps.find((step) => step.id === "live_agent_bot_direct_mention");
   const liveAutoProvision = report.steps.find((step) => step.id === "live_agent_bot_channel_auto_provision");
   const liveFirstMessageAutoProvision = report.steps.find((step) =>
     step.id === "live_agent_bot_first_message_auto_provision"
@@ -4426,8 +4427,13 @@ test("Feishu smoke plan converts readiness into live smoke checklist without ext
   const bindSecondAgentBot = report.steps.find((step) => step.id === "bind_second_feishu_agent_bot");
   const liveMultiAgentReuse = report.steps.find((step) => step.id === "live_multi_agent_bot_channel_reuse");
   const liveThreadCollaboration = report.steps.find((step) => step.id === "live_multi_agent_thread_collaboration");
+  const liveThreadTaskBinding = report.steps.find((step) => step.id === "live_feishu_thread_task_binding");
+  const liveThreadContinuation = report.steps.find((step) => step.id === "live_feishu_thread_continuation");
   const liveGuestMention = report.steps.find((step) => step.id === "live_external_guest_agent_bot_mention");
   const liveGuestReplyAll = report.steps.find((step) => step.id === "live_external_guest_reply_all");
+  const liveGuestIdentityRequired = report.steps.find((step) => step.id === "live_external_guest_identity_required");
+  const liveGuestReplyDisabled = report.steps.find((step) => step.id === "live_external_guest_reply_disabled");
+  const liveUnmentionedGuestIgnored = report.steps.find((step) => step.id === "live_unmentioned_guest_message_ignored");
   const liveBoundUserDataOperation = report.steps.find((step) => step.id === "live_bound_user_data_operation");
   const liveGuestWriteDenied = report.steps.find((step) => step.id === "live_external_guest_write_denied");
   const livePolicyDisabled = report.steps.find((step) => step.id === "live_agent_channel_policy_disabled");
@@ -4465,6 +4471,9 @@ test("Feishu smoke plan converts readiness into live smoke checklist without ext
   assert.equal(liveBot?.status, "pending");
   assert.match(liveBot?.detail ?? "", /@Codex Bot/);
   assert.doesNotMatch(liveBot?.detail ?? "", /@AgentSpaceBot/);
+  assert.equal(liveDirectMention?.status, "pending");
+  assert.match(liveDirectMention?.detail ?? "", /concrete agentId/);
+  assert.match(liveDirectMention?.detail ?? "", /without using \/agent/);
   assert.equal(liveAutoProvision?.status, "pending");
   assert.match(liveAutoProvision?.detail ?? "", /provisionSource=bot_added/);
   assert.equal(liveFirstMessageAutoProvision?.status, "pending");
@@ -4478,10 +4487,20 @@ test("Feishu smoke plan converts readiness into live smoke checklist without ext
   assert.match(liveThreadCollaboration?.detail ?? "", /same Feishu thread/);
   assert.match(liveThreadCollaboration?.detail ?? "", /threadCollaboration=true/);
   assert.match(liveThreadCollaboration?.detail ?? "", /collaboration card/);
+  assert.equal(liveThreadTaskBinding?.status, "pending");
+  assert.match(liveThreadTaskBinding?.detail ?? "", /taskQueueId/);
+  assert.equal(liveThreadContinuation?.status, "pending");
+  assert.match(liveThreadContinuation?.detail ?? "", /threadContinuation=true/);
   assert.equal(liveGuestMention?.status, "pending");
   assert.match(liveGuestMention?.detail ?? "", /external_guest/);
   assert.equal(liveGuestReplyAll?.status, "pending");
   assert.match(liveGuestReplyAll?.detail ?? "", /reply_all/);
+  assert.equal(liveGuestIdentityRequired?.status, "pending");
+  assert.match(liveGuestIdentityRequired?.detail ?? "", /require_identity/);
+  assert.equal(liveGuestReplyDisabled?.status, "pending");
+  assert.match(liveGuestReplyDisabled?.detail ?? "", /ignore decision/);
+  assert.equal(liveUnmentionedGuestIgnored?.status, "pending");
+  assert.match(liveUnmentionedGuestIgnored?.detail ?? "", /bot-mention-required/);
   assert.equal(liveBoundUserDataOperation?.status, "pending");
   assert.match(liveBoundUserDataOperation?.detail ?? "", /actorType=user/);
   assert.match(liveBoundUserDataOperation?.detail ?? "", /without raw Feishu ids/);
@@ -4599,9 +4618,15 @@ test("Feishu smoke plan blocks live smoke steps when local prerequisites are mis
   const health = report.steps.find((step) => step.id === "check_connection_health");
   const botGate = report.steps.find((step) => step.id === "run_bot_readiness_gate");
   const liveBot = report.steps.find((step) => step.id === "live_bot_message_reply");
+  const liveDirectMention = report.steps.find((step) => step.id === "live_agent_bot_direct_mention");
   const bindSecondAgentBot = report.steps.find((step) => step.id === "bind_second_feishu_agent_bot");
   const liveMultiAgentReuse = report.steps.find((step) => step.id === "live_multi_agent_bot_channel_reuse");
   const liveThreadCollaboration = report.steps.find((step) => step.id === "live_multi_agent_thread_collaboration");
+  const liveThreadTaskBinding = report.steps.find((step) => step.id === "live_feishu_thread_task_binding");
+  const liveThreadContinuation = report.steps.find((step) => step.id === "live_feishu_thread_continuation");
+  const liveGuestIdentityRequired = report.steps.find((step) => step.id === "live_external_guest_identity_required");
+  const liveGuestReplyDisabled = report.steps.find((step) => step.id === "live_external_guest_reply_disabled");
+  const liveUnmentionedGuestIgnored = report.steps.find((step) => step.id === "live_unmentioned_guest_message_ignored");
   const liveBoundUserDataOperation = report.steps.find((step) => step.id === "live_bound_user_data_operation");
   const liveGuestWriteDenied = report.steps.find((step) => step.id === "live_external_guest_write_denied");
   const liveAgentDocSummary = report.steps.find((step) => step.id === "live_agent_bound_doc_summary");
@@ -4633,6 +4658,8 @@ test("Feishu smoke plan blocks live smoke steps when local prerequisites are mis
   assert.equal(botGate?.status, "blocked");
   assert.ok(botGate?.issues?.includes("health_not_checked"));
   assert.equal(liveBot?.status, "blocked");
+  assert.equal(liveDirectMention?.status, "blocked");
+  assert.ok(liveDirectMention?.issues?.includes("health_not_checked"));
   assert.equal(bindSecondAgentBot?.status, "blocked");
   assert.match(bindSecondAgentBot?.command ?? "", /bind-agent-bot --workspace-id workspace-1/);
   assert.match(bindSecondAgentBot?.command ?? "", /--agent CHANGE_ME_SECOND_AGENT_NAME/);
@@ -4643,8 +4670,18 @@ test("Feishu smoke plan blocks live smoke steps when local prerequisites are mis
   assert.deepEqual(liveMultiAgentReuse?.issues, ["second_agent_bot_missing"]);
   assert.equal(liveThreadCollaboration?.status, "blocked");
   assert.ok(liveThreadCollaboration?.issues?.includes("second_agent_bot_missing"));
+  assert.equal(liveThreadTaskBinding?.status, "blocked");
+  assert.ok(liveThreadTaskBinding?.issues?.includes("health_not_checked"));
+  assert.equal(liveThreadContinuation?.status, "blocked");
+  assert.ok(liveThreadContinuation?.issues?.includes("health_not_checked"));
   assert.equal(report.steps.find((step) => step.id === "live_external_guest_agent_bot_mention")?.status, "blocked");
   assert.equal(report.steps.find((step) => step.id === "live_external_guest_reply_all")?.status, "blocked");
+  assert.equal(liveGuestIdentityRequired?.status, "blocked");
+  assert.ok(liveGuestIdentityRequired?.issues?.includes("health_not_checked"));
+  assert.equal(liveGuestReplyDisabled?.status, "blocked");
+  assert.ok(liveGuestReplyDisabled?.issues?.includes("health_not_checked"));
+  assert.equal(liveUnmentionedGuestIgnored?.status, "blocked");
+  assert.ok(liveUnmentionedGuestIgnored?.issues?.includes("health_not_checked"));
   assert.equal(liveBoundUserDataOperation?.status, "blocked");
   assert.ok(liveBoundUserDataOperation?.issues?.includes("doc_resource_binding_missing"));
   assert.equal(liveGuestWriteDenied?.status, "blocked");
