@@ -7,11 +7,13 @@ import {
   createFeishuAgentBotBindingAction,
   disableFeishuAgentBotBindingAction,
   rotateFeishuAgentBotCredentialsAction,
+  testFeishuIntegrationConnectionAction,
   updateFeishuAgentBotPolicyAction,
 } from "./feishu-actions";
 import type {
   FeishuAvailableAgentItem,
   FeishuIntegrationSettingsItem,
+  TestFeishuIntegrationConnectionResult,
 } from "./feishu-types";
 
 export function FeishuAgentBotsPanel({
@@ -42,6 +44,7 @@ export function FeishuAgentBotsPanel({
   const [verificationToken, setVerificationToken] = useState("");
   const [encryptKey, setEncryptKey] = useState("");
   const [tenantKey, setTenantKey] = useState("");
+  const [connectionSummary, setConnectionSummary] = useState<TestFeishuIntegrationConnectionResult | null>(null);
   const [botAddedPolicy, setBotAddedPolicy] = useState<"auto_create_channel" | "pending_admin_review" | "disabled">("auto_create_channel");
   const [firstMessagePolicy, setFirstMessagePolicy] = useState<"auto_create_if_bot_mentioned" | "pending_admin_review" | "reply_with_setup_card" | "disabled">("auto_create_if_bot_mentioned");
   const [reviewStatusPolicy, setReviewStatusPolicy] = useState<"approved" | "pending_admin_review" | "needs_identity_binding">("approved");
@@ -49,6 +52,7 @@ export function FeishuAgentBotsPanel({
   const [guestPermissionProfile, setGuestPermissionProfile] = useState<"none" | "channel_context_only" | "channel_readonly">("channel_context_only");
   const [rotationSecrets, setRotationSecrets] = useState<Record<string, string>>({});
   const requiresVerificationToken = transportMode === "http_webhook";
+  const canTestConnection = Boolean(appId.trim() && appSecret.trim());
   const canCreate = Boolean(agentId.trim() && appId.trim() && appSecret.trim() && (!requiresVerificationToken || verificationToken.trim()));
   const agentOptions = useMemo(() => availableAgents.map((agent) => ({
     ...agent,
@@ -102,7 +106,10 @@ export function FeishuAgentBotsPanel({
           <input
             autoComplete="off"
             disabled={isPending}
-            onChange={(event) => setAppId(event.currentTarget.value)}
+            onChange={(event) => {
+              setAppId(event.currentTarget.value);
+              setConnectionSummary(null);
+            }}
             value={appId}
           />
         </label>
@@ -112,7 +119,10 @@ export function FeishuAgentBotsPanel({
           <input
             autoComplete="new-password"
             disabled={isPending}
-            onChange={(event) => setAppSecret(event.currentTarget.value)}
+            onChange={(event) => {
+              setAppSecret(event.currentTarget.value);
+              setConnectionSummary(null);
+            }}
             type="password"
             value={appSecret}
           />
@@ -251,7 +261,34 @@ export function FeishuAgentBotsPanel({
           </div>
         </details>
 
+        {connectionSummary ? (
+          <FeishuAgentBotConnectionSummary summary={connectionSummary} tx={tx} />
+        ) : null}
+
         <div className="feishu-integration-form__actions">
+          <button
+            className="action-button"
+            disabled={isPending || !canTestConnection}
+            onClick={() => {
+              startTransition(async () => {
+                try {
+                  const summary = await testFeishuIntegrationConnectionAction({
+                    appId,
+                    appSecret,
+                  });
+                  setConnectionSummary(summary);
+                  setFeedback(summary.status === "healthy"
+                    ? tx("飞书 Bot 连接测试通过。", "Feishu bot connection test passed.")
+                    : tx("飞书 Bot 连接测试需要检查。", "Feishu bot connection test needs attention."));
+                } catch (error) {
+                  setFeedback(translateSettingsActionError(error, tx));
+                }
+              });
+            }}
+            type="button"
+          >
+            {tx("测试连接", "Test Connection")}
+          </button>
           <button
             className="primary-button"
             disabled={isPending || !canCreate}
@@ -286,6 +323,7 @@ export function FeishuAgentBotsPanel({
                   setAppSecret("");
                   setVerificationToken("");
                   setEncryptKey("");
+                  setConnectionSummary(null);
                   setFeedback(tx("Agent 飞书 Bot 已绑定。", "Agent Feishu bot bound."));
                   onUpdated(created);
                 } catch (error) {
@@ -441,6 +479,83 @@ export function FeishuAgentBotsPanel({
       </div>
     </section>
   );
+}
+
+function FeishuAgentBotConnectionSummary({
+  summary,
+  tx,
+}: {
+  summary: TestFeishuIntegrationConnectionResult;
+  tx: SettingsTx;
+}) {
+  return (
+    <div aria-label={tx("飞书 Bot 连接测试摘要", "Feishu bot connection test summary")} className="feishu-connection-summary">
+      <div>
+        <strong>{tx("连接测试", "Connection Test")}</strong>
+        <span>{translateHealthStatus(summary.status, tx)}</span>
+        <span>{tx("检查时间", "Checked")}: {summary.checkedAt}</span>
+      </div>
+      <p>
+        {summary.botAppName || summary.botOpenId
+          ? `${tx("Bot", "Bot")}: ${summary.botAppName ?? tx("未命名", "Unnamed")} ${summary.botOpenId ? `(${summary.botOpenId})` : ""}`
+          : tx("未读取到 Bot 信息。", "No bot information returned.")}
+      </p>
+      {summary.errorMessage ? (
+        <p>{tx("错误", "Error")}: {summary.errorMessage}</p>
+      ) : null}
+      {summary.errorCode ? (
+        <p>{tx("错误码", "Error Code")}: <code>{summary.errorCode}</code></p>
+      ) : null}
+      <div>
+        <strong>{tx("权限检查", "Scope Check")}</strong>
+        <span>{translateScopeReadiness(summary.scopeReadiness, tx)}</span>
+      </div>
+      {summary.scopeErrorMessage ? (
+        <p>{tx("权限检查错误", "Scope check error")}: {summary.scopeErrorMessage}</p>
+      ) : null}
+      <ul>
+        {(summary.missingScopes && summary.missingScopes.length > 0
+          ? summary.missingScopes
+          : summary.requiredScopes).map((scope) => (
+          <li key={scope}><code>{scope}</code></li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function translateHealthStatus(
+  status: TestFeishuIntegrationConnectionResult["status"],
+  tx: SettingsTx,
+): string {
+  switch (status) {
+    case "healthy":
+      return tx("正常", "Healthy");
+    case "degraded":
+      return tx("降级", "Degraded");
+    case "error":
+      return tx("异常", "Error");
+    case "unknown":
+      return tx("未知", "Unknown");
+  }
+}
+
+function translateScopeReadiness(
+  readiness: TestFeishuIntegrationConnectionResult["scopeReadiness"],
+  tx: SettingsTx,
+): string {
+  switch (readiness) {
+    case "verified":
+      return tx("已自动确认所需权限。", "Required scopes verified.");
+    case "missing_required_scopes":
+      return tx("缺少以下必需权限。", "Missing required scopes.");
+    case "unauthorized":
+      return tx("飞书拒绝读取应用权限，请检查应用授权和权限配置。", "Feishu rejected the app scope check. Review app authorization and scopes.");
+    case "manual_review_required":
+      return tx("请在飞书开放平台确认已启用以下权限。", "Confirm these scopes are enabled in the Feishu developer console.");
+    case "unavailable":
+      return tx("连接失败，暂不能确认权限。", "Connection failed; scopes cannot be confirmed yet.");
+  }
 }
 
 const FEISHU_AGENT_BOT_IDENTITY_REQUIREMENTS = [

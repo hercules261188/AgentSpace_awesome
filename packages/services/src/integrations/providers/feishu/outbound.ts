@@ -473,12 +473,16 @@ export function queueFeishuChannelReplyOutboxSync(input: {
   const outboxItems: ExternalMessageOutboxRecord[] = [];
 
   for (const { integration, sourceMapping } of candidates) {
-    const channelBinding = listExternalChannelBindingsSync({
-      workspaceId: input.workspaceId,
-      integrationId: integration.id,
-      status: "active",
-    }).find((candidate) => candidate.channelName === input.channelName);
-    if (!channelBinding || channelBinding.syncMode === "ingest_only") {
+    const channelBinding = selectFeishuOutboundChannelBindingForReply({
+      channelBindings: listExternalChannelBindingsSync({
+        workspaceId: input.workspaceId,
+        integrationId: integration.id,
+        status: "active",
+      }),
+      channelName: input.channelName,
+      sourceMapping,
+    });
+    if (!channelBinding) {
       continue;
     }
 
@@ -525,12 +529,16 @@ export function queueFeishuAgentStatusCardOutboxSync(input: {
   const outboxItems: ExternalMessageOutboxRecord[] = [];
 
   for (const { integration, sourceMapping } of candidates) {
-    const channelBinding = listExternalChannelBindingsSync({
-      workspaceId: input.workspaceId,
-      integrationId: integration.id,
-      status: "active",
-    }).find((candidate) => candidate.channelName === input.channelName);
-    if (!channelBinding || channelBinding.syncMode === "ingest_only") {
+    const channelBinding = selectFeishuOutboundChannelBindingForReply({
+      channelBindings: listExternalChannelBindingsSync({
+        workspaceId: input.workspaceId,
+        integrationId: integration.id,
+        status: "active",
+      }),
+      channelName: input.channelName,
+      sourceMapping,
+    });
+    if (!channelBinding) {
       continue;
     }
 
@@ -677,6 +685,24 @@ export function resolveFeishuReplyTargetExternalMessageId(
   return sourceMapping?.externalThreadId?.trim()
     || sourceMapping?.externalMessageId?.trim()
     || undefined;
+}
+
+export function selectFeishuOutboundChannelBindingForReply<T extends {
+  id: string;
+  channelName: string;
+  syncMode: string;
+}>(input: {
+  channelBindings: T[];
+  channelName: string;
+  sourceMapping?: { channelBindingId?: string } | null;
+}): T | null {
+  const sendableBindings = input.channelBindings.filter((binding) => binding.syncMode !== "ingest_only");
+  const sourceChannelBindingId = input.sourceMapping?.channelBindingId?.trim();
+  if (sourceChannelBindingId) {
+    return sendableBindings.find((binding) => binding.id === sourceChannelBindingId) ?? null;
+  }
+  const channelName = input.channelName.trim();
+  return sendableBindings.find((binding) => binding.channelName === channelName) ?? null;
 }
 
 export function buildFeishuOutboundMessagePolicyInput(input: {

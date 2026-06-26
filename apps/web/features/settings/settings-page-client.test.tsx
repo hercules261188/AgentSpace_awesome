@@ -1011,6 +1011,47 @@ describe("SettingsPageClient", () => {
     expect(within(panel).getByRole("combobox", { name: "未绑定用户" })).toBeVisible();
   });
 
+  it("tests an agent Feishu bot connection with only App ID and App Secret", async () => {
+    const user = userEvent.setup();
+    mockTestFeishuIntegrationConnectionAction.mockResolvedValue({
+      status: "healthy",
+      checkedAt: "2026-06-24T00:00:00.000Z",
+      botOpenId: "ou_codex_bot",
+      botAppName: "Codex Bot",
+      scopeReadiness: "verified",
+      requiredScopes: ["im:message"],
+    });
+
+    renderSettingsPage({
+      currentMembershipRole: "admin",
+      feishuAvailableAgents: [
+        { id: "Codex", name: "Codex", role: "Engineer" },
+      ],
+      feishuAvailableChannels: [],
+      feishuAvailableUsers: [],
+      feishuIntegrations: [],
+      initialSection: "integrations",
+    });
+
+    const panel = screen.getByRole("region", { name: "Agent 飞书 Bot" });
+    await user.type(within(panel).getByLabelText("App ID"), "cli_codex_bot");
+    await user.type(within(panel).getByLabelText("App Secret"), "secret_codex_bot");
+    await user.click(within(panel).getByRole("button", { name: "测试连接" }));
+
+    await waitFor(() => {
+      expect(mockTestFeishuIntegrationConnectionAction).toHaveBeenCalledWith({
+        appId: "cli_codex_bot",
+        appSecret: "secret_codex_bot",
+      });
+    });
+    const summary = await screen.findByLabelText("飞书 Bot 连接测试摘要");
+    expect(summary).toHaveTextContent("正常");
+    expect(summary).toHaveTextContent("Bot: Codex Bot (ou_codex_bot)");
+    expect(summary).toHaveTextContent("已自动确认所需权限。");
+    expect(within(summary).getByText("im:message")).toBeInTheDocument();
+    expect(screen.getByText("飞书 Bot 连接测试通过。")).toBeInTheDocument();
+  });
+
   it("updates an existing agent Feishu bot governance policy from settings", async () => {
     const user = userEvent.setup();
     mockUpdateFeishuAgentBotPolicyAction.mockResolvedValue(buildFeishuIntegration({
@@ -1190,7 +1231,7 @@ describe("SettingsPageClient", () => {
     await user.click(within(createPanel).getByText("高级：工作区级飞书集成"));
     await user.type(within(createPanel).getByLabelText("App ID"), "cli_test");
     await user.type(within(createPanel).getByLabelText("App Secret"), "secret_test");
-    await user.click(screen.getByRole("button", { name: "测试连接" }));
+    await user.click(within(createPanel).getByRole("button", { name: "测试连接" }));
 
     await waitFor(() => {
       expect(mockTestFeishuIntegrationConnectionAction).toHaveBeenCalledWith({

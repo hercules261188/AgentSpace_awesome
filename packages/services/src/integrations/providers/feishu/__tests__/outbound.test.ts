@@ -27,6 +27,7 @@ import {
   resolveFeishuOutboundImageKey,
   resolveFeishuReplyTargetExternalMessageId,
   resolveFeishuOutboundMessageId,
+  selectFeishuOutboundChannelBindingForReply,
   sendFeishuOutboxPayload,
   splitFeishuTextMessageChunks,
 } from "../outbound.ts";
@@ -378,6 +379,79 @@ test("buildFeishuOutboundMessagePolicyInput summarizes external sends without me
   });
   assert.equal(policy.decision.decision, "allow");
   assert.equal(policy.decision.reasonCode, "agent_action.low_risk_external_message_send_allowed");
+});
+
+test("selectFeishuOutboundChannelBindingForReply prefers the source message channel binding", () => {
+  const selected = selectFeishuOutboundChannelBindingForReply({
+    channelName: "tour visit",
+    sourceMapping: {
+      channelBindingId: "binding-source",
+    },
+    channelBindings: [
+      {
+        id: "binding-rebound",
+        channelName: "tour visit",
+        externalChatId: "oc_rebound",
+        syncMode: "mirror",
+      },
+      {
+        id: "binding-source",
+        channelName: "tour visit",
+        externalChatId: "oc_source",
+        syncMode: "mirror",
+      },
+    ],
+  });
+
+  assert.equal(selected?.externalChatId, "oc_source");
+});
+
+test("selectFeishuOutboundChannelBindingForReply does not fall back when the source binding is not sendable", () => {
+  const selected = selectFeishuOutboundChannelBindingForReply({
+    channelName: "tour visit",
+    sourceMapping: {
+      channelBindingId: "binding-source",
+    },
+    channelBindings: [
+      {
+        id: "binding-rebound",
+        channelName: "tour visit",
+        externalChatId: "oc_rebound",
+        syncMode: "mirror",
+      },
+      {
+        id: "binding-source",
+        channelName: "tour visit",
+        externalChatId: "oc_source",
+        syncMode: "ingest_only",
+      },
+    ],
+  });
+
+  assert.equal(selected, null);
+});
+
+test("selectFeishuOutboundChannelBindingForReply falls back to channel name for legacy mappings", () => {
+  const selected = selectFeishuOutboundChannelBindingForReply({
+    channelName: "tour visit",
+    sourceMapping: null,
+    channelBindings: [
+      {
+        id: "binding-ingest",
+        channelName: "tour visit",
+        externalChatId: "oc_ingest",
+        syncMode: "ingest_only",
+      },
+      {
+        id: "binding-sendable",
+        channelName: "tour visit",
+        externalChatId: "oc_sendable",
+        syncMode: "mirror",
+      },
+    ],
+  });
+
+  assert.equal(selected?.externalChatId, "oc_sendable");
 });
 
 test("buildFeishuOutboundMappingMetadata records safe agent bot reply evidence", () => {
