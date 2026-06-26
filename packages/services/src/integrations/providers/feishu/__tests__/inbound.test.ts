@@ -852,6 +852,8 @@ test("mentioning a second agent bot in an active Feishu thread records collabora
   const hermesThreadMetadata = JSON.parse(hermesThread.metadataJson) as Record<string, unknown>;
   assert.equal(hermesThreadMetadata.threadCollaboration, true);
   assert.deepEqual(hermesThreadMetadata.collaboratingAgentIds, ["Atlas"]);
+  assert.deepEqual(hermesThreadMetadata.collaboratingBotBindingIds, [fixtures.integration.id]);
+  assert.equal((hermesThreadMetadata.collaboratingBotBindingIds as string[]).includes(hermesBinding.id), false);
   assert.doesNotMatch(hermesThread.metadataJson, /oc_general|om-thread-collab-root/);
 
   const hermesMapping = readExternalMessageMappingByExternalMessageSync({
@@ -863,6 +865,8 @@ test("mentioning a second agent bot in an active Feishu thread records collabora
   const hermesMappingMetadata = JSON.parse(hermesMapping.metadataJson) as Record<string, unknown>;
   assert.equal(hermesMappingMetadata.threadCollaboration, true);
   assert.deepEqual(hermesMappingMetadata.threadCollaboratorAgentIds, ["Atlas"]);
+  assert.deepEqual(hermesMappingMetadata.threadCollaboratorBotBindingIds, [fixtures.integration.id]);
+  assert.equal((hermesMappingMetadata.threadCollaboratorBotBindingIds as string[]).includes(hermesBinding.id), false);
   assert.equal(hermesMappingMetadata.threadContinuation, false);
   assert.equal(hermesMappingMetadata.agentId, "Hermes");
   assert.doesNotMatch(hermesMapping.metadataJson, /oc_general|om-thread-collab-root|om-thread-collab-hermes|ou_mina|on_mina/);
@@ -882,7 +886,14 @@ test("mentioning a second agent bot in an active Feishu thread records collabora
   assert.match(card.elements?.[0]?.content ?? "", /Current: Hermes/);
   assert.match(card.elements?.[0]?.content ?? "", /Existing context: Atlas/);
   assert.equal(card.elements?.[1]?.actions?.[0]?.url, "https://agentspace.test/w/default/im?focus=channel%3Ageneral");
+  const collaborationMetadata = JSON.parse(collaborationOutbox.metadataJson) as Record<string, unknown>;
+  assert.equal(collaborationMetadata.noticeType, "thread_collaboration");
+  assert.equal(collaborationMetadata.agentId, "Hermes");
+  assert.equal(collaborationMetadata.botBindingId, hermesBinding.id);
+  assert.deepEqual(collaborationMetadata.collaboratingAgentIds, ["Atlas"]);
+  assert.deepEqual(collaborationMetadata.collaboratingBotBindingIds, [fixtures.integration.id]);
   assert.doesNotMatch(String(payload.content), /oc_general|om-thread-collab-root|om-thread-collab-hermes|ou_mina|on_mina/);
+  assert.doesNotMatch(collaborationOutbox.metadataJson, /oc_general|om-thread-collab-root|om-thread-collab-hermes|ou_mina|on_mina/);
 });
 
 test("bot added events reuse an existing Feishu chat channel for additional agent bots", databaseTestOptions, () => {

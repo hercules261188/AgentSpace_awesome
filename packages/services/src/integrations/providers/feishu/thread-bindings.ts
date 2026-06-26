@@ -22,6 +22,7 @@ export interface RecordFeishuThreadBindingInput {
   routerSessionId?: string;
   agentSpaceMessageId?: string;
   collaboratingAgentIds?: string[];
+  collaboratingBotBindingIds?: string[];
 }
 
 export interface ReadFeishuThreadBindingInput {
@@ -47,6 +48,7 @@ export function recordFeishuThreadBindingSync(
     actorType: input.actorType,
     routerSessionId: input.routerSessionId,
     collaboratingAgentIds: input.collaboratingAgentIds,
+    collaboratingBotBindingIds: input.collaboratingBotBindingIds,
   });
   return upsertExternalThreadBindingSync({
     workspaceId: input.workspaceId,
@@ -107,9 +109,12 @@ function buildFeishuThreadBindingMetadata(input: {
   actorType?: "user" | "external_guest";
   routerSessionId?: string;
   collaboratingAgentIds?: string[];
+  collaboratingBotBindingIds?: string[];
 }): Record<string, unknown> {
   const collaboratingAgentIds = uniqueNonEmpty(input.collaboratingAgentIds ?? [])
     .filter((agentId) => agentId !== input.agentId);
+  const collaboratingBotBindingIds = uniqueNonEmpty(input.collaboratingBotBindingIds ?? [])
+    .filter((botBindingId) => botBindingId !== input.botBindingId);
   return {
     provider: FEISHU_PROVIDER_ID,
     externalChatReference: shortHash(input.externalChatId),
@@ -118,8 +123,9 @@ function buildFeishuThreadBindingMetadata(input: {
     botBindingId: input.botBindingId,
     actorType: input.actorType,
     routerSessionId: input.routerSessionId,
-    threadCollaboration: collaboratingAgentIds.length > 0 ? true : undefined,
+    threadCollaboration: collaboratingAgentIds.length > 0 && collaboratingBotBindingIds.length > 0 ? true : undefined,
     collaboratingAgentIds: collaboratingAgentIds.length > 0 ? collaboratingAgentIds : undefined,
+    collaboratingBotBindingIds: collaboratingBotBindingIds.length > 0 ? collaboratingBotBindingIds : undefined,
     updatedAt: new Date().toISOString(),
   };
 }

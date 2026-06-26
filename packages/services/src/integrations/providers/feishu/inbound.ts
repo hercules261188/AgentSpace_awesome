@@ -133,7 +133,9 @@ interface FeishuInboundPreparedDispatch {
 
 interface FeishuThreadCollaborationNotice {
   currentAgentId: string;
+  currentBotBindingId: string;
   previousAgentIds: string[];
+  previousBotBindingIds: string[];
 }
 
 type FeishuInboundPrepareResult =
@@ -918,6 +920,7 @@ function dispatchPreparedFeishuInboundEventSync(input: FeishuInboundPreparedDisp
       routerSessionId: dispatchedTask?.routerSessionId,
       agentSpaceMessageId,
       collaboratingAgentIds: threadCollaboration?.previousAgentIds,
+      collaboratingBotBindingIds: threadCollaboration?.previousBotBindingIds,
     })
     : null;
 
@@ -1043,10 +1046,21 @@ function resolveFeishuThreadCollaborationNoticeSync(
   const previousAgentIds = uniqueNonEmpty(bindings
     .map((binding) => binding.agentId)
     .filter((agentId) => agentId !== input.agentId));
-  return previousAgentIds.length > 0
+  const currentBotBindingId = input.botBindingId ?? input.agentBotIntegration.id;
+  const previousBotBindingIds = uniqueNonEmpty(bindings
+    .map((binding) => {
+      const metadata = readJsonRecord(binding.metadataJson);
+      return typeof metadata?.botBindingId === "string" && metadata.botBindingId.trim()
+        ? metadata.botBindingId
+        : binding.integrationId;
+    })
+    .filter((botBindingId) => botBindingId !== currentBotBindingId));
+  return previousAgentIds.length > 0 && previousBotBindingIds.length > 0
     ? {
       currentAgentId: input.agentId,
+      currentBotBindingId,
       previousAgentIds,
+      previousBotBindingIds,
     }
     : undefined;
 }
@@ -1080,6 +1094,19 @@ function queueFeishuThreadCollaborationCardBestEffort(input: {
       targetExternalChatId: outbound.targetExternalChatId,
       targetExternalThreadId: outbound.targetExternalThreadId,
       payloadJson: outbound.payload,
+      metadataJson: {
+        provider: FEISHU_PROVIDER_ID,
+        noticeType: "thread_collaboration",
+        noticeSource: "native_agent_bot",
+        agentId: input.notice.currentAgentId,
+        botBindingId: input.notice.currentBotBindingId,
+        collaboratingAgentIds: input.notice.previousAgentIds,
+        collaboratingBotBindingIds: input.notice.previousBotBindingIds,
+        externalChatReference: shortHash(input.targetExternalChatId),
+        externalThreadReference: input.targetExternalThreadId
+          ? shortHash(input.targetExternalThreadId)
+          : undefined,
+      },
     });
   } catch {
     // Collaboration cards are best-effort; routing and task dispatch have already succeeded.
@@ -1593,6 +1620,7 @@ function createFeishuInboundMapping(input: {
       threadBindingId: input.threadBindingId,
       threadCollaboration: input.threadCollaboration ? true : undefined,
       threadCollaboratorAgentIds: input.threadCollaboration?.previousAgentIds,
+      threadCollaboratorBotBindingIds: input.threadCollaboration?.previousBotBindingIds,
       threadContinuation: input.threadContinuation,
       dispatchStatus: input.dispatchStatus,
       reasonCode: input.reasonCode,
@@ -1694,6 +1722,17 @@ function uniqueNonEmpty(values: readonly string[]): string[] {
     }
   }
   return unique;
+}
+
+function readJsonRecord(json: string): Record<string, unknown> | undefined {
+  try {
+    const value: unknown = JSON.parse(json);
+    return value && typeof value === "object" && !Array.isArray(value)
+      ? value as Record<string, unknown>
+      : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function evaluateFeishuAgentRouteGuardSync(input: {

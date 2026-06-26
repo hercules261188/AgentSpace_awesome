@@ -133,8 +133,8 @@ export function FeishuAgentBotAgentSettingsPanel({
                   <FeishuAgentSettingsCommand
                     label={tx("绑定第二个 Agent Bot", "Bind second Agent bot")}
                     note={tx(
-                      "先在 scripts/feishu/.env 填入第二个飞书 app 凭据，再运行此命令创建 AgentSpace 里的第二个 Bot 绑定。",
-                      "Fill the second Feishu app credentials in scripts/feishu/.env first, then run this command to create the second AgentSpace bot binding.",
+                      "先在 scripts/feishu/.env 填入第二个飞书 app 凭据，再运行此命令创建第二个 Bot 绑定；通过 Phase 6 前置检查前，最终 evidence --require all 会保持 blocked。",
+                      "Fill the second Feishu app credentials in scripts/feishu/.env first, then run this command to create the second bot binding; final evidence --require all stays blocked until it is Phase 6-ready.",
                     )}
                     value={currentIntegration.setupGuide.commands.bindSecondAgentBot}
                   />

@@ -621,6 +621,7 @@ export interface FeishuIntegrationEvidence {
     threadTaskBindings: number;
     threadContinuationEvidence: number;
     threadCollaborationEvidence: number;
+    threadCollaborationCardEvidence: number;
     satisfied: boolean;
   };
   guestPolicy: {
@@ -4613,6 +4614,14 @@ export function buildFeishuSmokePlanReport(input: BuildFeishuSmokePlanReportInpu
     integrationId: agentChannelAccessCandidate?.id ?? botCandidate?.id ?? setupIntegrationFlag,
     agentId: agentChannelAccessCandidate?.agentId ?? botCandidate?.agentId,
   });
+  const finalEvidenceReady = readyForBot && readyForDataPlane && hasSecondAgentBot;
+  const finalEvidenceIssues = finalEvidenceReady
+    ? []
+    : uniqueStrings([
+      ...botIssues,
+      ...dataPlaneIssues,
+      ...(hasSecondAgentBot ? [] : nativeAgentBotReadiness.issues),
+    ]);
 
   return {
     workspaceId: readiness.workspaceId,
@@ -4810,7 +4819,7 @@ export function buildFeishuSmokePlanReport(input: BuildFeishuSmokePlanReportInpu
         area: "bot",
         title: "Live smoke: second agent bot joins an active thread",
         status: readyForBot && hasSecondAgentBot ? "pending" : "blocked",
-        detail: "Mention one agent-specific Feishu bot in a mapped group thread, then mention the second agent bot in that same Feishu thread. Verify AgentSpace keeps separate thread bindings, records threadCollaboration=true with collaborator agent ids, and sends the collaboration card without raw Feishu ids.",
+        detail: "Mention one agent-specific Feishu bot in a mapped group thread, then mention the second agent bot in that same Feishu thread. Verify AgentSpace keeps separate thread bindings, records threadCollaboration=true with collaborator agent ids and bot binding ids, and sends the collaboration card without raw Feishu ids.",
         issues: readyForBot && hasSecondAgentBot
           ? []
           : uniqueStrings([
@@ -5061,10 +5070,10 @@ export function buildFeishuSmokePlanReport(input: BuildFeishuSmokePlanReportInpu
         id: "verify_agentspace_live_evidence",
         area: "failure",
         title: "Verify AgentSpace-side Feishu live smoke evidence",
-        status: readyForBot && readyForDataPlane ? "pending" : "blocked",
-        detail: "After live native agent bot, guest-policy, data-plane, worker, and failure smoke, verify local AgentSpace DB evidence without exposing external ids or resource tokens. Native evidence requires agent-specific bot routing, auto-provisioning, multi-agent channel reuse, thread/task binding, thread continuation, thread collaboration, bot sender loop guard, and disabled-policy no-reply proof; guest evidence requires allow, reply_all, require_identity, sent identity-binding notice, ignore, and mention-required decisions.",
+        status: finalEvidenceReady ? "pending" : "blocked",
+        detail: "After live native agent bot, guest-policy, data-plane, worker when using websocket_worker, and failure smoke, verify local AgentSpace DB evidence without exposing external ids or resource tokens. Native evidence requires two Phase 6-ready agent bot bindings, agent-specific bot routing, auto-provisioning, multi-agent channel reuse, thread/task binding, thread continuation, thread collaboration with sent card proof, bot sender loop guard, and disabled-policy no-reply proof; guest evidence requires allow, reply_all, require_identity, sent identity-binding notice, ignore, and mention-required decisions.",
         command: `agent-space integrations feishu evidence --workspace-id ${readiness.workspaceId} --integration ${setupIntegrationFlag} --openapi-evidence ${smokeHarness.evidencePath} --strict --require all --json`,
-        issues: readyForBot && readyForDataPlane ? [] : uniqueStrings([...botIssues, ...dataPlaneIssues]),
+        issues: finalEvidenceIssues,
       },
     ],
   };
@@ -5230,6 +5239,7 @@ function buildFeishuIntegrationEvidence(input: {
   const threadTaskBindings = countFeishuThreadTaskBindingEvidence(input.threadBindings);
   const threadContinuationEvidence = countFeishuThreadContinuationEvidence(input.messageMappings, input.threadBindings);
   const threadCollaborationEvidence = countFeishuThreadCollaborationEvidence(input.threadBindings);
+  const threadCollaborationCardEvidence = countFeishuThreadCollaborationCardEvidence(input.outbox);
   const sentOutboxItems = countFeishuSentAgentBotReplyOutboxEvidence(input.outbox);
   const failedOutboxItems = input.outbox.filter((item) =>
     item.status === "failed" || (item.status === "pending" && Boolean(item.lastError))
@@ -5287,7 +5297,8 @@ function buildFeishuIntegrationEvidence(input: {
     reusedProviderChannelBindings > 0 &&
     threadTaskBindings > 0 &&
     threadContinuationEvidence > 0 &&
-    threadCollaborationEvidence > 0;
+    threadCollaborationEvidence > 0 &&
+    threadCollaborationCardEvidence > 0;
   const guestPolicySatisfied = externalGuestAllowedEvidence > 0 &&
     externalGuestReplyAllEvidence > 0 &&
     externalGuestRequireIdentityEvidence > 0 &&
@@ -5347,6 +5358,7 @@ function buildFeishuIntegrationEvidence(input: {
     threadTaskBindings,
     threadContinuationEvidence,
     threadCollaborationEvidence,
+    threadCollaborationCardEvidence,
     docReadSucceeded,
     agentDocReadSucceeded,
     docWriteSucceeded,
@@ -5401,6 +5413,7 @@ function buildFeishuIntegrationEvidence(input: {
       threadTaskBindings,
       threadContinuationEvidence,
       threadCollaborationEvidence,
+      threadCollaborationCardEvidence,
       satisfied: nativeExperienceSatisfied,
     },
     guestPolicy: {
@@ -5831,6 +5844,7 @@ function buildFeishuEvidenceIssues(input: {
   threadTaskBindings: number;
   threadContinuationEvidence: number;
   threadCollaborationEvidence: number;
+  threadCollaborationCardEvidence: number;
   docReadSucceeded: number;
   agentDocReadSucceeded: number;
   docWriteSucceeded: number;
@@ -5910,6 +5924,8 @@ function buildFeishuEvidenceIssues(input: {
     }
     if (input.threadCollaborationEvidence === 0) {
       issues.push("thread_collaboration_evidence_missing");
+    } else if (input.threadCollaborationCardEvidence === 0) {
+      issues.push("thread_collaboration_card_evidence_missing");
     }
   }
   if (!input.guestPolicySatisfied) {
@@ -6172,10 +6188,11 @@ function mapFeishuEvidenceIssueToRemediationSpec(input: {
         detail: "After a mentioned agent bot message creates a Feishu thread binding, send a follow-up in the same Feishu thread without mentioning the bot and verify AgentSpace records threadContinuation=true with taskQueueId, agentSpaceMessageId, agentId, botBindingId, and the same active thread binding reference.",
       };
     case "thread_collaboration_evidence_missing":
+    case "thread_collaboration_card_evidence_missing":
       return {
         stepId: "live_multi_agent_thread_collaboration",
         title: "Live smoke: second agent bot joins an active thread",
-        detail: "Mention one agent bot in a Feishu thread, then mention a second agent bot in that same thread and verify AgentSpace keeps separate thread bindings, records threadCollaboration=true, and sends the collaboration card without raw Feishu ids.",
+        detail: "Mention one agent bot in a Feishu thread, then mention a second agent bot in that same thread and verify AgentSpace keeps separate thread bindings, records threadCollaboration=true with collaborator agent ids and bot binding ids, and sends the collaboration card without raw Feishu ids.",
       };
     case "bot_sender_loop_guard_evidence_missing":
       return {
@@ -6826,9 +6843,10 @@ function countFeishuThreadCollaborationEvidence(
       metadata.threadCollaboration === true &&
       agentId.length > 0 &&
       binding.agentId.trim() === agentId &&
-      hasDifferentFeishuCollaboratingAgentId(metadata.collaboratingAgentIds, agentId) &&
       typeof metadata.botBindingId === "string" &&
       metadata.botBindingId.trim().length > 0 &&
+      hasDifferentFeishuCollaboratingId(metadata.collaboratingAgentIds, agentId) &&
+      hasDifferentFeishuCollaboratingId(metadata.collaboratingBotBindingIds, metadata.botBindingId.trim()) &&
       typeof metadata.externalChatReference === "string" &&
       metadata.externalChatReference.trim().length > 0 &&
       typeof metadata.externalThreadReference === "string" &&
@@ -6836,14 +6854,41 @@ function countFeishuThreadCollaborationEvidence(
   }).length;
 }
 
-function hasDifferentFeishuCollaboratingAgentId(value: unknown, currentAgentId: string): boolean {
+function countFeishuThreadCollaborationCardEvidence(
+  outbox: readonly ExternalMessageOutboxRecord[],
+): number {
+  return outbox.filter((item) => {
+    if (item.status !== "sent" || !hasNonEmptyString(item.sentAt)) {
+      return false;
+    }
+    const metadata = readJsonRecord(item.metadataJson);
+    const agentId = hasNonEmptyString(metadata?.agentId) ? metadata.agentId.trim() : "";
+    const botBindingId = hasNonEmptyString(metadata?.botBindingId) ? metadata.botBindingId.trim() : "";
+    return metadata?.provider === FEISHU_PROVIDER_ID &&
+      metadata.noticeType === "thread_collaboration" &&
+      metadata.noticeSource === "native_agent_bot" &&
+      agentId.length > 0 &&
+      botBindingId.length > 0 &&
+      botBindingId === item.integrationId &&
+      hasDifferentFeishuCollaboratingId(metadata.collaboratingAgentIds, agentId) &&
+      hasDifferentFeishuCollaboratingId(metadata.collaboratingBotBindingIds, botBindingId) &&
+      hasNonEmptyString(metadata.externalChatReference) &&
+      hasNonEmptyString(metadata.externalThreadReference) &&
+      !hasNonEmptyString(metadata.externalChatId) &&
+      !hasNonEmptyString(metadata.externalThreadId) &&
+      !hasNonEmptyString(metadata.targetExternalChatId) &&
+      !hasNonEmptyString(metadata.targetExternalThreadId);
+  }).length;
+}
+
+function hasDifferentFeishuCollaboratingId(value: unknown, currentId: string): boolean {
   if (!Array.isArray(value)) {
     return false;
   }
-  return value.some((agentId) =>
-    typeof agentId === "string" &&
-    agentId.trim().length > 0 &&
-    agentId.trim() !== currentAgentId
+  return value.some((id) =>
+    typeof id === "string" &&
+    id.trim().length > 0 &&
+    id.trim() !== currentId
   );
 }
 
@@ -7261,10 +7306,12 @@ function hasFeishuWorkspaceNativeExperienceEvidence(
   } = {},
 ): boolean {
   const messageMappings = sources.flatMap((source) => source.messageMappings);
+  const outbox = sources.flatMap((source) => source.outbox);
   const channelBindings = sources.flatMap((source) => source.channelBindings);
   const threadBindings = sources.flatMap((source) => source.threadBindings);
   const chatReferences = uniqueStrings([
     ...messageMappings.map((mapping) => readFeishuSafeChatReference(mapping.metadataJson)),
+    ...outbox.map((item) => readFeishuSafeChatReference(item.metadataJson)),
     ...channelBindings.map((binding) => readFeishuSafeChatReference(binding.metadataJson)),
     ...threadBindings.map((binding) => readFeishuSafeChatReference(binding.metadataJson)),
   ].filter(hasNonEmptyString));
@@ -7276,11 +7323,15 @@ function hasFeishuWorkspaceNativeExperienceEvidence(
     const scopedChannelBindings = channelBindings.filter((binding) =>
       readFeishuSafeChatReference(binding.metadataJson) === chatReference
     );
+    const scopedOutbox = outbox.filter((item) =>
+      readFeishuSafeChatReference(item.metadataJson) === chatReference
+    );
     const scopedThreadBindings = threadBindings.filter((binding) =>
       readFeishuSafeChatReference(binding.metadataJson) === chatReference
     );
     const scopedIntegrationIds = new Set([
       ...scopedMappings.map((mapping) => mapping.integrationId),
+      ...scopedOutbox.map((item) => item.integrationId),
       ...scopedChannelBindings.map((binding) => binding.integrationId),
       ...scopedThreadBindings.map((binding) => binding.integrationId),
     ].filter(hasNonEmptyString));
@@ -7300,7 +7351,8 @@ function hasFeishuWorkspaceNativeExperienceEvidence(
       countFeishuReusedProviderChannelBindings(scopedChannelBindings) > 0 &&
       countFeishuThreadTaskBindingEvidence(scopedThreadBindings) > 0 &&
       countFeishuThreadContinuationEvidence(scopedMappings, scopedThreadBindings) > 0 &&
-      countFeishuThreadCollaborationEvidence(scopedThreadBindings) > 0;
+      countFeishuThreadCollaborationEvidence(scopedThreadBindings) > 0 &&
+      countFeishuThreadCollaborationCardEvidence(scopedOutbox) > 0;
   });
 }
 
