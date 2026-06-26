@@ -329,6 +329,34 @@ export function updateExternalIntegrationCredentialsSync(input: {
   return requireExternalIntegration({ workspaceId, integrationId: input.integrationId });
 }
 
+export function updateExternalIntegrationConfigSync(input: {
+  workspaceId?: string;
+  integrationId: string;
+  configJson: JsonInput;
+  updatedByUserId?: string;
+}): ExternalIntegrationRecord {
+  const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
+  const now = new Date().toISOString();
+  const result = getDatabase().prepare(
+    `UPDATE external_integration
+     SET config_json = ?,
+         updated_by_user_id = ?,
+         updated_at = ?
+     WHERE workspace_id = ? AND id = ?`,
+  ).run(
+    normalizeJsonInput(input.configJson, DEFAULT_JSON_OBJECT),
+    normalizeOptionalText(input.updatedByUserId),
+    now,
+    workspaceId,
+    input.integrationId.trim(),
+  );
+
+  if (result.changes === 0) {
+    throw new Error("External integration does not exist.");
+  }
+  return requireExternalIntegration({ workspaceId, integrationId: input.integrationId });
+}
+
 export function upsertExternalUserBindingSync(input: {
   workspaceId?: string;
   integrationId: string;

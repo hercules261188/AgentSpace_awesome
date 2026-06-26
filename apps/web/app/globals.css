@@ -9176,6 +9176,70 @@ textarea:focus {
   min-width: 0;
 }
 
+.feishu-agent-bot-policy-editor {
+  display: grid;
+  gap: 0.7rem;
+  min-width: 0;
+  padding: 0.7rem 0.75rem;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.68);
+}
+
+.feishu-agent-bot-policy-editor summary {
+  display: grid;
+  gap: 0.16rem;
+  cursor: pointer;
+  color: #1d1d1f;
+  font-size: 0.82rem;
+  font-weight: 650;
+}
+
+.feishu-agent-bot-policy-editor summary small {
+  color: rgba(0, 0, 0, 0.54);
+  font-size: 0.76rem;
+  font-weight: 500;
+}
+
+.feishu-agent-bot-policy-editor__body {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.65rem;
+  padding-top: 0.65rem;
+}
+
+.feishu-agent-bot-policy-editor__checks {
+  display: grid;
+  grid-column: 1 / -1;
+  gap: 0.45rem;
+  min-width: 0;
+  margin: 0;
+  padding: 0.65rem 0.7rem;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 8px;
+  background: rgba(245, 245, 247, 0.72);
+}
+
+.feishu-agent-bot-policy-editor__checks legend {
+  padding: 0 0.25rem;
+  color: rgba(0, 0, 0, 0.62);
+  font-size: 0.78rem;
+  font-weight: 650;
+}
+
+.feishu-agent-bot-policy-editor__checks label {
+  display: flex;
+  gap: 0.45rem;
+  align-items: center;
+  color: rgba(0, 0, 0, 0.68);
+  font-size: 0.8rem;
+}
+
+.feishu-agent-bot-policy-editor__actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
 .feishu-resource-scope-hint {
   display: grid;
   gap: 0.45rem;
@@ -10805,6 +10869,7 @@ textarea:focus {
 
   .feishu-mini-panel-grid,
   .feishu-agent-bot-actions,
+  .feishu-agent-bot-policy-editor__body,
   .feishu-advanced-settings__body,
   .feishu-binding-card,
   .feishu-binding-card__actions,

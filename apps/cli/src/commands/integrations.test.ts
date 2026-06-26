@@ -8,7 +8,9 @@ import {
   buildFeishuEvidenceReport,
   buildFeishuReadinessReport,
   buildFeishuAgentBotCliInputFromFlags,
+  buildFeishuAgentBotPolicyCliInputFromFlags,
   buildFeishuCreateCliInputFromFlags,
+  buildFeishuChannelBindingsCliReport,
   buildFeishuCliDataOperationParameters,
   buildFeishuCliBindingErrorReport,
   buildFeishuCliAgentBotErrorReport,
@@ -17,6 +19,7 @@ import {
   disableFeishuAgentBotForCli,
   readFeishuCreateCliEnv,
   rotateFeishuAgentBotCredentialsForCli,
+  updateFeishuAgentBotPolicyForCli,
   createFeishuChannelBindingForCli,
   createFeishuResourceBindingForCli,
   createFeishuUserBindingForCli,
@@ -59,6 +62,8 @@ test("integrations help documents Feishu worker deployment controls", async () =
   assert.match(output, /integrations feishu bind-agent-bot/);
   assert.match(output, /integrations feishu rotate-agent-bot-secret/);
   assert.match(output, /integrations feishu disable-agent-bot/);
+  assert.match(output, /integrations feishu auto-provision-policy/);
+  assert.match(output, /integrations feishu agent-bot-readiness/);
   assert.match(output, /integrations feishu readiness/);
   assert.match(output, /integrations feishu smoke-plan/);
   assert.match(output, /integrations feishu smoke-env/);
@@ -66,6 +71,7 @@ test("integrations help documents Feishu worker deployment controls", async () =
   assert.match(output, /integrations feishu evidence/);
   assert.match(output, /integrations feishu data-operation/);
   assert.match(output, /integrations feishu review-data-operation/);
+  assert.match(output, /integrations feishu channel-bindings/);
   assert.match(output, /plan-doc-create\|plan-doc-update\|plan-doc-append/);
   assert.match(output, /--parent-block-id <block-id>/);
   assert.match(output, /integrations feishu bind-channel/);
@@ -108,12 +114,15 @@ test("feishu worker --help prints usage without starting the worker", async () =
   assert.match(output, /agent-space integrations feishu bind-agent-bot/);
   assert.match(output, /agent-space integrations feishu rotate-agent-bot-secret/);
   assert.match(output, /agent-space integrations feishu disable-agent-bot/);
+  assert.match(output, /agent-space integrations feishu auto-provision-policy/);
+  assert.match(output, /agent-space integrations feishu agent-bot-readiness/);
   assert.match(output, /agent-space integrations feishu readiness/);
   assert.match(output, /agent-space integrations feishu smoke-plan/);
   assert.match(output, /agent-space integrations feishu smoke-env/);
   assert.match(output, /agent-space integrations feishu health-check/);
   assert.match(output, /agent-space integrations feishu evidence/);
   assert.match(output, /agent-space integrations feishu data-operation/);
+  assert.match(output, /agent-space integrations feishu channel-bindings/);
   assert.match(output, /plan-doc-create\|plan-doc-update\|plan-doc-append/);
   assert.match(output, /--parent-block-id <block-id>/);
   assert.match(output, /agent-space integrations feishu bind-channel/);
@@ -412,6 +421,82 @@ test("Feishu agent bot CLI accepts auto-provision and guest policy flags", () =>
     },
     env: {},
   }), /feishu\.agent_bot_binding\.invalid_external_guest_policy/);
+});
+
+test("Feishu agent bot policy CLI updates governance without requiring secrets", () => {
+  const input = buildFeishuAgentBotPolicyCliInputFromFlags({
+    workspaceId: "workspace-1",
+    integrationId: "agent-bot-codex",
+    flags: {
+      "first-message-policy": "disabled",
+      "unbound-user-mode": "ignore",
+      "guest-permission-profile": "none",
+      "require-identity-for": "writes, approvals, private_resources",
+    },
+    actorUserId: "admin-1",
+  });
+  const updateInputs: unknown[] = [];
+
+  const report = updateFeishuAgentBotPolicyForCli(input, {
+    updatePolicy: (updateInput) => {
+      updateInputs.push(updateInput);
+      return buildIntegrationRecord({
+        id: "agent-bot-codex",
+        displayName: "Codex Feishu Bot",
+        transportMode: "websocket_worker",
+        agentId: "Codex",
+        appId: "cli_codex_bot",
+        encryptedCredentialsJson: JSON.stringify({ appSecret: "encrypted-app-secret" }),
+        configJson: JSON.stringify({
+          channelAutoProvisioning: {
+            botAdded: "auto_create_channel",
+            firstMessage: "disabled",
+            reviewStatus: "approved",
+          },
+          externalGuestPolicy: {
+            unboundUserMode: "ignore",
+            guestPermissionProfile: "none",
+            requireIdentityFor: ["writes", "approvals", "private_resources"],
+          },
+        }),
+      }) as never;
+    },
+  });
+
+  assert.deepEqual(updateInputs, [{
+    workspaceId: "workspace-1",
+    integrationId: "agent-bot-codex",
+    agentId: undefined,
+    channelAutoProvisioning: {
+      firstMessage: "disabled",
+    },
+    externalGuestPolicy: {
+      unboundUserMode: "ignore",
+      guestPermissionProfile: "none",
+      requireIdentityFor: ["writes", "approvals", "private_resources"],
+    },
+    updatedByUserId: "admin-1",
+  }]);
+  assert.equal(report.operation, "policy_updated");
+  assert.deepEqual(report.channelAutoProvisioning, {
+    botAdded: "auto_create_channel",
+    firstMessage: "disabled",
+    reviewStatus: "approved",
+  });
+  assert.deepEqual(report.externalGuestPolicy, {
+    unboundUserMode: "ignore",
+    guestPermissionProfile: "none",
+    requireIdentityFor: ["writes", "approvals", "private_resources"],
+  });
+  assert.equal(report.secretRedacted, true);
+  assert.doesNotMatch(JSON.stringify(report), /encrypted-app-secret|app-secret|super-secret/);
+
+  assert.throws(() => buildFeishuAgentBotPolicyCliInputFromFlags({
+    workspaceId: "workspace-1",
+    flags: {
+      "bot-added-policy": "maybe",
+    },
+  }), /feishu\.agent_bot_binding\.invalid_channel_auto_provisioning_policy/);
 });
 
 test("Feishu agent bot CLI rotates and disables existing bindings", () => {
@@ -2322,6 +2407,21 @@ test("Feishu agent bot CLI returns redacted JSON for successful bindings", () =>
       hasVerificationToken: false,
       hasEncryptKey: false,
     },
+    channelAutoProvisioning: {
+      botAdded: "auto_create_channel",
+      firstMessage: "auto_create_if_bot_mentioned",
+      reviewStatus: "approved",
+    },
+    externalGuestPolicy: {
+      unboundUserMode: "reply_on_mention",
+      guestPermissionProfile: "channel_context_only",
+      requireIdentityFor: [
+        "writes",
+        "approvals",
+        "private_resources",
+        "runtime_sensitive_tools",
+      ],
+    },
     secretRedacted: true,
   });
   assert.equal(JSON.stringify(result).includes("secret_agent_bot"), false);
@@ -2393,6 +2493,73 @@ test("Feishu CLI channel binding rejects chats already mapped to another AgentSp
 
   assert.equal(upserts.length, 0);
   assert.equal(audits.length, 0);
+});
+
+test("Feishu channel-bindings report lists redacted chat mappings", () => {
+  const report = buildFeishuChannelBindingsCliReport({
+    workspaceId: "workspace-1",
+    integrations: [
+      buildIntegrationRecord({
+        id: "agent-bot-codex",
+        displayName: "Codex Feishu Bot",
+        agentId: "Codex",
+        transportMode: "websocket_worker",
+      }),
+      buildIntegrationRecord({
+        id: "agent-bot-hermes",
+        displayName: "Hermes Feishu Bot",
+        agentId: "HermesAgent",
+        transportMode: "websocket_worker",
+      }),
+    ],
+    channelBindingsByIntegrationId: {
+      "agent-bot-codex": [
+        buildChannelBinding("agent-bot-codex", {
+          id: "binding-codex-general",
+          externalChatId: "oc_secret_general",
+          externalChatType: "group",
+          externalChatName: "Launch Room",
+          metadataJson: JSON.stringify({
+            provider: "feishu",
+            provisionSource: "bot_added",
+            reviewStatus: "approved",
+            agentId: "Codex",
+            botBindingId: "agent-bot-codex",
+            externalChatReference: "chat-ref-safe",
+          }),
+        }),
+      ],
+      "agent-bot-hermes": [
+        buildChannelBinding("agent-bot-hermes", {
+          id: "binding-hermes-general",
+          externalChatId: "oc_secret_general",
+          metadataJson: JSON.stringify({
+            provider: "feishu",
+            provisionSource: "bot_added",
+            reviewStatus: "approved",
+            agentId: "HermesAgent",
+            botBindingId: "agent-bot-hermes",
+            linkedFromBindingId: "binding-codex-general",
+            externalChatReference: "chat-ref-safe",
+          }),
+        }),
+      ],
+    },
+  });
+
+  assert.equal(report.integrationCount, 2);
+  assert.equal(report.bindingCount, 2);
+  assert.equal(report.activeBindingCount, 2);
+  assert.equal(report.externalIdsRedacted, true);
+  assert.deepEqual(report.integrations.map((item) => item.agentId), ["Codex", "HermesAgent"]);
+  assert.equal(report.bindings[0]?.externalChatReference, report.bindings[1]?.externalChatReference);
+  assert.match(report.bindings[0]?.externalChatReference ?? "", /^chat:[a-f0-9]{16}$/);
+  assert.equal(report.bindings[0]?.externalChatIdRedacted, true);
+  assert.equal(report.bindings[0]?.provisionSource, "bot_added");
+  assert.equal(report.bindings[1]?.linkedFromBindingId, "binding-codex-general");
+  const serialized = JSON.stringify(report);
+  assert.equal(serialized.includes("oc_secret_general"), false);
+  assert.equal(serialized.includes("oc_"), false);
 });
 
 test("Feishu CLI user binding rejects Open IDs already bound to another AgentSpace user", () => {
@@ -3817,6 +3984,51 @@ test("Feishu readiness report blocks Base table bindings that lack app token met
   assert.deepEqual(baseCheck?.issues, ["base_resource_app_token_missing"]);
 });
 
+test("Feishu agent bot readiness filters to agent-scoped bindings", () => {
+  const report = buildFeishuReadinessReport({
+    workspaceId: "workspace-1",
+    agentId: "Codex",
+    agentOnly: true,
+    integrations: [
+      buildIntegrationRecord({
+        id: "workspace-integration",
+        displayName: "Workspace Feishu",
+      }),
+      buildIntegrationRecord({
+        id: "agent-bot-codex",
+        displayName: "Codex Feishu Bot",
+        agentId: "Codex",
+        transportMode: "websocket_worker",
+      }),
+      buildIntegrationRecord({
+        id: "agent-bot-hermes",
+        displayName: "Hermes Feishu Bot",
+        agentId: "HermesAgent",
+        transportMode: "websocket_worker",
+      }),
+    ],
+    channelBindingsByIntegrationId: {
+      "agent-bot-codex": [],
+    },
+    userBindingsByIntegrationId: {
+      "agent-bot-codex": [],
+    },
+    resourceBindingsByIntegrationId: {
+      "agent-bot-codex": [],
+    },
+    failedOutboxByIntegrationId: {
+      "agent-bot-codex": [],
+    },
+    pendingOutboxByIntegrationId: {
+      "agent-bot-codex": [],
+    },
+  });
+
+  assert.equal(report.integrationCount, 1);
+  assert.deepEqual(report.integrations.map((item) => item.id), ["agent-bot-codex"]);
+  assert.equal(report.integrations[0]?.transportMode, "websocket_worker");
+});
+
 test("Feishu smoke plan converts readiness into live smoke checklist without external ids", () => {
   const report = buildFeishuSmokePlanReport({
     workspaceId: "workspace-1",
@@ -4820,7 +5032,7 @@ function buildIntegrationRecord(overrides: Record<string, unknown> = {}) {
   } as never;
 }
 
-function buildChannelBinding(integrationId: string) {
+function buildChannelBinding(integrationId: string, overrides: Record<string, unknown> = {}) {
   return {
     id: `channel-${integrationId}`,
     workspaceId: "workspace-1",
@@ -4832,6 +5044,7 @@ function buildChannelBinding(integrationId: string) {
     metadataJson: "{}",
     createdAt: "2026-06-24T00:00:00.000Z",
     updatedAt: "2026-06-24T00:00:00.000Z",
+    ...overrides,
   } as never;
 }
 

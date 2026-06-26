@@ -297,6 +297,7 @@ export function listFeishuIntegrationSettingsItems(input: {
         ? buildFeishuIntegrationSetupGuide({
           workspaceId: input.workspaceId,
           integrationId: integration.id,
+          agentId: integration.agentId,
           transportMode: integration.transportMode,
           appUrl: input.appUrl,
           checks: buildFeishuIntegrationSetupChecks({
@@ -393,11 +394,15 @@ export function buildFeishuEventCallbackUrl(input: {
 function buildFeishuIntegrationSetupGuide(input: {
   workspaceId: string;
   integrationId: string;
+  agentId?: string;
   transportMode: string;
   appUrl?: string;
   checks: FeishuIntegrationSetupCheck[];
 }): FeishuIntegrationSetupGuide {
   const flags = `--workspace-id ${input.workspaceId} --integration ${input.integrationId}`;
+  const readinessCommand = input.agentId
+    ? "agent-bot-readiness"
+    : "readiness";
   const appUrlFlag = `--app-url ${input.appUrl?.trim() || FEISHU_PUBLIC_APP_URL_PLACEHOLDER}`;
   return {
     requiredCredentialFields: [...FEISHU_REQUIRED_CREDENTIAL_FIELDS],
@@ -410,9 +415,15 @@ function buildFeishuIntegrationSetupGuide(input: {
     evidenceGates: buildFeishuEvidenceGates(input.transportMode),
     commands: {
       healthCheck: `agent-space integrations feishu health-check ${flags} --strict --json`,
-      botReadiness: `agent-space integrations feishu readiness ${flags} --strict --require bot --json`,
-      dataPlaneReadiness: `agent-space integrations feishu readiness ${flags} --strict --require data-plane --json`,
-      workerReadiness: `agent-space integrations feishu readiness ${flags} --strict --require worker --json`,
+      botReadiness: `agent-space integrations feishu ${readinessCommand} ${flags} --strict --require bot --json`,
+      dataPlaneReadiness: `agent-space integrations feishu ${readinessCommand} ${flags} --strict --require data-plane --json`,
+      workerReadiness: `agent-space integrations feishu ${readinessCommand} ${flags} --strict --require worker --json`,
+      ...(input.agentId
+        ? {
+          autoProvisionPolicy: `agent-space integrations feishu auto-provision-policy ${flags} --bot-added-policy auto_create_channel --first-message-policy auto_create_if_bot_mentioned --unbound-user-mode reply_on_mention --guest-permission-profile channel_context_only --json`,
+          channelBindings: `agent-space integrations feishu channel-bindings ${flags} --json`,
+        }
+        : {}),
       smokeEnv: `agent-space integrations feishu smoke-env ${flags} ${appUrlFlag} > scripts/feishu/.env`,
       checkEnv: "npm run smoke:feishu -- --env-file scripts/feishu/.env --check-env --json",
       strictLiveSmoke: `npm run smoke:feishu -- --env-file scripts/feishu/.env --live --strict-live --evidence ${FEISHU_SMOKE_EVIDENCE_PATH} --json`,

@@ -239,6 +239,7 @@ export {
   recordExternalIntegrationEventSync,
   updateExternalDataOperationRunStatusSync,
   updateExternalChannelBindingStatusSync,
+  updateExternalIntegrationConfigSync,
   updateExternalIntegrationCredentialsSync,
   updateExternalIntegrationEventStatusSync,
   updateExternalIntegrationHealthSync,

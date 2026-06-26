@@ -29,6 +29,7 @@ export {
   readFeishuAgentBotBindingByAgentSync,
   resolveFeishuAgentBotBindingSync,
   rotateFeishuAgentBotCredentialsSync,
+  updateFeishuAgentBotPolicySync,
   type FeishuAgentBotChannelAutoProvisioningInput,
   type FeishuAgentBotExternalGuestPolicyInput,
   type CreateFeishuAgentBotBindingInput,
@@ -36,6 +37,7 @@ export {
   type FeishuAgentBotBinding,
   type FeishuAgentBotHealthCheckResult,
   type RotateFeishuAgentBotCredentialsInput,
+  type UpdateFeishuAgentBotPolicyInput,
 } from "./agent-bot-bindings.ts";
 export {
   ensureFeishuAgentMentionText,

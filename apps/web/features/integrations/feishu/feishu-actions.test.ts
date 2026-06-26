@@ -60,6 +60,7 @@ const {
   mockResolveFeishuResourceDescriptorForType,
   mockRotateFeishuAgentBotCredentialsSync,
   mockTryRecordWorkspaceAuditEventSync,
+  mockUpdateFeishuAgentBotPolicySync,
   mockUpsertFeishuExternalChannelDocumentSync,
   mockUpsertFeishuExternalDataTableSync,
   mockValidateFeishuResourceDescriptorForBinding,
@@ -72,6 +73,7 @@ const {
   mockResolveFeishuResourceDescriptorForType: vi.fn(),
   mockRotateFeishuAgentBotCredentialsSync: vi.fn(),
   mockTryRecordWorkspaceAuditEventSync: vi.fn(),
+  mockUpdateFeishuAgentBotPolicySync: vi.fn(),
   mockUpsertFeishuExternalChannelDocumentSync: vi.fn(),
   mockUpsertFeishuExternalDataTableSync: vi.fn(),
   mockValidateFeishuResourceDescriptorForBinding: vi.fn(),
@@ -123,6 +125,7 @@ vi.mock("@agent-space/services", () => ({
   resolveFeishuResourceDescriptorForType: mockResolveFeishuResourceDescriptorForType,
   rotateFeishuAgentBotCredentialsSync: mockRotateFeishuAgentBotCredentialsSync,
   tryRecordWorkspaceAuditEventSync: mockTryRecordWorkspaceAuditEventSync,
+  updateFeishuAgentBotPolicySync: mockUpdateFeishuAgentBotPolicySync,
   upsertFeishuExternalChannelDocumentSync: mockUpsertFeishuExternalChannelDocumentSync,
   upsertFeishuExternalDataTableSync: mockUpsertFeishuExternalDataTableSync,
   validateFeishuResourceDescriptorForBinding: mockValidateFeishuResourceDescriptorForBinding,
@@ -190,6 +193,7 @@ import {
   rotateFeishuIntegrationSecretAction,
   revokeFeishuUserBindingAction,
   testFeishuIntegrationConnectionAction,
+  updateFeishuAgentBotPolicyAction,
 } from "./feishu-actions";
 
 describe("Feishu actions", () => {
@@ -223,6 +227,7 @@ describe("Feishu actions", () => {
     mockResolveFeishuResourceDescriptorForType.mockReset();
     mockRotateFeishuAgentBotCredentialsSync.mockReset();
     mockTryRecordWorkspaceAuditEventSync.mockReset();
+    mockUpdateFeishuAgentBotPolicySync.mockReset();
     mockUpsertFeishuExternalChannelDocumentSync.mockReset();
     mockUpsertFeishuExternalDataTableSync.mockReset();
     mockValidateFeishuResourceDescriptorForBinding.mockReset();
@@ -1322,6 +1327,90 @@ describe("Feishu actions", () => {
       updatedByUserId: "admin-1",
     }));
     expectNoFeishuSecretLeak(mockTryRecordWorkspaceAuditEventSync.mock.calls[0]?.[0]);
+  });
+
+  it("updates agent bot governance policy through the Feishu service", async () => {
+    mockRequireCurrentWorkspaceContext.mockResolvedValue(buildWorkspaceContext("admin", "admin-1"));
+    mockUpdateFeishuAgentBotPolicySync.mockReturnValue(buildIntegration({
+      id: "agent-bot-codex",
+      displayName: "Codex Feishu Bot",
+      transportMode: "websocket_worker",
+      agentId: "Codex",
+      appId: "cli_codex_bot",
+      encryptedCredentialsJson: JSON.stringify({
+        appSecret: "v1:app-secret-ciphertext",
+      }),
+      configJson: JSON.stringify({
+        channelAutoProvisioning: {
+          botAdded: "disabled",
+          firstMessage: "reply_with_setup_card",
+          reviewStatus: "pending_admin_review",
+        },
+        externalGuestPolicy: {
+          unboundUserMode: "ignore",
+          guestPermissionProfile: "none",
+          requireIdentityFor: ["writes", "approvals", "private_resources"],
+        },
+      }),
+    }));
+    mockListFeishuIntegrationSettingsItems.mockReturnValue([
+      buildSettingsItem({
+        id: "agent-bot-codex",
+        agentId: "Codex",
+        channelAutoProvisioning: {
+          botAdded: "disabled",
+          firstMessage: "reply_with_setup_card",
+          reviewStatus: "pending_admin_review",
+        },
+        externalGuestPolicy: {
+          unboundUserMode: "ignore",
+          guestPermissionProfile: "none",
+          requireIdentityFor: ["writes", "approvals", "private_resources"],
+        },
+      }),
+    ]);
+
+    const result = await updateFeishuAgentBotPolicyAction({
+      integrationId: "agent-bot-codex",
+      channelAutoProvisioning: {
+        botAdded: "disabled",
+        firstMessage: "reply_with_setup_card",
+        reviewStatus: "pending_admin_review",
+      },
+      externalGuestPolicy: {
+        unboundUserMode: "ignore",
+        guestPermissionProfile: "none",
+        requireIdentityFor: ["writes", "approvals", "private_resources"],
+      },
+    });
+
+    expect(mockUpdateFeishuAgentBotPolicySync).toHaveBeenCalledWith({
+      workspaceId: "workspace-1",
+      integrationId: "agent-bot-codex",
+      channelAutoProvisioning: {
+        botAdded: "disabled",
+        firstMessage: "reply_with_setup_card",
+        reviewStatus: "pending_admin_review",
+      },
+      externalGuestPolicy: {
+        unboundUserMode: "ignore",
+        guestPermissionProfile: "none",
+        requireIdentityFor: ["writes", "approvals", "private_resources"],
+      },
+      updatedByUserId: "admin-1",
+    });
+    expect(mockTryRecordWorkspaceAuditEventSync).toHaveBeenCalledWith(expect.objectContaining({
+      code: "workspace.external_integration_updated",
+      data: expect.objectContaining({
+        agentId: "Codex",
+        secretRedacted: true,
+        updatedChannelAutoProvisioning: true,
+        updatedExternalGuestPolicy: true,
+      }),
+    }));
+    expect(result.externalGuestPolicy?.unboundUserMode).toBe("ignore");
+    expectNoFeishuSecretLeak(mockTryRecordWorkspaceAuditEventSync.mock.calls[0]?.[0]);
+    expectNoFeishuSecretLeak(result);
   });
 
   it("allows WebSocket worker integrations to start with only App ID and App Secret", async () => {

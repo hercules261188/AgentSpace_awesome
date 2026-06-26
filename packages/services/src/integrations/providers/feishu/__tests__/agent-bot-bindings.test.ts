@@ -13,6 +13,7 @@ import {
   listFeishuAgentBotBindingsSync,
   readFeishuAgentBotBindingByAgentSync,
   rotateFeishuAgentBotCredentialsSync,
+  updateFeishuAgentBotPolicySync,
 } from "../agent-bot-bindings.ts";
 import {
   readFeishuIntegrationCredentials,
@@ -143,6 +144,65 @@ test("Feishu agent bot binding stores channel and guest policies in config", dat
       reviewStatus: "invalid" as "approved",
     },
   }), /feishu\.agent_bot_binding\.invalid_channel_auto_provisioning_policy/);
+});
+
+test("Feishu agent bot policy updates merge with existing config", databaseTestOptions, () => {
+  const workspace = createWorkspaceSync({
+    slug: "feishu-agent-bot-policy-update",
+    name: "Feishu Agent Bot Policy Update",
+    createdBy: "system",
+  });
+
+  const binding = createFeishuAgentBotBindingSync({
+    workspaceId: workspace.id,
+    agentId: "Codex",
+    appId: "cli_codex_policy_update_bot",
+    appSecret: "super-secret",
+    channelAutoProvisioning: {
+      botAdded: "pending_admin_review",
+      firstMessage: "reply_with_setup_card",
+      reviewStatus: "pending_admin_review",
+    },
+    externalGuestPolicy: {
+      unboundUserMode: "require_identity",
+      guestPermissionProfile: "none",
+      requireIdentityFor: ["writes", "approvals"],
+    },
+  });
+
+  const updated = updateFeishuAgentBotPolicySync({
+    workspaceId: workspace.id,
+    integrationId: binding.id,
+    channelAutoProvisioning: {
+      firstMessage: "disabled",
+    },
+    externalGuestPolicy: {
+      unboundUserMode: "ignore",
+      requireIdentityFor: ["writes", "approvals", "private_resources"],
+    },
+    updatedByUserId: "admin-1",
+  });
+
+  assert.deepEqual(JSON.parse(updated.configJson), {
+    eventCallbackPath: "/api/integrations/feishu/events",
+    agentBotBinding: true,
+    dataPlane: {
+      docs: true,
+      sheets: true,
+      base: true,
+    },
+    channelAutoProvisioning: {
+      botAdded: "pending_admin_review",
+      firstMessage: "disabled",
+      reviewStatus: "pending_admin_review",
+    },
+    externalGuestPolicy: {
+      unboundUserMode: "ignore",
+      guestPermissionProfile: "none",
+      requireIdentityFor: ["writes", "approvals", "private_resources"],
+    },
+  });
+  assert.equal(updated.updatedByUserId, "admin-1");
 });
 
 test("Feishu agent bot binding keeps EventCallback verification token in advanced credentials", databaseTestOptions, () => {

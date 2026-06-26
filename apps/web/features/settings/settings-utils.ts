@@ -152,6 +152,10 @@ export function translateSettingsActionError(error: unknown, tx: SettingsTx): st
       return tx("事件回调模式需要填写 Verification Token。", "Event callback mode requires a Verification Token.");
     case "feishu.agent_bot_binding.invalid_transport_mode":
       return tx("请选择有效的飞书 Bot 连接方式。", "Select a valid Feishu bot transport.");
+    case "feishu.agent_bot_binding.invalid_channel_auto_provisioning_policy":
+      return tx("请选择有效的飞书 Bot 自动建群策略。", "Select a valid Feishu bot auto-provisioning policy.");
+    case "feishu.agent_bot_binding.invalid_external_guest_policy":
+      return tx("请选择有效的飞书 Bot 外部访客策略。", "Select a valid Feishu bot external guest policy.");
     case "feishu.agent_bot_binding.duplicate_agent":
       return tx(
         "这个 Agent 已经有一个启用中的飞书 Bot。",

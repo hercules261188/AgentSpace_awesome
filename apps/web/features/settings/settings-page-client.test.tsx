@@ -48,6 +48,7 @@ const {
   mockRotateFeishuIntegrationSecretAction,
   mockRotateFeishuAgentBotCredentialsAction,
   mockTestFeishuIntegrationConnectionAction,
+  mockUpdateFeishuAgentBotPolicyAction,
   mockUpdateWorkspaceProfileAction,
   mockUpdateWorkspaceMemberRoleAction,
 } = vi.hoisted(() => ({
@@ -82,6 +83,7 @@ const {
   mockRotateFeishuIntegrationSecretAction: vi.fn(),
   mockRotateFeishuAgentBotCredentialsAction: vi.fn(),
   mockTestFeishuIntegrationConnectionAction: vi.fn(),
+  mockUpdateFeishuAgentBotPolicyAction: vi.fn(),
   mockUpdateWorkspaceProfileAction: vi.fn(),
   mockUpdateWorkspaceMemberRoleAction: vi.fn(),
 }));
@@ -123,6 +125,7 @@ vi.mock("@/features/integrations/feishu/feishu-actions", () => ({
   rotateFeishuAgentBotCredentialsAction: mockRotateFeishuAgentBotCredentialsAction,
   rotateFeishuIntegrationSecretAction: mockRotateFeishuIntegrationSecretAction,
   testFeishuIntegrationConnectionAction: mockTestFeishuIntegrationConnectionAction,
+  updateFeishuAgentBotPolicyAction: mockUpdateFeishuAgentBotPolicyAction,
 }));
 
 vi.mock("next/navigation", () => ({
@@ -207,6 +210,7 @@ describe("SettingsPageClient", () => {
     mockRotateFeishuAgentBotCredentialsAction.mockReset();
     mockRotateFeishuIntegrationSecretAction.mockReset();
     mockTestFeishuIntegrationConnectionAction.mockReset();
+    mockUpdateFeishuAgentBotPolicyAction.mockReset();
     mockUpdateWorkspaceProfileAction.mockReset();
     mockUpdateWorkspaceMemberRoleAction.mockReset();
     mockPermissionsUpdateWorkspaceMemberRoleAction.mockReset();
@@ -914,6 +918,95 @@ describe("SettingsPageClient", () => {
     expect(within(panel).getByRole("combobox", { name: "未绑定用户" })).toBeVisible();
   });
 
+  it("updates an existing agent Feishu bot governance policy from settings", async () => {
+    const user = userEvent.setup();
+    mockUpdateFeishuAgentBotPolicyAction.mockResolvedValue(buildFeishuIntegration({
+      id: "agent-bot-codex",
+      displayName: "Codex Feishu Bot",
+      agentId: "Codex",
+      transportMode: "websocket_worker",
+      appId: "cli_codex_bot",
+      channelAutoProvisioning: {
+        botAdded: "disabled",
+        firstMessage: "reply_with_setup_card",
+        reviewStatus: "pending_admin_review",
+      },
+      externalGuestPolicy: {
+        unboundUserMode: "ignore",
+        guestPermissionProfile: "none",
+        requireIdentityFor: ["writes", "approvals", "private_resources"],
+      },
+    }));
+
+    renderSettingsPage({
+      currentMembershipRole: "admin",
+      feishuAvailableAgents: [
+        { id: "Codex", name: "Codex", role: "Engineer" },
+      ],
+      feishuAvailableChannels: [],
+      feishuAvailableUsers: [],
+      feishuIntegrations: [
+        buildFeishuIntegration({
+          id: "agent-bot-codex",
+          displayName: "Codex Feishu Bot",
+          agentId: "Codex",
+          transportMode: "websocket_worker",
+          appId: "cli_codex_bot",
+          channelAutoProvisioning: {
+            botAdded: "auto_create_channel",
+            firstMessage: "auto_create_if_bot_mentioned",
+            reviewStatus: "approved",
+          },
+          externalGuestPolicy: {
+            unboundUserMode: "reply_on_mention",
+            guestPermissionProfile: "channel_context_only",
+            requireIdentityFor: [
+              "writes",
+              "approvals",
+              "private_resources",
+              "runtime_sensitive_tools",
+            ],
+          },
+        }),
+      ],
+      initialSection: "integrations",
+    });
+
+    const panel = screen.getByRole("region", { name: "Agent 飞书 Bot" });
+    const card = within(panel).getByText("Codex Feishu Bot").closest("article");
+    expect(card).not.toBeNull();
+    const cardView = within(card as HTMLElement);
+
+    await user.click(cardView.getByText("调整治理策略"));
+    await user.selectOptions(cardView.getByRole("combobox", { name: "机器人进群" }), "disabled");
+    await user.selectOptions(cardView.getByRole("combobox", { name: "首次消息" }), "reply_with_setup_card");
+    await user.selectOptions(cardView.getByRole("combobox", { name: "建群审核状态" }), "pending_admin_review");
+    await user.selectOptions(cardView.getByRole("combobox", { name: "未绑定用户" }), "ignore");
+    await user.selectOptions(cardView.getByRole("combobox", { name: "访客权限" }), "none");
+    await user.click(cardView.getByRole("checkbox", { name: "高风险工具" }));
+    await user.click(cardView.getByRole("button", { name: "保存策略" }));
+
+    await waitFor(() => {
+      expect(mockUpdateFeishuAgentBotPolicyAction).toHaveBeenCalledWith({
+        integrationId: "agent-bot-codex",
+        channelAutoProvisioning: {
+          botAdded: "disabled",
+          firstMessage: "reply_with_setup_card",
+          reviewStatus: "pending_admin_review",
+        },
+        externalGuestPolicy: {
+          unboundUserMode: "ignore",
+          guestPermissionProfile: "none",
+          requireIdentityFor: ["writes", "approvals", "private_resources"],
+        },
+      });
+    });
+    expect(await screen.findByText("Agent 飞书 Bot 治理策略已更新。")).toBeInTheDocument();
+    expect(screen.getByLabelText("飞书 Bot 治理策略")).toHaveTextContent("未绑定用户: 忽略");
+    expect(screen.getByLabelText("飞书 Bot 治理策略")).toHaveTextContent("访客权限: 无");
+    expect(screen.getByLabelText("飞书 Bot 治理策略")).toHaveTextContent("机器人进群: 关闭");
+  });
+
   it("renders Feishu smoke readiness checks in the integration guide", () => {
     renderSettingsPage({
       currentMembershipRole: "admin",
@@ -921,7 +1014,7 @@ describe("SettingsPageClient", () => {
       feishuAvailableUsers: [],
       feishuIntegrations: [
         buildFeishuIntegration({
-          setupGuide: buildFeishuSetupGuide(),
+          setupGuide: buildFeishuSetupGuide({ agentBot: true }),
         }),
       ],
       initialSection: "integrations",
@@ -948,6 +1041,17 @@ describe("SettingsPageClient", () => {
     expect(within(checklist).getByText("创建自建应用")).toBeInTheDocument();
     expect(within(checklist).getAllByText("https://open.feishu.cn/app").length).toBeGreaterThan(0);
     expect(screen.getByText("检查联调环境")).toBeInTheDocument();
+    expect(screen.getByText("治理策略命令")).toBeInTheDocument();
+    expect(screen.getByText(
+      "agent-space integrations feishu auto-provision-policy --workspace-id workspace-1 --integration feishu-1 --bot-added-policy auto_create_channel --first-message-policy auto_create_if_bot_mentioned --unbound-user-mode reply_on_mention --guest-permission-profile channel_context_only --json",
+    )).toBeInTheDocument();
+    expect(screen.getByText(
+      "agent-space integrations feishu agent-bot-readiness --workspace-id workspace-1 --integration feishu-1 --strict --require bot --json",
+    )).toBeInTheDocument();
+    expect(screen.getByText("群聊映射命令")).toBeInTheDocument();
+    expect(screen.getByText(
+      "agent-space integrations feishu channel-bindings --workspace-id workspace-1 --integration feishu-1 --json",
+    )).toBeInTheDocument();
     expect(screen.getByText("npm run smoke:feishu -- --env-file scripts/feishu/.env --check-env --json")).toBeInTheDocument();
     expect(screen.getByText("严格实测")).toBeInTheDocument();
     expect(screen.getByText(
@@ -1711,9 +1815,10 @@ function buildFeishuIntegration(
   };
 }
 
-function buildFeishuSetupGuide(): NonNullable<
+function buildFeishuSetupGuide(options: { agentBot?: boolean } = {}): NonNullable<
   NonNullable<ComponentProps<typeof SettingsPageClient>["feishuIntegrations"]>[number]["setupGuide"]
 > {
+  const readinessCommand = options.agentBot ? "agent-bot-readiness" : "readiness";
   return {
     requiredCredentialFields: ["app_id", "app_secret", "verification_token", "encrypt_key"],
     requiredEvents: ["im.message.receive_v1", "card.action.trigger"],
@@ -1761,9 +1866,15 @@ function buildFeishuSetupGuide(): NonNullable<
     ],
     commands: {
       healthCheck: "agent-space integrations feishu health-check --workspace-id workspace-1 --integration feishu-1 --strict --json",
-      botReadiness: "agent-space integrations feishu readiness --workspace-id workspace-1 --integration feishu-1 --strict --require bot --json",
-      dataPlaneReadiness: "agent-space integrations feishu readiness --workspace-id workspace-1 --integration feishu-1 --strict --require data-plane --json",
-      workerReadiness: "agent-space integrations feishu readiness --workspace-id workspace-1 --integration feishu-1 --strict --require worker --json",
+      botReadiness: `agent-space integrations feishu ${readinessCommand} --workspace-id workspace-1 --integration feishu-1 --strict --require bot --json`,
+      dataPlaneReadiness: `agent-space integrations feishu ${readinessCommand} --workspace-id workspace-1 --integration feishu-1 --strict --require data-plane --json`,
+      workerReadiness: `agent-space integrations feishu ${readinessCommand} --workspace-id workspace-1 --integration feishu-1 --strict --require worker --json`,
+      ...(options.agentBot
+        ? {
+          autoProvisionPolicy: "agent-space integrations feishu auto-provision-policy --workspace-id workspace-1 --integration feishu-1 --bot-added-policy auto_create_channel --first-message-policy auto_create_if_bot_mentioned --unbound-user-mode reply_on_mention --guest-permission-profile channel_context_only --json",
+          channelBindings: "agent-space integrations feishu channel-bindings --workspace-id workspace-1 --integration feishu-1 --json",
+        }
+        : {}),
       smokeEnv: "agent-space integrations feishu smoke-env --workspace-id workspace-1 --integration feishu-1 --app-url https://agent.test > scripts/feishu/.env",
       checkEnv: "npm run smoke:feishu -- --env-file scripts/feishu/.env --check-env --json",
       strictLiveSmoke: "npm run smoke:feishu -- --env-file scripts/feishu/.env --live --strict-live --evidence runtime-output/feishu-smoke/live.json --json",

@@ -3,6 +3,7 @@ import {
   listExternalIntegrationsSync,
   readExternalIntegrationByAgentSync,
   readExternalIntegrationSync,
+  updateExternalIntegrationConfigSync,
   updateExternalIntegrationCredentialsSync,
   updateExternalIntegrationHealthSync,
   updateExternalIntegrationStatusSync,
@@ -72,6 +73,15 @@ export interface RotateFeishuAgentBotCredentialsInput {
   tenantKey?: string;
   verificationToken?: string;
   encryptKey?: string;
+  updatedByUserId?: string;
+}
+
+export interface UpdateFeishuAgentBotPolicyInput {
+  workspaceId: string;
+  integrationId?: string;
+  agentId?: string;
+  channelAutoProvisioning?: FeishuAgentBotChannelAutoProvisioningInput;
+  externalGuestPolicy?: FeishuAgentBotExternalGuestPolicyInput;
   updatedByUserId?: string;
 }
 
@@ -160,24 +170,25 @@ function buildFeishuAgentBotChannelAutoProvisioningConfig(
   if (!policy) {
     return {};
   }
+  const channelAutoProvisioning = compactRecord({
+    botAdded: normalizeOptionalPolicyValue(
+      policy.botAdded,
+      ["auto_create_channel", "pending_admin_review", "disabled"],
+      "feishu.agent_bot_binding.invalid_channel_auto_provisioning_policy",
+    ),
+    firstMessage: normalizeOptionalPolicyValue(
+      policy.firstMessage,
+      ["auto_create_if_bot_mentioned", "pending_admin_review", "reply_with_setup_card", "disabled"],
+      "feishu.agent_bot_binding.invalid_channel_auto_provisioning_policy",
+    ),
+    reviewStatus: normalizeOptionalPolicyValue(
+      policy.reviewStatus,
+      ["approved", "pending_admin_review", "needs_identity_binding"],
+      "feishu.agent_bot_binding.invalid_channel_auto_provisioning_policy",
+    ),
+  });
   return {
-    channelAutoProvisioning: {
-      botAdded: normalizeOptionalPolicyValue(
-        policy.botAdded,
-        ["auto_create_channel", "pending_admin_review", "disabled"],
-        "feishu.agent_bot_binding.invalid_channel_auto_provisioning_policy",
-      ),
-      firstMessage: normalizeOptionalPolicyValue(
-        policy.firstMessage,
-        ["auto_create_if_bot_mentioned", "pending_admin_review", "reply_with_setup_card", "disabled"],
-        "feishu.agent_bot_binding.invalid_channel_auto_provisioning_policy",
-      ),
-      reviewStatus: normalizeOptionalPolicyValue(
-        policy.reviewStatus,
-        ["approved", "pending_admin_review", "needs_identity_binding"],
-        "feishu.agent_bot_binding.invalid_channel_auto_provisioning_policy",
-      ),
-    },
+    channelAutoProvisioning,
   };
 }
 
@@ -187,21 +198,26 @@ function buildFeishuAgentBotExternalGuestPolicyConfig(
   if (!policy) {
     return {};
   }
+  const externalGuestPolicy = compactRecord({
+    unboundUserMode: normalizeOptionalPolicyValue(
+      policy.unboundUserMode,
+      ["ignore", "reply_on_mention", "reply_all", "require_identity"],
+      "feishu.agent_bot_binding.invalid_external_guest_policy",
+    ),
+    guestPermissionProfile: normalizeOptionalPolicyValue(
+      policy.guestPermissionProfile,
+      ["none", "channel_context_only", "channel_readonly"],
+      "feishu.agent_bot_binding.invalid_external_guest_policy",
+    ),
+    requireIdentityFor: normalizePolicyStringArray(policy.requireIdentityFor),
+  });
   return {
-    externalGuestPolicy: {
-      unboundUserMode: normalizeOptionalPolicyValue(
-        policy.unboundUserMode,
-        ["ignore", "reply_on_mention", "reply_all", "require_identity"],
-        "feishu.agent_bot_binding.invalid_external_guest_policy",
-      ),
-      guestPermissionProfile: normalizeOptionalPolicyValue(
-        policy.guestPermissionProfile,
-        ["none", "channel_context_only", "channel_readonly"],
-        "feishu.agent_bot_binding.invalid_external_guest_policy",
-      ),
-      requireIdentityFor: normalizePolicyStringArray(policy.requireIdentityFor),
-    },
+    externalGuestPolicy,
   };
+}
+
+function compactRecord(values: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(values).filter(([, value]) => value !== undefined));
 }
 
 function normalizeOptionalPolicyValue<T extends string>(
@@ -309,6 +325,32 @@ export function disableFeishuAgentBotBindingSync(
   return requireFeishuAgentBotBinding(updated);
 }
 
+export function updateFeishuAgentBotPolicySync(
+  input: UpdateFeishuAgentBotPolicyInput,
+): FeishuAgentBotBinding {
+  const binding = resolveFeishuAgentBotBindingSync(input);
+  const configPatch = {
+    ...buildFeishuAgentBotChannelAutoProvisioningConfig(input.channelAutoProvisioning),
+    ...buildFeishuAgentBotExternalGuestPolicyConfig(input.externalGuestPolicy),
+  };
+
+  if (Object.keys(configPatch).length === 0) {
+    return binding;
+  }
+
+  try {
+    const updated = updateExternalIntegrationConfigSync({
+      workspaceId: input.workspaceId,
+      integrationId: binding.id,
+      configJson: mergeFeishuAgentBotConfigPatch(binding.configJson, configPatch),
+      updatedByUserId: optionalText(input.updatedByUserId),
+    });
+    return requireFeishuAgentBotBinding(updated);
+  } catch (error) {
+    throw normalizeFeishuAgentBotBindingError(error);
+  }
+}
+
 export async function checkFeishuAgentBotHealth(input: {
   workspaceId: string;
   integrationId?: string;
@@ -393,6 +435,48 @@ function requireFeishuAgentBotBinding(record: ExternalIntegrationRecord | null |
     throw new Error("feishu.agent_bot_binding.not_found");
   }
   return record;
+}
+
+function mergeFeishuAgentBotConfigPatch(
+  configJson: string,
+  patch: Record<string, unknown>,
+): Record<string, unknown> {
+  const currentConfig = parseJsonRecord(configJson);
+  const nextConfig: Record<string, unknown> = { ...currentConfig };
+  const channelPatch = asPlainRecord(patch.channelAutoProvisioning);
+  const guestPatch = asPlainRecord(patch.externalGuestPolicy);
+
+  if (channelPatch && Object.keys(channelPatch).length > 0) {
+    nextConfig.channelAutoProvisioning = {
+      ...(asPlainRecord(currentConfig.channelAutoProvisioning) ?? {}),
+      ...channelPatch,
+    };
+  }
+  if (guestPatch && Object.keys(guestPatch).length > 0) {
+    nextConfig.externalGuestPolicy = {
+      ...(asPlainRecord(currentConfig.externalGuestPolicy) ?? {}),
+      ...guestPatch,
+    };
+  }
+
+  return nextConfig;
+}
+
+function parseJsonRecord(value: string | undefined): Record<string, unknown> {
+  if (!value) {
+    return {};
+  }
+  try {
+    return asPlainRecord(JSON.parse(value)) ?? {};
+  } catch {
+    return {};
+  }
+}
+
+function asPlainRecord(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined;
 }
 
 function validateTransportMode(value: ExternalIntegrationTransportMode): void {

@@ -341,6 +341,20 @@ function FeishuSetupGuide({
       label: tx("长连接前置检查", "Worker Readiness"),
       value: guide.commands.workerReadiness,
     },
+    ...(guide.commands.autoProvisionPolicy
+      ? [{
+        key: "auto-provision-policy",
+        label: tx("治理策略命令", "Governance Policy Command"),
+        value: guide.commands.autoProvisionPolicy,
+      }]
+      : []),
+    ...(guide.commands.channelBindings
+      ? [{
+        key: "channel-bindings",
+        label: tx("群聊映射命令", "Channel Bindings Command"),
+        value: guide.commands.channelBindings,
+      }]
+      : []),
     {
       key: "smoke-env",
       label: tx("生成联调环境", "Smoke Env"),

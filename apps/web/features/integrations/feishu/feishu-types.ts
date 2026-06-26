@@ -219,6 +219,8 @@ export interface FeishuIntegrationSetupGuide {
     botReadiness: string;
     dataPlaneReadiness: string;
     workerReadiness: string;
+    autoProvisionPolicy?: string;
+    channelBindings?: string;
     smokeEnv: string;
     checkEnv: string;
     strictLiveSmoke: string;
@@ -311,6 +313,12 @@ export interface RotateFeishuAgentBotCredentialsInput {
   verificationToken?: string;
   encryptKey?: string;
   tenantKey?: string;
+}
+
+export interface UpdateFeishuAgentBotPolicyInput {
+  integrationId: string;
+  channelAutoProvisioning?: FeishuAgentBotChannelAutoProvisioningInput;
+  externalGuestPolicy?: FeishuAgentBotExternalGuestPolicyInput;
 }
 
 export interface TestFeishuIntegrationConnectionInput {

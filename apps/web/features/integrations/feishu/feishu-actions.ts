@@ -34,6 +34,7 @@ import {
   resolveFeishuResourceDescriptorForType,
   rotateFeishuAgentBotCredentialsSync,
   tryRecordWorkspaceAuditEventSync,
+  updateFeishuAgentBotPolicySync,
   upsertFeishuExternalChannelDocumentSync,
   upsertFeishuExternalDataTableSync,
   validateFeishuResourceDescriptorForBinding,
@@ -66,6 +67,7 @@ import type {
   RotateFeishuIntegrationSecretInput,
   TestFeishuIntegrationConnectionInput,
   TestFeishuIntegrationConnectionResult,
+  UpdateFeishuAgentBotPolicyInput,
   UpdateFeishuBindingStatusInput,
 } from "./feishu-types";
 
@@ -332,6 +334,54 @@ export async function disableFeishuAgentBotBindingAction(
       provider: FEISHU_PROVIDER_ID,
       agentId: integration.agentId,
       secretRedacted: true,
+    },
+  });
+  revalidateWorkspacePaths(workspaceContext.currentWorkspace.slug, SETTINGS_REVALIDATE_PATHS);
+
+  return requireFeishuIntegrationSettingsItem({
+    workspaceId: workspaceContext.currentWorkspace.id,
+    integrationId: integration.id,
+    appUrl: readPublicAppUrl(),
+    viewer: {
+      role: workspaceContext.currentMembership.role,
+      userId: workspaceContext.currentUser.id,
+    },
+  });
+}
+
+export async function updateFeishuAgentBotPolicyAction(
+  input: UpdateFeishuAgentBotPolicyInput,
+): Promise<FeishuIntegrationSettingsItem> {
+  const workspaceContext = await requireCurrentWorkspaceContext();
+  assertWorkspaceRoleForContext(workspaceContext, "admin");
+
+  let integration: ReturnType<typeof updateFeishuAgentBotPolicySync>;
+  try {
+    integration = updateFeishuAgentBotPolicySync({
+      workspaceId: workspaceContext.currentWorkspace.id,
+      integrationId: input.integrationId,
+      channelAutoProvisioning: input.channelAutoProvisioning,
+      externalGuestPolicy: input.externalGuestPolicy,
+      updatedByUserId: workspaceContext.currentUser.id,
+    });
+  } catch (error) {
+    throw normalizeFeishuAgentBotBindingWriteError(error);
+  }
+
+  tryRecordWorkspaceAuditEventSync({
+    workspaceId: workspaceContext.currentWorkspace.id,
+    title: "Feishu agent bot policy updated",
+    note: `${workspaceContext.currentUser.displayName} updated Feishu bot policy for agent "${integration.agentId}".`,
+    code: "workspace.external_integration_updated",
+    data: {
+      actorType: "session_user",
+      resourceType: "external_integration",
+      resourceId: integration.id,
+      provider: FEISHU_PROVIDER_ID,
+      agentId: integration.agentId,
+      secretRedacted: true,
+      updatedChannelAutoProvisioning: Boolean(input.channelAutoProvisioning),
+      updatedExternalGuestPolicy: Boolean(input.externalGuestPolicy),
     },
   });
   revalidateWorkspacePaths(workspaceContext.currentWorkspace.slug, SETTINGS_REVALIDATE_PATHS);

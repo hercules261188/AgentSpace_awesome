@@ -542,6 +542,7 @@ export {
   readFeishuThreadBindingSync,
   reviewFeishuDataOperationApproval,
   rotateFeishuAgentBotCredentialsSync,
+  updateFeishuAgentBotPolicySync,
   resolveFeishuCallbackAppId,
   resolveFeishuCallbackTenantKey,
   resolveFeishuBaseResource,
@@ -672,6 +673,7 @@ export {
   type FeishuWebSocketWorkerSessionFactoryInput,
   type FeishuWebSocketWorkerSummary,
   type RotateFeishuAgentBotCredentialsInput,
+  type UpdateFeishuAgentBotPolicyInput,
 } from "./integrations/providers/feishu/index.ts";
 
 // Search

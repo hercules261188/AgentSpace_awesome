@@ -21,6 +21,7 @@ import {
   upsertExternalResourceBindingSync,
   upsertExternalUserBindingSync,
   type ExternalChannelBindingRecord,
+  type ExternalBindingStatus,
   type ExternalDataOperationRunRecord,
   type ExternalIntegrationHealthStatus,
   type ExternalIntegrationEventRecord,
@@ -58,6 +59,8 @@ import {
   FEISHU_REQUIRED_CREDENTIAL_FIELDS,
   FEISHU_REQUIRED_EVENTS,
   readFeishuIntegrationCredentials,
+  readFeishuChannelAutoProvisionPolicy,
+  readFeishuExternalParticipantPolicy,
   planBoundFeishuWriteDataOperation,
   planBoundFeishuWriteDataOperationWithApproval,
   reviewFeishuDataOperationApproval,
@@ -67,6 +70,7 @@ import {
   summarizeFeishuStoredCredentials,
   tryRecordWorkspaceAuditEventSync,
   rotateFeishuAgentBotCredentialsSync,
+  updateFeishuAgentBotPolicySync,
   upsertFeishuExternalChannelDocumentSync,
   upsertFeishuExternalDataTableSync,
   validateFeishuResourceDescriptorForBinding,
@@ -77,6 +81,8 @@ import {
   type FeishuAgentBotChannelAutoProvisioningInput,
   type FeishuAgentBotExternalGuestPolicyInput,
   type FeishuAgentBotBinding,
+  type FeishuChannelAutoProvisionPolicy,
+  type FeishuExternalParticipantPolicy,
   type FeishuApiClient,
   type FeishuApiRequest,
   type FeishuHealthCheckResult,
@@ -339,7 +345,7 @@ export interface FeishuAgentBotCliInput {
 export interface FeishuAgentBotCliResult {
   ok: true;
   kind: "agent_bot";
-  operation: "created" | "rotated" | "disabled";
+  operation: "created" | "rotated" | "disabled" | "policy_updated" | "policy_read";
   workspaceId: string;
   integrationId: string;
   agentId: string;
@@ -353,6 +359,8 @@ export interface FeishuAgentBotCliResult {
     hasVerificationToken: boolean;
     hasEncryptKey: boolean;
   };
+  channelAutoProvisioning: FeishuChannelAutoProvisionPolicy;
+  externalGuestPolicy: FeishuExternalParticipantPolicy;
   secretRedacted: true;
 }
 
@@ -370,6 +378,48 @@ export interface FeishuBindingCliResult {
   providerResourceType?: string;
   agentSpaceResourceType?: string;
   agentSpaceResourceId?: string;
+}
+
+export interface FeishuChannelBindingsCliReport {
+  ok: true;
+  workspaceId: string;
+  integrationId?: string;
+  integrationCount: number;
+  bindingCount: number;
+  activeBindingCount: number;
+  externalIdsRedacted: true;
+  integrations: FeishuChannelBindingsIntegrationSummary[];
+  bindings: FeishuChannelBindingCliItem[];
+}
+
+export interface FeishuChannelBindingsIntegrationSummary {
+  integrationId: string;
+  displayName: string;
+  agentId?: string;
+  status: string;
+  bindingCount: number;
+  activeBindingCount: number;
+}
+
+export interface FeishuChannelBindingCliItem {
+  bindingId: string;
+  integrationId: string;
+  integrationDisplayName: string;
+  integrationAgentId?: string;
+  channelName: string;
+  externalChatReference: string;
+  externalChatIdRedacted: true;
+  externalChatType?: string;
+  externalChatName?: string;
+  status: string;
+  syncMode: string;
+  provisionSource?: string;
+  reviewStatus?: string;
+  agentId?: string;
+  botBindingId?: string;
+  linkedFromBindingId?: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface FeishuDataOperationCliResult {
@@ -593,6 +643,8 @@ type FeishuEvidenceRequirement = "bot" | "native" | "guest-policy" | "data-plane
 interface BuildFeishuReadinessReportInput {
   workspaceId: string;
   integrationId?: string;
+  agentId?: string;
+  agentOnly?: boolean;
   requiredReadiness?: FeishuRequiredReadiness;
   integrations?: ExternalIntegrationRecord[];
   channelBindingsByIntegrationId?: Record<string, ExternalChannelBindingRecord[]>;
@@ -652,13 +704,22 @@ export async function runFeishuIntegrationCommand(args: string[], format: Output
     return 0;
   }
   if (
-    (subcommand === "bind-agent-bot" || subcommand === "disable-agent-bot" || subcommand === "rotate-agent-bot-secret") &&
+    (
+      subcommand === "bind-agent-bot" ||
+      subcommand === "disable-agent-bot" ||
+      subcommand === "rotate-agent-bot-secret" ||
+      subcommand === "auto-provision-policy"
+    ) &&
     hasHelpFlag(parsed.flags)
   ) {
     printFeishuIntegrationHelp();
     return 0;
   }
   if (subcommand === "readiness" && hasHelpFlag(parsed.flags)) {
+    printFeishuIntegrationHelp();
+    return 0;
+  }
+  if (subcommand === "agent-bot-readiness" && hasHelpFlag(parsed.flags)) {
     printFeishuIntegrationHelp();
     return 0;
   }
@@ -686,6 +747,10 @@ export async function runFeishuIntegrationCommand(args: string[], format: Output
     printFeishuIntegrationHelp();
     return 0;
   }
+  if (subcommand === "channel-bindings" && hasHelpFlag(parsed.flags)) {
+    printFeishuIntegrationHelp();
+    return 0;
+  }
   if (
     (subcommand === "bind-channel" || subcommand === "bind-user" || subcommand === "bind-resource") &&
     hasHelpFlag(parsed.flags)
@@ -700,13 +765,16 @@ export async function runFeishuIntegrationCommand(args: string[], format: Output
     subcommand !== "bind-agent-bot" &&
     subcommand !== "disable-agent-bot" &&
     subcommand !== "rotate-agent-bot-secret" &&
+    subcommand !== "auto-provision-policy" &&
     subcommand !== "readiness" &&
+    subcommand !== "agent-bot-readiness" &&
     subcommand !== "smoke-plan" &&
     subcommand !== "smoke-env" &&
     subcommand !== "health-check" &&
     subcommand !== "evidence" &&
     subcommand !== "data-operation" &&
     subcommand !== "review-data-operation" &&
+    subcommand !== "channel-bindings" &&
     subcommand !== "bind-channel" &&
     subcommand !== "bind-user" &&
     subcommand !== "bind-resource"
@@ -744,6 +812,21 @@ export async function runFeishuIntegrationCommand(args: string[], format: Output
     const report = buildFeishuReadinessReport({
       workspaceId,
       integrationId,
+      requiredReadiness,
+    });
+    writeData(format, report);
+    return report.integrationCount === 0 || (strictReadiness && !report.strictSatisfied) ? 1 : 0;
+  }
+
+  if (subcommand === "agent-bot-readiness") {
+    const requiredReadiness = parseRequiredReadiness(getStringFlag(parsed.flags, "require"));
+    const report = buildFeishuReadinessReport({
+      workspaceId,
+      integrationId,
+      agentId: getStringFlag(parsed.flags, "agent")
+        ?? getStringFlag(parsed.flags, "agent-id")
+        ?? getStringFlag(parsed.flags, "agent-name"),
+      agentOnly: true,
       requiredReadiness,
     });
     writeData(format, report);
@@ -874,6 +957,26 @@ export async function runFeishuIntegrationCommand(args: string[], format: Output
     }
   }
 
+  if (subcommand === "auto-provision-policy") {
+    try {
+      const report = updateFeishuAgentBotPolicyForCli(buildFeishuAgentBotPolicyCliInputFromFlags({
+        workspaceId,
+        integrationId,
+        flags: parsed.flags,
+        actorUserId: createdByUserId,
+      }));
+      writeData(format, report);
+      return 0;
+    } catch (error) {
+      const report = buildFeishuCliAgentBotErrorReport(error);
+      if (!report) {
+        throw error;
+      }
+      writeData(format, report);
+      return 1;
+    }
+  }
+
   if (subcommand === "smoke-plan") {
     const requiredReadiness = parseRequiredReadiness(getStringFlag(parsed.flags, "require"));
     const report = buildFeishuSmokePlanReport({
@@ -965,6 +1068,25 @@ export async function runFeishuIntegrationCommand(args: string[], format: Output
     });
     writeData(format, report);
     return report.ok ? 0 : 1;
+  }
+
+  if (subcommand === "channel-bindings") {
+    try {
+      const report = buildFeishuChannelBindingsCliReport({
+        workspaceId,
+        integrationId,
+        status: parseFeishuBindingStatusFlag(getStringFlag(parsed.flags, "status")),
+      });
+      writeData(format, report);
+      return 0;
+    } catch (error) {
+      const report = buildFeishuCliBindingErrorReport(error);
+      if (!report) {
+        throw error;
+      }
+      writeData(format, report);
+      return 1;
+    }
   }
 
   if (subcommand === "bind-channel") {
@@ -1280,6 +1402,25 @@ export function disableFeishuAgentBotForCli(
   return buildFeishuAgentBotCliResult("disabled", binding);
 }
 
+export function updateFeishuAgentBotPolicyForCli(
+  input: FeishuAgentBotCliInput,
+  deps: {
+    updatePolicy?: typeof updateFeishuAgentBotPolicySync;
+  } = {},
+): FeishuAgentBotCliResult {
+  const updatePolicy = deps.updatePolicy ?? updateFeishuAgentBotPolicySync;
+  const hasPolicyPatch = Boolean(input.channelAutoProvisioning || input.externalGuestPolicy);
+  const binding = updatePolicy({
+    workspaceId: input.workspaceId,
+    integrationId: normalizeOptionalText(input.integrationId),
+    agentId: normalizeOptionalText(input.agentId),
+    ...(input.channelAutoProvisioning ? { channelAutoProvisioning: input.channelAutoProvisioning } : {}),
+    ...(input.externalGuestPolicy ? { externalGuestPolicy: input.externalGuestPolicy } : {}),
+    updatedByUserId: normalizeOptionalText(input.actorUserId),
+  });
+  return buildFeishuAgentBotCliResult(hasPolicyPatch ? "policy_updated" : "policy_read", binding);
+}
+
 function buildFeishuAgentBotCliResult(
   operation: FeishuAgentBotCliResult["operation"],
   binding: FeishuAgentBotBinding,
@@ -1297,6 +1438,8 @@ function buildFeishuAgentBotCliResult(
     appId: binding.appId,
     tenantKeyConfigured: Boolean(binding.tenantKey),
     credentials: summarizeFeishuStoredCredentials(binding),
+    channelAutoProvisioning: readFeishuChannelAutoProvisionPolicy(binding),
+    externalGuestPolicy: readFeishuExternalParticipantPolicy(binding),
     secretRedacted: true,
   };
 }
@@ -1424,6 +1567,24 @@ export function buildFeishuAgentBotCliInputFromFlags(input: {
   };
 }
 
+export function buildFeishuAgentBotPolicyCliInputFromFlags(input: {
+  workspaceId: string;
+  integrationId?: string;
+  flags: Record<string, string | boolean>;
+  actorUserId?: string;
+}): FeishuAgentBotCliInput {
+  return {
+    workspaceId: input.workspaceId,
+    integrationId: normalizeOptionalText(input.integrationId),
+    agentId: getStringFlag(input.flags, "agent")
+      ?? getStringFlag(input.flags, "agent-id")
+      ?? getStringFlag(input.flags, "agent-name"),
+    channelAutoProvisioning: buildFeishuAgentBotChannelAutoProvisioningFromFlags(input.flags),
+    externalGuestPolicy: buildFeishuAgentBotExternalGuestPolicyFromFlags(input.flags),
+    actorUserId: input.actorUserId,
+  };
+}
+
 export function readFeishuCreateCliEnv(input: {
   envFilePath?: string;
   env?: Record<string, string | undefined>;
@@ -1458,8 +1619,13 @@ function buildFeishuAgentBotChannelAutoProvisioningFromFlags(
     "pending_admin_review",
     "needs_identity_binding",
   ], "feishu.agent_bot_binding.invalid_channel_auto_provisioning_policy");
-  return botAdded || firstMessage || reviewStatus
-    ? { botAdded, firstMessage, reviewStatus }
+  const policy = {
+    ...(botAdded ? { botAdded } : {}),
+    ...(firstMessage ? { firstMessage } : {}),
+    ...(reviewStatus ? { reviewStatus } : {}),
+  };
+  return Object.keys(policy).length > 0
+    ? policy
     : undefined;
 }
 
@@ -1478,8 +1644,13 @@ function buildFeishuAgentBotExternalGuestPolicyFromFlags(
     "channel_readonly",
   ], "feishu.agent_bot_binding.invalid_external_guest_policy");
   const requireIdentityFor = readFeishuPolicyListFlag(flags, ["require-identity-for", "require_identity_for"]);
-  return unboundUserMode || guestPermissionProfile || requireIdentityFor
-    ? { unboundUserMode, guestPermissionProfile, requireIdentityFor }
+  const policy = {
+    ...(unboundUserMode ? { unboundUserMode } : {}),
+    ...(guestPermissionProfile ? { guestPermissionProfile } : {}),
+    ...(requireIdentityFor ? { requireIdentityFor } : {}),
+  };
+  return Object.keys(policy).length > 0
+    ? policy
     : undefined;
 }
 
@@ -1613,6 +1784,93 @@ export function createFeishuChannelBindingForCli(
     externalIdRedacted: true,
     auditRecorded,
     channelName: binding.channelName,
+  };
+}
+
+export function buildFeishuChannelBindingsCliReport(input: {
+  workspaceId: string;
+  integrationId?: string;
+  status?: ExternalBindingStatus;
+  integrations?: ExternalIntegrationRecord[];
+  channelBindingsByIntegrationId?: Record<string, ExternalChannelBindingRecord[]>;
+}): FeishuChannelBindingsCliReport {
+  const integrations = (input.integrations ?? listExternalIntegrationsSync({
+    workspaceId: input.workspaceId,
+    provider: FEISHU_PROVIDER_ID,
+    includeDisabled: true,
+  })).filter((integration) => !input.integrationId || integration.id === input.integrationId);
+  const bindingsByIntegrationId = new Map<string, ExternalChannelBindingRecord[]>();
+  for (const integration of integrations) {
+    bindingsByIntegrationId.set(
+      integration.id,
+      input.channelBindingsByIntegrationId?.[integration.id] ?? listExternalChannelBindingsSync({
+        workspaceId: input.workspaceId,
+        integrationId: integration.id,
+        status: input.status,
+      }),
+    );
+  }
+  const bindings = integrations.flatMap((integration) =>
+    (bindingsByIntegrationId.get(integration.id) ?? []).map((binding) =>
+      buildFeishuChannelBindingCliItem({
+        integration,
+        binding,
+      })
+    )
+  );
+
+  return {
+    ok: true,
+    workspaceId: input.workspaceId,
+    ...(input.integrationId ? { integrationId: input.integrationId } : {}),
+    integrationCount: integrations.length,
+    bindingCount: bindings.length,
+    activeBindingCount: bindings.filter((binding) => binding.status === "active").length,
+    externalIdsRedacted: true,
+    integrations: integrations.map((integration) => {
+      const channelBindings = bindingsByIntegrationId.get(integration.id) ?? [];
+      return {
+        integrationId: integration.id,
+        displayName: integration.displayName,
+        ...(integration.agentId ? { agentId: integration.agentId } : {}),
+        status: integration.status,
+        bindingCount: channelBindings.length,
+        activeBindingCount: channelBindings.filter((binding) => binding.status === "active").length,
+      };
+    }),
+    bindings,
+  };
+}
+
+function buildFeishuChannelBindingCliItem(input: {
+  integration: ExternalIntegrationRecord;
+  binding: ExternalChannelBindingRecord;
+}): FeishuChannelBindingCliItem {
+  const metadata = readJsonRecord(input.binding.metadataJson) ?? {};
+  const provisionSource = readStringMetadata(metadata.provisionSource);
+  const reviewStatus = readStringMetadata(metadata.reviewStatus);
+  const agentId = readStringMetadata(metadata.agentId) ?? input.integration.agentId;
+  const botBindingId = readStringMetadata(metadata.botBindingId);
+  const linkedFromBindingId = readStringMetadata(metadata.linkedFromBindingId);
+  return {
+    bindingId: input.binding.id,
+    integrationId: input.integration.id,
+    integrationDisplayName: input.integration.displayName,
+    ...(input.integration.agentId ? { integrationAgentId: input.integration.agentId } : {}),
+    channelName: input.binding.channelName,
+    externalChatReference: buildFeishuCliExternalReference("chat", input.binding.externalChatId),
+    externalChatIdRedacted: true,
+    ...(input.binding.externalChatType ? { externalChatType: input.binding.externalChatType } : {}),
+    ...(input.binding.externalChatName ? { externalChatName: input.binding.externalChatName } : {}),
+    status: input.binding.status,
+    syncMode: input.binding.syncMode,
+    ...(provisionSource ? { provisionSource } : {}),
+    ...(reviewStatus ? { reviewStatus } : {}),
+    ...(agentId ? { agentId } : {}),
+    ...(botBindingId ? { botBindingId } : {}),
+    ...(linkedFromBindingId ? { linkedFromBindingId } : {}),
+    createdAt: input.binding.createdAt,
+    updatedAt: input.binding.updatedAt,
   };
 }
 
@@ -3244,6 +3502,13 @@ export function buildFeishuCliBindingErrorReport(error: unknown): FeishuCliError
         errorMessage: "Feishu integration id still contains a placeholder value.",
         nextStep: "Replace the generated CHANGE_ME_* placeholder with an existing Feishu integration id before rerunning the binding command.",
       };
+    case "feishu.bindings.invalid_status":
+      return {
+        ok: false,
+        errorCode: message,
+        errorMessage: "Feishu binding status filter is invalid.",
+        nextStep: "Pass --status active, --status disabled, or --status archived.",
+      };
     case "feishu.bind_channel.placeholder_value":
       return {
         ok: false,
@@ -3424,6 +3689,17 @@ function parseFeishuAgentBotCliTransportMode(value: string | undefined): Externa
   }
 }
 
+function parseFeishuBindingStatusFlag(value: string | undefined): ExternalBindingStatus | undefined {
+  if (!value?.trim()) {
+    return undefined;
+  }
+  const normalized = value.trim();
+  if (normalized === "active" || normalized === "disabled" || normalized === "archived") {
+    return normalized;
+  }
+  throw new Error("feishu.bindings.invalid_status");
+}
+
 function normalizeOptionalText(value: string | undefined): string | undefined {
   const normalized = value?.trim();
   return normalized || undefined;
@@ -3435,7 +3711,11 @@ export function buildFeishuReadinessReport(input: BuildFeishuReadinessReportInpu
     workspaceId: input.workspaceId,
     provider: FEISHU_PROVIDER_ID,
     includeDisabled: true,
-  })).filter((integration) => !input.integrationId || integration.id === input.integrationId);
+  })).filter((integration) =>
+    (!input.integrationId || integration.id === input.integrationId) &&
+    (!input.agentId || integration.agentId === input.agentId) &&
+    (!input.agentOnly || Boolean(integration.agentId))
+  );
 
   const readinessItems = integrations.map((integration) => {
     const channelBindings = input.channelBindingsByIntegrationId?.[integration.id]
@@ -4733,6 +5013,14 @@ function readJsonRecord(value: string): Record<string, unknown> | undefined {
   } catch {
     return undefined;
   }
+}
+
+function readStringMetadata(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function buildFeishuCliExternalReference(kind: string, value: string): string {
+  return `${kind}:${createHash("sha256").update(`${kind}:${value}`, "utf8").digest("hex").slice(0, 16)}`;
 }
 
 function buildFeishuEvidenceIssues(input: {
@@ -6716,6 +7004,8 @@ function printFeishuIntegrationHelp(): void {
   agent-space integrations feishu bind-agent-bot --workspace-id <id> --agent <agent-id-or-name> [--env-file scripts/feishu/.env] --app-id-env FEISHU_APP_ID --app-secret-env FEISHU_APP_SECRET [--transport websocket_worker|http_webhook] [--verification-token-env FEISHU_VERIFICATION_TOKEN] [--encrypt-key-env FEISHU_ENCRYPT_KEY] [--tenant-key-env FEISHU_TENANT_KEY] [--json]
   agent-space integrations feishu rotate-agent-bot-secret --workspace-id <id> (--agent <agent-id-or-name>|--integration <id>) [--env-file scripts/feishu/.env] --app-secret-env FEISHU_APP_SECRET [--app-id-env FEISHU_APP_ID] [--json]
   agent-space integrations feishu disable-agent-bot --workspace-id <id> (--agent <agent-id-or-name>|--integration <id>) [--json]
+  agent-space integrations feishu auto-provision-policy --workspace-id <id> (--agent <agent-id-or-name>|--integration <id>) [--bot-added-policy auto_create_channel|pending_admin_review|disabled] [--first-message-policy auto_create_if_bot_mentioned|pending_admin_review|reply_with_setup_card|disabled] [--review-status approved|pending_admin_review|needs_identity_binding] [--unbound-user-mode ignore|reply_on_mention|reply_all|require_identity] [--guest-permission-profile none|channel_context_only|channel_readonly] [--require-identity-for writes,approvals] [--json]
+  agent-space integrations feishu agent-bot-readiness --workspace-id <id> [--agent <agent-id-or-name>|--integration <id>] [--strict] [--require bot|data-plane|worker] [--json]
   agent-space integrations feishu worker [--workspace-id <id>] [--integration <id>] [--limit <n>] [--base-url <url>] [--domain <host>] [--locked-by <id>] [--dry-run] [--include-webhook] [--drain-outbox|--once] [--json]
   agent-space integrations feishu readiness [--workspace-id <id>] [--integration <id>] [--strict] [--require bot|data-plane|worker] [--json]
   agent-space integrations feishu smoke-plan [--workspace-id <id>] [--integration <id>] [--app-url <url>] [--strict] [--require bot|data-plane|worker] [--json]
@@ -6724,6 +7014,7 @@ function printFeishuIntegrationHelp(): void {
   agent-space integrations feishu evidence [--workspace-id <id>] [--integration <id>] [--openapi-evidence <path>] [--strict] [--require bot|native|guest-policy|data-plane|worker|failure|all] [--json]
   agent-space integrations feishu data-operation --workspace-id <id> --integration <id> --operation read-doc|plan-doc-create|plan-doc-update|plan-doc-append|read-sheet|query-base|plan-sheet-write|plan-base-update --resource <url-or-token> [--type doc|sheet|base|base_table|base_view] [--title <doc-title>] [--folder-token <folder-token>] [--parent-block-id <block-id>] [--block-id <block-id>] [--document-revision-id <n>] [--client-token <token>] [--blocks-json <json>] [--children-json <json>] [--block-json <json>] [--app-token <base-app-token>] [--table-id <base-table-id>] [--range <sheet-range>] [--values-json <json>] [--record-id <id>] [--fields-json <json>] [--approval-agent <agent-id> --approval-channel <channel>] [--json]
   agent-space integrations feishu review-data-operation --workspace-id <id> --approval-id <approval-id> --decision approved|rejected [--comment <text>] [--base-url <url>] [--json]
+  agent-space integrations feishu channel-bindings --workspace-id <id> [--integration <id>] [--status active|disabled|archived] [--json]
   agent-space integrations feishu bind-channel --workspace-id <id> --integration <id> --channel <name> --chat-id <oc_xxx> [--chat-type group|p2p] [--chat-name <name>] [--json]
   agent-space integrations feishu bind-user --workspace-id <id> --integration <id> --user-id <agent-space-user-id> --open-id <ou_xxx> [--union-id <on_xxx>] [--feishu-user-id <id>] [--json]
   agent-space integrations feishu bind-resource --workspace-id <id> --integration <id> --type doc|sheet|base|base_table|base_view --resource <url-or-token> --agent-space-type channel_document|data_table|knowledge_page [--agent-space-id <id>] [--channel <name>] [--allow-write] [--guest-readable] [--json]
@@ -6741,12 +7032,12 @@ Options:
   --app-secret <secret>    Create/bind/rotate fallback for Feishu app secret; env input is preferred
   --verification-token <token> Create/bind fallback for event verification token; env input is preferred
   --encrypt-key <key>      Create/bind fallback for event encrypt key; env input is preferred
-  --bot-added-policy <mode> Agent bot bind: auto_create_channel|pending_admin_review|disabled
-  --first-message-policy <mode> Agent bot bind: auto_create_if_bot_mentioned|pending_admin_review|reply_with_setup_card|disabled
-  --review-status <status> Agent bot bind: approved|pending_admin_review|needs_identity_binding for auto-provisioned channels
-  --unbound-user-mode <mode> Agent bot bind: ignore|reply_on_mention|reply_all|require_identity
-  --guest-permission-profile <profile> Agent bot bind: none|channel_context_only|channel_readonly
-  --require-identity-for <csv> Agent bot bind: comma-separated operations that require a bound AgentSpace identity
+  --bot-added-policy <mode> Agent bot bind/policy: auto_create_channel|pending_admin_review|disabled
+  --first-message-policy <mode> Agent bot bind/policy: auto_create_if_bot_mentioned|pending_admin_review|reply_with_setup_card|disabled
+  --review-status <status> Agent bot bind/policy: approved|pending_admin_review|needs_identity_binding for auto-provisioned channels
+  --unbound-user-mode <mode> Agent bot bind/policy: ignore|reply_on_mention|reply_all|require_identity
+  --guest-permission-profile <profile> Agent bot bind/policy: none|channel_context_only|channel_readonly
+  --require-identity-for <csv> Agent bot bind/policy: comma-separated operations that require a bound AgentSpace identity
   --guest-readable       Resource bind: allow external guests to read this bound resource in its current channel
   --limit <n>              Outbox drain batch size; defaults to 50
   --base-url <url>         Feishu OpenAPI base URL; defaults to AGENT_SPACE_FEISHU_API_BASE_URL
@@ -6764,6 +7055,7 @@ Options:
   --approval-preview <text> Data operation write plans: optional safe approval preview text
   --approval-id <id>       Review data operation: approval id returned by a write plan or shown in AgentSpace approvals
   --decision <value>       Review data operation: approved/approve or rejected/reject
+  --status <value>         Binding list filter: active|disabled|archived
   --domain <host>          Feishu WebSocket domain; defaults to AGENT_SPACE_FEISHU_WS_DOMAIN
   --locked-by <id>         Worker lock owner; defaults to AGENT_SPACE_FEISHU_WORKER_ID or agent-space-feishu-worker
   --dry-run                Validate WebSocket worker config without opening live connections
@@ -6773,6 +7065,8 @@ Options:
   bind-agent-bot           Bind one AgentSpace agent to one Feishu bot; default transport only needs App ID + App Secret
   rotate-agent-bot-secret  Rotate an existing agent bot binding secret without exposing it in output
   disable-agent-bot        Disable an existing agent bot binding
+  auto-provision-policy    View/update agent bot auto-provisioning and external guest policy
+  agent-bot-readiness      Summarize readiness for agent-scoped Feishu bot bindings
   readiness                Summarize local AgentSpace-side prerequisites for Feishu manual smoke
   smoke-plan               Generate the live Feishu manual smoke checklist from current local readiness
   smoke-env                Print a safe scripts/feishu/.env template with placeholders for secrets/resources
@@ -6780,6 +7074,7 @@ Options:
   evidence                 Summarize AgentSpace-side Feishu live smoke evidence from local DB state
   data-operation           Run a bound Feishu read or create a governed pending write/approval operation; output redacts resource tokens
   review-data-operation    Approve/reject a Feishu data operation approval and execute approved writes through AgentSpace governance
+  channel-bindings         List Feishu chat -> AgentSpace channel bindings with redacted chat references
   bind-channel             Create/update a Feishu chat -> AgentSpace channel binding; output redacts chat id
   bind-user                Create/update a Feishu Open ID -> AgentSpace user binding; output redacts external ids
   bind-resource            Create/update a Feishu Docs/Sheets/Base resource binding; output redacts resource tokens
