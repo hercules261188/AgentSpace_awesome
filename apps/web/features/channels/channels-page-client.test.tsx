@@ -373,6 +373,8 @@ describe("ChannelsPageClient", () => {
     expect(within(feishuSummary).getByText("Launch Room")).toBeInTheDocument();
     expect(within(feishuSummary).getByText("chat b2295ba0")).toBeInTheDocument();
     expect(within(feishuSummary).getByText("Codex")).toBeInTheDocument();
+    expect(within(feishuSummary).getByText(/未绑定用户：@Bot 时回复/)).toBeInTheDocument();
+    expect(within(feishuSummary).getByText(/访客权限：当前 Channel 上下文/)).toBeInTheDocument();
     expect(within(feishuSummary).getByText("Guest readable")).toBeInTheDocument();
   });
 

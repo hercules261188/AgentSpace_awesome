@@ -2707,8 +2707,17 @@ function ChannelFeishuSummaryPanel({
         {feishu.connectedAgentBots.length > 0 ? (
           <div className="channel-feishu-summary__chips">
             {feishu.connectedAgentBots.map((bot) => (
-              <span className="tag-pill" key={`${bot.integrationId}:${bot.agentId}`}>
-                {bot.agentId}
+              <span
+                className="channel-feishu-summary__bot-chip"
+                key={`${bot.integrationId}:${bot.agentId}`}
+                title={bot.displayName}
+              >
+                <strong>{bot.agentId}</strong>
+                <span>
+                  {translateFeishuUnboundUserMode(bot.unboundUserMode, tx)}
+                  {" · "}
+                  {translateFeishuGuestPermissionProfile(bot.guestPermissionProfile, tx)}
+                </span>
               </span>
             ))}
           </div>
@@ -2764,6 +2773,38 @@ function translateFeishuReviewStatus(
       return tx("需要身份绑定", "Needs identity binding");
     default:
       return value;
+  }
+}
+
+function translateFeishuUnboundUserMode(
+  value: string | undefined,
+  tx: (zh: string, en: string) => string,
+): string {
+  switch (value) {
+    case "ignore":
+      return tx("未绑定用户：忽略", "Unbound users: ignore");
+    case "reply_all":
+      return tx("未绑定用户：全部回复", "Unbound users: reply all");
+    case "require_identity":
+      return tx("未绑定用户：要求绑定身份", "Unbound users: require identity");
+    case "reply_on_mention":
+    default:
+      return tx("未绑定用户：@Bot 时回复", "Unbound users: reply when mentioned");
+  }
+}
+
+function translateFeishuGuestPermissionProfile(
+  value: string | undefined,
+  tx: (zh: string, en: string) => string,
+): string {
+  switch (value) {
+    case "none":
+      return tx("访客权限：无", "Guest permission: none");
+    case "channel_readonly":
+      return tx("访客权限：当前 Channel 只读", "Guest permission: current channel readonly");
+    case "channel_context_only":
+    default:
+      return tx("访客权限：当前 Channel 上下文", "Guest permission: current channel context");
   }
 }
 
