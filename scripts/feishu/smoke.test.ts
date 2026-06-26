@@ -196,7 +196,7 @@ test("rejects Feishu smoke evidence when required request summaries are missing"
   assert.ok(output.issues.includes("required_request_summary_missing:Sheets read values"));
 });
 
-test("dry-run validates Feishu message and card-action EventDispatcher handlers", () => {
+test("dry-run validates Feishu message, bot-added, and card-action EventDispatcher handlers", () => {
   const result = runSmokeJson();
 
   assert.equal(result.status, 0, result.stderr);
@@ -222,9 +222,12 @@ test("dry-run validates Feishu message and card-action EventDispatcher handlers"
   assert.equal(output.summary.strictLiveSatisfied, false);
   assert.ok(output.summary.missingEnv.includes("FEISHU_APP_ID"));
   const messageStep = output.steps.find((step) => step.name === "EventDispatcher im.message.receive_v1");
+  const botAddedStep = output.steps.find((step) => step.name === "EventDispatcher im.chat.member.bot.added_v1");
   const cardActionStep = output.steps.find((step) => step.name === "EventDispatcher card.action.trigger");
   assert.equal(messageStep?.status, "pass");
+  assert.equal(botAddedStep?.status, "pass");
   assert.equal(cardActionStep?.status, "pass");
+  assert.match(botAddedStep?.detail ?? "", /bot-added handler/);
   assert.match(cardActionStep?.detail ?? "", /card-action handler/);
 });
 
@@ -1282,6 +1285,11 @@ function buildEvidenceFixture() {
       name: "EventDispatcher im.message.receive_v1",
       status: "pass",
       detail: "local dispatcher invoked the receive-message handler.",
+    },
+    {
+      name: "EventDispatcher im.chat.member.bot.added_v1",
+      status: "pass",
+      detail: "local dispatcher invoked the bot-added handler.",
     },
     {
       name: "EventDispatcher card.action.trigger",

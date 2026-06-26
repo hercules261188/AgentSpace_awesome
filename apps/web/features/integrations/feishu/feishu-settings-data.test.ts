@@ -68,12 +68,12 @@ vi.mock("@agent-space/services", () => ({
     {
       id: "configure_event_subscription",
       consoleUrl: "https://open.feishu.cn/app",
-      required: ["event_callback_url", "im.message.receive_v1", "card.action.trigger"],
+      required: ["event_callback_url", "im.message.receive_v1", "im.chat.member.bot.added_v1", "card.action.trigger"],
     },
   ],
   FEISHU_PROVIDER_ID: "feishu",
   FEISHU_REQUIRED_CREDENTIAL_FIELDS: ["app_id", "app_secret", "verification_token", "encrypt_key"],
-  FEISHU_REQUIRED_EVENTS: ["im.message.receive_v1", "card.action.trigger"],
+  FEISHU_REQUIRED_EVENTS: ["im.message.receive_v1", "im.chat.member.bot.added_v1", "card.action.trigger"],
   listActiveEmployeesSync: mockListActiveEmployeesSync,
   sanitizeFeishuOperationResponseSummary: (summary: Record<string, unknown> | undefined) => summary,
   summarizeFeishuStoredCredentials: () => ({
@@ -220,7 +220,7 @@ describe("Feishu settings data", () => {
       appUrl: "https://agent.test",
     })).toEqual({
       requiredCredentialFields: ["app_id", "app_secret", "verification_token", "encrypt_key"],
-      requiredEvents: ["im.message.receive_v1", "card.action.trigger"],
+      requiredEvents: ["im.message.receive_v1", "im.chat.member.bot.added_v1", "card.action.trigger"],
       requiredScopes: [
         "im:message",
         "im:message:send_as_bot",
@@ -244,7 +244,7 @@ describe("Feishu settings data", () => {
         {
           id: "configure_event_subscription",
           consoleUrl: "https://open.feishu.cn/app",
-          required: ["event_callback_url", "im.message.receive_v1", "card.action.trigger"],
+          required: ["event_callback_url", "im.message.receive_v1", "im.chat.member.bot.added_v1", "card.action.trigger"],
         },
       ],
     });
@@ -374,7 +374,7 @@ describe("Feishu settings data", () => {
     expect(item?.hasAppSecret).toBe(true);
     expect(item?.setupGuide).toEqual({
       requiredCredentialFields: ["app_id", "app_secret", "verification_token", "encrypt_key"],
-      requiredEvents: ["im.message.receive_v1", "card.action.trigger"],
+      requiredEvents: ["im.message.receive_v1", "im.chat.member.bot.added_v1", "card.action.trigger"],
       requiredScopes: [
         "im:message",
         "im:message:send_as_bot",
@@ -395,7 +395,7 @@ describe("Feishu settings data", () => {
         {
           id: "configure_event_subscription",
           consoleUrl: "https://open.feishu.cn/app",
-          required: ["event_callback_url", "im.message.receive_v1", "card.action.trigger"],
+          required: ["event_callback_url", "im.message.receive_v1", "im.chat.member.bot.added_v1", "card.action.trigger"],
         },
       ],
       checks: [

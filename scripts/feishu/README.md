@@ -151,7 +151,7 @@ agent-space integrations feishu evidence --workspace-id default --integration fe
 The live smoke covers:
 
 - `@larksuiteoapi/node-sdk` `Client.im.message.create(...)`
-- `EventDispatcher` handling `im.message.receive_v1` and `card.action.trigger`
+- `EventDispatcher` handling `im.message.receive_v1`, `im.chat.member.bot.added_v1`, and `card.action.trigger`
 - HTTP URL verification challenge response
 - AgentSpace callback URL verification using the saved integration route and verification token
 - Tenant access token acquisition for REST data-plane calls

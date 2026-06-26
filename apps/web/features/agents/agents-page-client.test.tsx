@@ -556,7 +556,7 @@ function buildAgentFeishuBot(
     },
     setupGuide: {
       requiredCredentialFields: ["app_id", "app_secret"],
-      requiredEvents: ["im.message.receive_v1", "card.action.trigger"],
+      requiredEvents: ["im.message.receive_v1", "im.chat.member.bot.added_v1", "card.action.trigger"],
       requiredScopes: ["im:message"],
       eventCallbackPath: "/api/integrations/feishu/events",
       developerConsoleUrl: "https://open.feishu.cn/app",

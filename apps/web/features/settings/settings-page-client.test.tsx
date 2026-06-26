@@ -1217,7 +1217,7 @@ describe("SettingsPageClient", () => {
       feishuAvailableUsers: [],
       feishuIntegrationCreationGuide: {
         requiredCredentialFields: ["app_id", "app_secret", "verification_token", "encrypt_key", "tenant_key"],
-        requiredEvents: ["im.message.receive_v1", "card.action.trigger", "custom.integration.event"],
+        requiredEvents: ["im.message.receive_v1", "im.chat.member.bot.added_v1", "card.action.trigger", "custom.integration.event"],
         requiredScopes: ["im:message", "docx:document", "custom.integration.scope"],
         eventCallbackPath: "/api/integrations/feishu/events",
         publicAppUrlStatus: "configured",
@@ -1282,7 +1282,7 @@ describe("SettingsPageClient", () => {
       feishuAvailableUsers: [],
       feishuIntegrationCreationGuide: {
         requiredCredentialFields: ["app_id", "app_secret", "verification_token", "encrypt_key", "tenant_key"],
-        requiredEvents: ["im.message.receive_v1", "card.action.trigger", "custom.integration.event"],
+        requiredEvents: ["im.message.receive_v1", "im.chat.member.bot.added_v1", "card.action.trigger", "custom.integration.event"],
         requiredScopes: ["im:message", "docx:document", "custom.integration.scope"],
         eventCallbackPath: "/api/integrations/feishu/events",
         publicAppUrlStatus: "configured",
@@ -1965,7 +1965,7 @@ function buildFeishuSetupGuide(options: { agentBot?: boolean } = {}): NonNullabl
     : "--workspace-id workspace-1 --integration feishu-1";
   return {
     requiredCredentialFields: ["app_id", "app_secret", "verification_token", "encrypt_key"],
-    requiredEvents: ["im.message.receive_v1", "card.action.trigger"],
+    requiredEvents: ["im.message.receive_v1", "im.chat.member.bot.added_v1", "card.action.trigger"],
     requiredScopes: ["im:message", "docx:document", "sheets:spreadsheet", "bitable:app"],
     eventCallbackPath: "/api/integrations/feishu/events",
     developerConsoleUrl: "https://open.feishu.cn/app",
@@ -2034,7 +2034,7 @@ function buildFeishuCreationGuide(): NonNullable<
 > {
   return {
     requiredCredentialFields: ["app_id", "app_secret", "verification_token", "encrypt_key"],
-    requiredEvents: ["im.message.receive_v1", "card.action.trigger"],
+    requiredEvents: ["im.message.receive_v1", "im.chat.member.bot.added_v1", "card.action.trigger"],
     requiredScopes: [
       "im:message",
       "im:message:send_as_bot",
@@ -2063,7 +2063,7 @@ function buildFeishuOpenPlatformSetupSteps() {
     {
       id: "configure_event_subscription",
       consoleUrl: "https://open.feishu.cn/app",
-      required: ["event_callback_url", "im.message.receive_v1", "card.action.trigger"],
+      required: ["event_callback_url", "im.message.receive_v1", "im.chat.member.bot.added_v1", "card.action.trigger"],
     },
   ];
 }

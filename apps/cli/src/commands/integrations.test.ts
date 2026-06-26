@@ -249,7 +249,7 @@ test("Feishu create CLI stores encrypted credentials and returns redacted setup 
     "verification_token",
     "encrypt_key",
   ]);
-  assert.deepEqual(report.openPlatformSetup.requiredEvents, ["im.message.receive_v1", "card.action.trigger"]);
+  assert.deepEqual(report.openPlatformSetup.requiredEvents, ["im.message.receive_v1", "im.chat.member.bot.added_v1", "card.action.trigger"]);
   assert.deepEqual(report.openPlatformSetup.botScopes, [
     "im:message",
     "im:message:send_as_bot",
@@ -4234,7 +4234,7 @@ test("Feishu smoke plan converts readiness into live smoke checklist without ext
     "verification_token",
     "encrypt_key",
   ]);
-  assert.deepEqual(report.appSetup.requiredEvents, ["im.message.receive_v1", "card.action.trigger"]);
+  assert.deepEqual(report.appSetup.requiredEvents, ["im.message.receive_v1", "im.chat.member.bot.added_v1", "card.action.trigger"]);
   assert.deepEqual(report.appSetup.botScopes, [
     "im:message",
     "im:message:send_as_bot",
@@ -4507,7 +4507,7 @@ test("Feishu smoke plan blocks live smoke steps when local prerequisites are mis
   assert.equal(report.strictSatisfied, false);
   assert.equal(report.appSetup.callbackUrlStatus, "app_url_missing");
   assert.equal(report.appSetup.callbackUrl, undefined);
-  assert.deepEqual(report.appSetup.requiredEvents, ["im.message.receive_v1", "card.action.trigger"]);
+  assert.deepEqual(report.appSetup.requiredEvents, ["im.message.receive_v1", "im.chat.member.bot.added_v1", "card.action.trigger"]);
   assert.equal(report.appSetup.developerConsoleUrl, "https://open.feishu.cn/app");
   assert.ok(report.appSetup.setupSteps.some((step) => step.id === "create_custom_app"));
   assert.equal(report.smokeHarness.appUrl, undefined);
@@ -5101,8 +5101,8 @@ function buildOpenApiEvidenceFixture() {
     live: true,
     strictLive: true,
     summary: {
-      total: steps.length + 2,
-      passed: steps.length + 2,
+      total: steps.length + 4,
+      passed: steps.length + 4,
       skipped: 0,
       failed: 0,
       liveChecks: steps.length,
@@ -5119,6 +5119,16 @@ function buildOpenApiEvidenceFixture() {
         name: "EventDispatcher im.message.receive_v1",
         status: "pass",
         detail: "local dispatcher invoked the receive-message handler.",
+      },
+      {
+        name: "EventDispatcher im.chat.member.bot.added_v1",
+        status: "pass",
+        detail: "local dispatcher invoked the bot-added handler.",
+      },
+      {
+        name: "EventDispatcher card.action.trigger",
+        status: "pass",
+        detail: "local dispatcher invoked the card-action handler.",
       },
       {
         name: "HTTP challenge auto response",

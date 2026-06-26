@@ -7,6 +7,7 @@ import {
   FEISHU_OPENAPI_REQUIRED_DESTRUCTIVE_LIVE_SMOKE_STEPS,
   FEISHU_OPENAPI_REQUIRED_LIVE_SMOKE_STEPS,
   FEISHU_OPENAPI_REQUIRED_REQUEST_STEPS,
+  FEISHU_REQUIRED_EVENTS,
 } from "../../packages/services/src/integrations/providers/feishu/constants.ts";
 import {
   createFeishuApiClient,
@@ -250,6 +251,7 @@ async function main(): Promise<void> {
 
   steps.push(await smokeSdkClientMessageCreate({ live, env }));
   steps.push(await smokeEventDispatcher());
+  steps.push(await smokeBotAddedEventDispatcher());
   steps.push(await smokeCardActionEventDispatcher());
   steps.push(smokeHttpChallenge());
   steps.push(await smokeAgentSpaceCallbackVerification({ live, env }));
@@ -574,6 +576,57 @@ async function smokeCardActionEventDispatcher(): Promise<SmokeStep> {
     name: "EventDispatcher card.action.trigger",
     status: handled ? "pass" : "fail",
     detail: handled ? "local dispatcher invoked the card-action handler." : "handler was not invoked.",
+  };
+}
+
+async function smokeBotAddedEventDispatcher(): Promise<SmokeStep> {
+  const lark = loadLarkSdk();
+  if (typeof lark.EventDispatcher !== "function") {
+    return {
+      name: "EventDispatcher im.chat.member.bot.added_v1",
+      status: "fail",
+      detail: "@larksuiteoapi/node-sdk EventDispatcher export is unavailable.",
+    };
+  }
+
+  let handled = false;
+  const dispatcher = new lark.EventDispatcher({
+    verificationToken: "verify-token",
+    loggerLevel: lark.LoggerLevel.warn,
+  });
+  dispatcher.register({
+    "im.chat.member.bot.added_v1": async () => {
+      handled = true;
+    },
+  });
+  await dispatcher.invoke({
+    schema: "2.0",
+    header: {
+      event_id: "evt-bot-added-smoke",
+      event_type: "im.chat.member.bot.added_v1",
+      token: "verify-token",
+      create_time: String(Date.now()),
+    },
+    event: {
+      chat_id: "oc_smoke",
+      chat_type: "group",
+      chat: {
+        chat_id: "oc_smoke",
+        chat_type: "group",
+        name: "Smoke Room",
+      },
+      operator: {
+        operator_id: {
+          open_id: "ou_smoke",
+        },
+      },
+    },
+  }, { needCheck: true });
+
+  return {
+    name: "EventDispatcher im.chat.member.bot.added_v1",
+    status: handled ? "pass" : "fail",
+    detail: handled ? "local dispatcher invoked the bot-added handler." : "handler was not invoked.",
   };
 }
 
@@ -1493,6 +1546,18 @@ function verifySmokeEvidence(path: string, evidence: unknown): SmokeEvidenceVeri
     }
     if (step.liveCheck !== true) {
       issues.push(`required_step_not_marked_live:${stepName}`);
+    }
+  }
+
+  for (const eventType of FEISHU_REQUIRED_EVENTS) {
+    const stepName = `EventDispatcher ${eventType}`;
+    const step = steps.find((item) => isSafeSmokeStepNamed(item, stepName));
+    if (!step) {
+      issues.push(`required_event_dispatcher_step_missing:${eventType}`);
+      continue;
+    }
+    if (step.status !== "pass") {
+      issues.push(`required_event_dispatcher_step_failed:${eventType}`);
     }
   }
 

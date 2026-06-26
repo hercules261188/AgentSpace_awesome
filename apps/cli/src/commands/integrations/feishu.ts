@@ -4280,7 +4280,7 @@ export function buildFeishuSmokePlanReport(input: BuildFeishuSmokePlanReportInpu
         area: "setup",
         title: "Configure bot events and required scopes",
         status: prereqStatus(hasIntegration, hasBotAndDataPlaneScopes),
-        detail: "Enable im.message.receive_v1, bot permissions, and Docs/Sheets/Base scopes in Feishu Open Platform.",
+        detail: "Enable im.message.receive_v1, im.chat.member.bot.added_v1, bot permissions, and Docs/Sheets/Base scopes in Feishu Open Platform.",
         issues: hasIntegration
           ? [...missingBotScopes, ...missingDataPlaneScopes].map((scope) => `missing_scope:${scope}`)
           : ["integration_missing"],

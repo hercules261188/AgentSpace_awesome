@@ -23,6 +23,7 @@ export const FEISHU_DEFAULT_SCOPES = [
 
 export const FEISHU_REQUIRED_EVENTS = [
   "im.message.receive_v1",
+  "im.chat.member.bot.added_v1",
   "card.action.trigger",
 ] as const;
 

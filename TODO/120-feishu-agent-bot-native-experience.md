@@ -336,7 +336,7 @@ EventCallback 仍然保留，但放在高级配置：
 
 - `im.message.receive_v1`：消息入站。
 - `card.action.trigger`：审批卡片/交互卡片。
-- 机器人进群事件：用于自动创建/绑定 AgentSpace channel。
+- `im.chat.member.bot.added_v1`：机器人进群事件，用于自动创建/绑定 AgentSpace channel。
 
 说明：飞书官方有机器人被添加至群聊时触发的事件，后续实现时需以官方当前事件名和 SDK 类型为准。
 
