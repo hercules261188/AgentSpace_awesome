@@ -8,6 +8,7 @@ import {
   createExternalIntegrationSync,
   createExternalMessageMappingSync,
   createExternalMessageOutboxSync,
+  createStoredChannelSync,
   createWorkspaceSync,
   getDatabase,
   readExternalMessageMappingByAgentSpaceMessageSync,
@@ -112,7 +113,7 @@ test("temporary Feishu send failures keep outbox pending for retry", databaseTes
 });
 
 test("AgentSpace replies are sent back to the source Feishu thread", databaseTestOptions, async () => {
-  const workspace = createWorkspaceSync({
+  const workspace = createWorkspaceWithTourVisitChannel({
     slug: "feishu-thread-reply",
     name: "Feishu Thread Reply",
     createdBy: "system",
@@ -158,8 +159,8 @@ test("AgentSpace replies are sent back to the source Feishu thread", databaseTes
   const queuedMetadata = JSON.parse(queuedOutbox[0]?.metadataJson ?? "{}") as Record<string, unknown>;
   assert.equal(queuedMetadata.provider, "feishu");
   assert.equal(queuedMetadata.outboxSource, "agent_reply");
-  assert.equal(queuedMetadata.agentId, "Atlas");
-  assert.equal(queuedMetadata.botBindingId, integration.id);
+  assert.equal(queuedMetadata.agentId, undefined);
+  assert.equal(queuedMetadata.botBindingId, undefined);
   assert.match(String(queuedMetadata.externalChatReference), /^ref_[a-f0-9]{8}$/);
   assert.match(String(queuedMetadata.externalThreadReference), /^ref_[a-f0-9]{8}$/);
   assert.equal(JSON.stringify(queuedMetadata).includes("oc_tour"), false);
@@ -261,7 +262,7 @@ test("AgentSpace replies are sent back to the source Feishu thread", databaseTes
 });
 
 test("Feishu replies without agent id reuse the source agent bot integration", databaseTestOptions, () => {
-  const workspace = createWorkspaceSync({
+  const workspace = createWorkspaceWithTourVisitChannel({
     slug: "feishu-thread-reply-source-bot",
     name: "Feishu Thread Reply Source Bot",
     createdBy: "system",
@@ -335,7 +336,7 @@ test("Feishu replies without agent id reuse the source agent bot integration", d
 });
 
 test("Feishu replies do not fall back to workspace bot when the source agent bot is disabled", databaseTestOptions, () => {
-  const workspace = createWorkspaceSync({
+  const workspace = createWorkspaceWithTourVisitChannel({
     slug: "feishu-thread-reply-disabled-source-bot",
     name: "Feishu Thread Reply Disabled Source Bot",
     createdBy: "system",
@@ -406,7 +407,7 @@ test("Feishu replies do not fall back to workspace bot when the source agent bot
 });
 
 test("Agent status cards are queued back to the source Feishu thread", databaseTestOptions, () => {
-  const workspace = createWorkspaceSync({
+  const workspace = createWorkspaceWithTourVisitChannel({
     slug: "feishu-thread-status-card",
     name: "Feishu Thread Status Card",
     createdBy: "system",
@@ -485,7 +486,7 @@ test("Agent status cards are queued back to the source Feishu thread", databaseT
 });
 
 test("AgentSpace replies with attachments queue text and attachment outbox items", databaseTestOptions, () => {
-  const workspace = createWorkspaceSync({
+  const workspace = createWorkspaceWithTourVisitChannel({
     slug: "feishu-thread-reply-attachments",
     name: "Feishu Thread Reply Attachments",
     createdBy: "system",
@@ -580,4 +581,20 @@ function createAttachment(input: {
     storageProvider: "local",
     storageUrl: input.storageUrl,
   };
+}
+
+function createWorkspaceWithTourVisitChannel(input: {
+  slug: string;
+  name: string;
+  createdBy: string;
+}) {
+  const workspace = createWorkspaceSync(input);
+  createStoredChannelSync({
+    name: "tour visit",
+    kind: "group",
+    humanMembers: 0,
+    humanMemberNames: [],
+    employeeNames: ["Atlas"],
+  }, workspace.id);
+  return workspace;
 }

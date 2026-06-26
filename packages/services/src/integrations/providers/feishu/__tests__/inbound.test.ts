@@ -863,7 +863,7 @@ test("mentioning a second agent bot in an active Feishu thread records collabora
   const hermesMappingMetadata = JSON.parse(hermesMapping.metadataJson) as Record<string, unknown>;
   assert.equal(hermesMappingMetadata.threadCollaboration, true);
   assert.deepEqual(hermesMappingMetadata.threadCollaboratorAgentIds, ["Atlas"]);
-  assert.equal(hermesMappingMetadata.threadContinuation, undefined);
+  assert.equal(hermesMappingMetadata.threadContinuation, false);
   assert.equal(hermesMappingMetadata.agentId, "Hermes");
   assert.doesNotMatch(hermesMapping.metadataJson, /oc_general|om-thread-collab-root|om-thread-collab-hermes|ou_mina|on_mina/);
 

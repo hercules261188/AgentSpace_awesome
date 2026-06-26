@@ -76,22 +76,21 @@ test("Feishu websocket worker dry-run only marks websocket integrations as ready
   assert.equal(worker.summary.integrationCount, 2);
   assert.equal(worker.summary.startedCount, 0);
   assert.equal(worker.summary.skippedCount, 1);
-  assert.deepEqual(worker.summary.integrations.map((item) => ({
-    integrationId: item.integrationId,
-    status: item.status,
-    reasonCode: item.reasonCode,
-  })), [
+  const integrationSummaries = new Map(worker.summary.integrations.map((item) => [
+    item.integrationId,
     {
-      integrationId: websocketIntegration.id,
-      status: "ready",
-      reasonCode: undefined,
+      status: item.status,
+      reasonCode: item.reasonCode,
     },
-    {
-      integrationId: webhookIntegration.id,
-      status: "skipped",
-      reasonCode: "feishu.websocket_worker.transport_mode_not_websocket",
-    },
-  ]);
+  ]));
+  assert.deepEqual(integrationSummaries.get(websocketIntegration.id), {
+    status: "ready",
+    reasonCode: undefined,
+  });
+  assert.deepEqual(integrationSummaries.get(webhookIntegration.id), {
+    status: "skipped",
+    reasonCode: "feishu.websocket_worker.transport_mode_not_websocket",
+  });
 });
 
 test("Feishu websocket worker writes healthy and degraded integration health", databaseTestOptions, async () => {

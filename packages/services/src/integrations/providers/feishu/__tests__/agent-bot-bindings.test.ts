@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { before, beforeEach } from "node:test";
 import {
+  createUserSync,
   createWorkspaceSync,
   getDatabase,
 } from "@agent-space/db";
@@ -161,6 +162,10 @@ test("Feishu agent bot policy updates merge with existing config", databaseTestO
     name: "Feishu Agent Bot Policy Update",
     createdBy: "system",
   });
+  const admin = createUserSync({
+    displayName: "Feishu Admin",
+    primaryEmail: "feishu-admin@example.com",
+  });
 
   const binding = createFeishuAgentBotBindingSync({
     workspaceId: workspace.id,
@@ -189,7 +194,7 @@ test("Feishu agent bot policy updates merge with existing config", databaseTestO
       unboundUserMode: "ignore",
       requireIdentityFor: ["writes", "approvals", "private_resources"],
     },
-    updatedByUserId: "admin-1",
+    updatedByUserId: admin.id,
   });
 
   assert.deepEqual(JSON.parse(updated.configJson), {
@@ -211,7 +216,7 @@ test("Feishu agent bot policy updates merge with existing config", databaseTestO
       requireIdentityFor: ["writes", "approvals", "private_resources"],
     },
   });
-  assert.equal(updated.updatedByUserId, "admin-1");
+  assert.equal(updated.updatedByUserId, admin.id);
 });
 
 test("Feishu agent bot binding keeps EventCallback verification token in advanced credentials", databaseTestOptions, () => {
