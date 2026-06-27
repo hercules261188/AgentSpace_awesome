@@ -430,11 +430,19 @@ function FeishuSetupGuide({
     {
       key: "smoke-plan",
       label: tx("联调计划", "Smoke Plan"),
+      note: tx(
+        "默认输出可读 blockers 和下一步命令；需要机器可读结果时在命令末尾追加 --json。",
+        "Prints readable blockers and next commands by default; append --json for machine-readable output.",
+      ),
       value: guide.commands.smokePlan,
     },
     {
       key: "evidence",
       label: tx("证据校验", "Evidence"),
+      note: tx(
+        "默认输出可读 gate、artifact 和 remediation 摘要；需要完整 counters 时在命令末尾追加 --json。",
+        "Prints readable gate, artifact, and remediation summaries by default; append --json for full counters.",
+      ),
       value: guide.commands.evidence,
     },
   ];

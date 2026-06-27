@@ -194,7 +194,19 @@ export interface FeishuSmokePlanReport {
     readyForDataPlaneSmokeCount: number;
     readyForWorkerSmokeCount: number;
   };
+  blockers: FeishuSmokePlanBlocker[];
   steps: FeishuSmokePlanStep[];
+}
+
+export interface FeishuSmokePlanBlocker {
+  issue: string;
+  severity: "blocked" | "pending";
+  affectedStepCount: number;
+  blockedStepCount: number;
+  pendingStepCount: number;
+  firstStepId: string;
+  firstStepTitle: string;
+  nextAction: string;
 }
 
 export type FeishuSmokePlanEvidenceGateKey =
@@ -1155,7 +1167,11 @@ export async function runFeishuIntegrationCommand(args: string[], format: Output
       requiredReadiness,
       appUrl,
     });
-    writeData(format, report);
+    if (format === "json") {
+      writeData(format, report);
+    } else {
+      console.log(formatFeishuSmokePlanCommandText(report));
+    }
     return getFeishuSmokePlanExitCode(report, { strict: strictReadiness });
   }
 
@@ -1190,7 +1206,11 @@ export async function runFeishuIntegrationCommand(args: string[], format: Output
       botAddedPayloadEvidencePath: getStringFlag(parsed.flags, "bot-added-payload-evidence")
         ?? getStringFlag(parsed.flags, "bot_added_payload_evidence"),
     });
-    writeData(format, report);
+    if (format === "json") {
+      writeData(format, report);
+    } else {
+      console.log(formatFeishuEvidenceCommandText(report));
+    }
     return report.integrationCount === 0 || (strictReadiness && !report.strictSatisfied) ? 1 : 0;
   }
 
@@ -4380,6 +4400,117 @@ export function buildFeishuEvidenceReport(input: BuildFeishuEvidenceReportInput)
   };
 }
 
+export function formatFeishuEvidenceCommandText(report: FeishuEvidenceReport): string {
+  const lines = [
+    "AgentSpace Feishu evidence",
+    `Workspace: ${report.workspaceId}`,
+    `Required evidence: ${report.requiredEvidence}`,
+    `Strict evidence satisfied: ${report.strictSatisfied ? "yes" : "no"}`,
+    `Integrations: ${report.integrationCount}`,
+    "",
+    "Workspace gates:",
+    `- bot reply: ${formatFeishuCliYesNo(report.summary.workspaceBotSatisfied)} (${report.summary.botSatisfiedCount})`,
+    `- native agent bot: ${formatFeishuCliYesNo(report.summary.workspaceNativeExperienceSatisfied)} (${report.summary.nativeExperienceSatisfiedCount})`,
+    `- guest policy: ${formatFeishuCliYesNo(report.summary.workspaceGuestPolicySatisfied)} (${report.summary.guestPolicySatisfiedCount})`,
+    `- data plane: ${formatFeishuCliYesNo(report.summary.workspaceDataPlaneSatisfied)} (${report.summary.dataPlaneSatisfiedCount})`,
+    `- worker: ${formatFeishuCliYesNo(report.summary.workspaceWorkerSatisfied)} (${report.summary.workerSatisfiedCount})`,
+    `- failure visibility: ${formatFeishuCliYesNo(report.summary.workspaceFailureVisible)} (${report.summary.failureVisibleCount})`,
+    `- scoped all: ${formatFeishuCliYesNo(report.summary.scopedAllSatisfied)}`,
+    `- workspace all: ${formatFeishuCliYesNo(report.summary.workspaceAllSatisfied)}`,
+    "",
+    "Artifact evidence:",
+    ...formatFeishuArtifactEvidenceLines("OpenAPI strict live", report.openApiEvidence),
+    ...formatFeishuArtifactEvidenceLines("Bot-added payload", report.botAddedPayloadEvidence),
+    "",
+    "Integration evidence:",
+  ];
+
+  if (report.integrations.length === 0) {
+    lines.push("- none found; create or select an active Feishu agent bot integration before final evidence.");
+  } else {
+    for (const item of report.integrations.slice(0, 8)) {
+      lines.push(
+        `- ${item.displayName} (${item.id}, ${item.transportMode})`,
+        `  gates: bot=${formatFeishuCliYesNo(item.bot.satisfied)}, native=${formatFeishuCliYesNo(item.nativeExperience.satisfied)}, guest=${formatFeishuCliYesNo(item.guestPolicy.satisfied)}, data=${formatFeishuCliYesNo(item.dataPlane.satisfied)}, worker=${formatFeishuCliYesNo(item.worker.satisfied)}, failure=${formatFeishuCliYesNo(item.failureVisibility.satisfied)}`,
+      );
+      if (item.issues.length > 0) {
+        lines.push(`  issues: ${item.issues.slice(0, 12).join(", ")}${item.issues.length > 12 ? ", ..." : ""}`);
+      } else {
+        lines.push("  issues: none");
+      }
+    }
+    if (report.integrations.length > 8) {
+      lines.push(`- ... ${report.integrations.length - 8} more integration evidence item(s); rerun with --json for all counters.`);
+    }
+  }
+
+  const remediationSteps = collectFeishuEvidenceRemediationSteps(report);
+  lines.push("", "Remediation:");
+  if (remediationSteps.length === 0) {
+    lines.push("- none");
+  } else {
+    for (const step of remediationSteps.slice(0, 8)) {
+      lines.push(`- ${step.title} (${step.stepId})`);
+      if (step.issues.length > 0) {
+        lines.push(`  issues: ${step.issues.join(", ")}`);
+      }
+      if (step.command) {
+        lines.push(`  command: ${step.command.replace(/\n/g, "\n  ")}`);
+      }
+    }
+    if (remediationSteps.length > 8) {
+      lines.push(`- ... ${remediationSteps.length - 8} more remediation step(s); rerun with --json for the full list.`);
+    }
+  }
+  lines.push("", "Use --json for full counters, artifact summaries, and all remediation steps.");
+
+  return lines.join("\n");
+}
+
+function formatFeishuArtifactEvidenceLines(
+  label: string,
+  evidence: FeishuOpenApiSmokeEvidenceVerification | FeishuBotAddedPayloadEvidenceVerification | undefined,
+): string[] {
+  if (!evidence) {
+    return [`- ${label}: not requested`];
+  }
+  const lines = [
+    `- ${label}: present=${formatFeishuCliYesNo(evidence.present)}, valid=${formatFeishuCliYesNo(evidence.valid)}`,
+  ];
+  if (evidence.evidencePath) {
+    lines.push(`  path: ${evidence.evidencePath}`);
+  }
+  if (evidence.issues.length > 0) {
+    lines.push(`  issues: ${evidence.issues.slice(0, 12).join(", ")}${evidence.issues.length > 12 ? ", ..." : ""}`);
+  } else {
+    lines.push("  issues: none");
+  }
+  return lines;
+}
+
+function collectFeishuEvidenceRemediationSteps(report: FeishuEvidenceReport): FeishuEvidenceRemediationStep[] {
+  const steps = [
+    ...(report.openApiEvidence?.remediationSteps ?? []),
+    ...(report.botAddedPayloadEvidence?.remediationSteps ?? []),
+    ...report.integrations.flatMap((item) => item.remediationSteps),
+  ];
+  const seen = new Set<string>();
+  const result: FeishuEvidenceRemediationStep[] = [];
+  for (const step of steps) {
+    const key = `${step.stepId}:${step.title}:${step.command ?? ""}`;
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    result.push(step);
+  }
+  return result;
+}
+
+function formatFeishuCliYesNo(value: boolean): "yes" | "no" {
+  return value ? "yes" : "no";
+}
+
 function reconcileFeishuArtifactAnchorConsistency(input: {
   openApiEvidence?: FeishuOpenApiSmokeEvidenceVerification;
   botAddedPayloadEvidence?: FeishuBotAddedPayloadEvidenceVerification;
@@ -4836,25 +4967,7 @@ export function buildFeishuSmokePlanReport(input: BuildFeishuSmokePlanReportInpu
       ...(hasSecondAgentBot ? [] : nativeAgentBotReadiness.issues),
     ]);
 
-  return {
-    workspaceId: readiness.workspaceId,
-    requiredReadiness: readiness.requiredReadiness,
-    integrationCount: readiness.integrationCount,
-    strictSatisfied: readiness.strictSatisfied,
-    selectedBotIntegrationId: botCandidate?.id,
-    selectedDataPlaneIntegrationId: dataPlaneCandidate?.id,
-    selectedWorkerIntegrationId: workerCandidate?.readyForWorkerSmoke ? workerCandidate.id : undefined,
-    appSetup,
-    runtimeSetup,
-    smokeHarness,
-    workerHarness,
-    evidenceGates,
-    readinessSummary: {
-      readyForBotSmokeCount: readiness.readyForBotSmokeCount,
-      readyForDataPlaneSmokeCount: readiness.readyForDataPlaneSmokeCount,
-      readyForWorkerSmokeCount: readiness.readyForWorkerSmokeCount,
-    },
-    steps: [
+  const steps: FeishuSmokePlanStep[] = [
       {
         id: "configure_credential_encryption_key",
         area: "setup",
@@ -5323,7 +5436,28 @@ export function buildFeishuSmokePlanReport(input: BuildFeishuSmokePlanReportInpu
         command: `agent-space integrations feishu evidence --workspace-id ${readiness.workspaceId} --integration ${setupIntegrationFlag} --openapi-evidence ${smokeHarness.evidencePath} --bot-added-payload-evidence ${smokeHarness.botAddedPayloadEvidencePath} --strict --require all --json`,
         issues: finalEvidenceIssues,
       },
-    ],
+  ];
+
+  return {
+    workspaceId: readiness.workspaceId,
+    requiredReadiness: readiness.requiredReadiness,
+    integrationCount: readiness.integrationCount,
+    strictSatisfied: readiness.strictSatisfied,
+    selectedBotIntegrationId: botCandidate?.id,
+    selectedDataPlaneIntegrationId: dataPlaneCandidate?.id,
+    selectedWorkerIntegrationId: workerCandidate?.readyForWorkerSmoke ? workerCandidate.id : undefined,
+    appSetup,
+    runtimeSetup,
+    smokeHarness,
+    workerHarness,
+    evidenceGates,
+    readinessSummary: {
+      readyForBotSmokeCount: readiness.readyForBotSmokeCount,
+      readyForDataPlaneSmokeCount: readiness.readyForDataPlaneSmokeCount,
+      readyForWorkerSmokeCount: readiness.readyForWorkerSmokeCount,
+    },
+    blockers: buildFeishuSmokePlanBlockers(steps),
+    steps,
   };
 }
 
@@ -5332,6 +5466,173 @@ export function getFeishuSmokePlanExitCode(
   input: { strict: boolean },
 ): number {
   return input.strict && !report.strictSatisfied ? 1 : 0;
+}
+
+export function formatFeishuSmokePlanCommandText(report: FeishuSmokePlanReport): string {
+  const lines = [
+    "AgentSpace Feishu smoke plan",
+    `Workspace: ${report.workspaceId}`,
+    `Required readiness: ${report.requiredReadiness}`,
+    `Strict readiness satisfied: ${report.strictSatisfied ? "yes" : "no"}`,
+    `Integrations: ${report.integrationCount}`,
+    `Ready counts: bot=${report.readinessSummary.readyForBotSmokeCount}, data-plane=${report.readinessSummary.readyForDataPlaneSmokeCount}, worker=${report.readinessSummary.readyForWorkerSmokeCount}`,
+  ];
+  if (report.selectedBotIntegrationId || report.selectedDataPlaneIntegrationId || report.selectedWorkerIntegrationId) {
+    lines.push(
+      `Selected: bot=${report.selectedBotIntegrationId ?? "missing"}, data-plane=${report.selectedDataPlaneIntegrationId ?? "missing"}, worker=${report.selectedWorkerIntegrationId ?? "missing"}`,
+    );
+  }
+
+  lines.push("", "Blockers:");
+  if (report.blockers.length === 0) {
+    lines.push("- none");
+  } else {
+    for (const blocker of report.blockers.slice(0, 8)) {
+      lines.push(
+        `- ${blocker.issue} (${blocker.severity}; ${blocker.affectedStepCount} affected step${blocker.affectedStepCount === 1 ? "" : "s"})`,
+        `  first: ${blocker.firstStepTitle} [${blocker.firstStepId}]`,
+        `  next: ${blocker.nextAction}`,
+      );
+    }
+    if (report.blockers.length > 8) {
+      lines.push(`- ... ${report.blockers.length - 8} more blocker(s); rerun with --json for the full list.`);
+    }
+  }
+
+  const nextSteps = report.steps.filter((step) => step.status !== "done").slice(0, 6);
+  lines.push("", "Next steps:");
+  if (nextSteps.length === 0) {
+    lines.push("- all local readiness steps are done; continue with live Feishu smoke.");
+  } else {
+    for (const step of nextSteps) {
+      lines.push(`- [${step.status}] ${step.title} (${step.id})`);
+      if (step.issues && step.issues.length > 0) {
+        lines.push(`  issues: ${step.issues.join(", ")}`);
+      }
+      if (step.command) {
+        lines.push(`  command: ${step.command}`);
+      }
+    }
+  }
+
+  const finalEvidenceStep = report.steps.find((step) => step.id === "verify_agentspace_live_evidence");
+  lines.push(
+    "",
+    "Smoke commands:",
+    `- prepare env: ${report.smokeHarness.prepareEnvCommand}`,
+    `- check env: ${report.smokeHarness.checkEnvCommand}`,
+    `- strict live: ${report.smokeHarness.strictLiveCommand}`,
+    `- verify OpenAPI evidence: ${report.smokeHarness.verifyEvidenceCommand}`,
+    `- verify bot-added payload: ${report.smokeHarness.verifyBotAddedPayloadCommand}`,
+  );
+  if (finalEvidenceStep?.command) {
+    lines.push(`- final AgentSpace evidence: ${finalEvidenceStep.command}`);
+  }
+  lines.push("", "Use --json for machine-readable blockers, evidence gates, and the full step list.");
+
+  return lines.join("\n");
+}
+
+function buildFeishuSmokePlanBlockers(steps: readonly FeishuSmokePlanStep[]): FeishuSmokePlanBlocker[] {
+  const blockers = new Map<string, FeishuSmokePlanBlocker>();
+  const issueOrder = new Map<string, number>();
+  steps.forEach((step, stepIndex) => {
+    if (step.status === "done") {
+      return;
+    }
+    for (const [issueIndex, issue] of (step.issues ?? []).entries()) {
+      const existing = blockers.get(issue);
+      if (existing) {
+        existing.affectedStepCount += 1;
+        if (step.status === "blocked") {
+          existing.blockedStepCount += 1;
+          existing.severity = "blocked";
+        } else {
+          existing.pendingStepCount += 1;
+        }
+        continue;
+      }
+      issueOrder.set(issue, stepIndex * 1000 + issueIndex);
+      blockers.set(issue, {
+        issue,
+        severity: step.status === "blocked" ? "blocked" : "pending",
+        affectedStepCount: 1,
+        blockedStepCount: step.status === "blocked" ? 1 : 0,
+        pendingStepCount: step.status === "pending" ? 1 : 0,
+        firstStepId: step.id,
+        firstStepTitle: step.title,
+        nextAction: describeFeishuSmokePlanIssueNextAction(issue),
+      });
+    }
+  });
+  return [...blockers.values()].sort((left, right) =>
+    (issueOrder.get(left.issue) ?? Number.MAX_SAFE_INTEGER) -
+    (issueOrder.get(right.issue) ?? Number.MAX_SAFE_INTEGER) ||
+    right.blockedStepCount - left.blockedStepCount ||
+    right.affectedStepCount - left.affectedStepCount ||
+    left.issue.localeCompare(right.issue)
+  );
+}
+
+function describeFeishuSmokePlanIssueNextAction(issue: string): string {
+  if (issue.startsWith("missing_scope:")) {
+    const scope = issue.slice("missing_scope:".length);
+    return `Grant the Feishu app scope ${scope} in Open Platform, publish/install the app, then rerun health/readiness.`;
+  }
+  switch (issue) {
+    case "credential_encryption_key_missing":
+      return "Set AGENT_SPACE_FEISHU_CREDENTIAL_ENCRYPTION_KEY or AGENT_SPACE_INTEGRATION_CREDENTIAL_ENCRYPTION_KEY to a base64-encoded 32-byte key before binding Feishu app credentials.";
+    case "credential_encryption_key_invalid":
+      return "Replace the configured AgentSpace credential encryption key with a valid base64-encoded 32-byte key before binding Feishu app credentials.";
+    case "integration_missing":
+      return "Create or bind an active Feishu agent bot integration in AgentSpace with App ID and App Secret.";
+    case "integration_not_active":
+      return "Re-enable the intended Feishu agent bot binding or create a fresh active binding before live smoke.";
+    case "selected_integration_not_active":
+      return "Select an active Feishu integration or re-enable the selected binding before generating smoke env values.";
+    case "app_url_missing":
+      return "Pass --app-url with the public AgentSpace HTTPS URL so callback URLs can be generated.";
+    case "app_id_missing":
+      return "Save the Feishu App ID on the selected agent bot binding.";
+    case "credentials_incomplete":
+      return "Save the required Feishu app secret, and the verification token when using EventCallback.";
+    case "health_not_checked":
+      return "Run Feishu health-check or readiness after credentials and scopes are configured.";
+    case "health_error":
+      return "Fix the Feishu app credentials/scopes or OpenAPI access, then rerun health-check.";
+    case "health_degraded":
+      return "Review the degraded Feishu health result, fix missing scopes or connectivity, then rerun health-check.";
+    case "channel_binding_missing":
+      return "Add the Feishu bot to a group to auto-provision a channel, or use bind-channel as a manual fallback.";
+    case "user_binding_missing":
+      return "Bind at least one Feishu sender to an AgentSpace user for bound-user smoke and audit evidence.";
+    case "doc_resource_binding_missing":
+      return "Bind a Feishu Doc to the AgentSpace channel before Docs data-plane smoke.";
+    case "doc_resource_write_grant_missing":
+      return "Enable write permission on the bound Feishu Doc resource before approved write smoke.";
+    case "sheet_resource_binding_missing":
+      return "Bind a Feishu Sheet to the AgentSpace channel before Sheets data-plane smoke.";
+    case "sheet_resource_write_grant_missing":
+      return "Enable write permission on the bound Feishu Sheet resource before approved write smoke.";
+    case "base_resource_binding_missing":
+      return "Bind a Feishu Base table to the AgentSpace channel before Base data-plane smoke.";
+    case "base_resource_app_token_missing":
+      return "Add the Base app token/table metadata required for a data-plane-ready Base binding.";
+    case "base_resource_write_grant_missing":
+      return "Enable write permission on the bound Feishu Base table before approved mutation smoke.";
+    case "websocket_worker_integration_missing":
+      return "Use an active websocket_worker Feishu agent bot binding before running WebSocket worker smoke.";
+    case "second_agent_bot_missing":
+      return "Create a second disposable Feishu app and bind it to a different AgentSpace agent.";
+    case "second_agent_bot_not_ready":
+      return "Make two agent-scoped Feishu bot bindings Phase 6-ready: active, credentialed, health-checked, scoped, and without unresolved outbox failures.";
+    case "second_agent_bot_distinct_agent_missing":
+      return "Bind the second Feishu bot to a different AgentSpace agent.";
+    case "second_agent_bot_distinct_app_missing":
+      return "Use a different Feishu App ID for the second AgentSpace agent bot.";
+    default:
+      return "Resolve this smoke-plan issue, rerun readiness, then regenerate smoke-plan.";
+  }
 }
 
 function buildFeishuSmokePlanEvidenceGates(input: {

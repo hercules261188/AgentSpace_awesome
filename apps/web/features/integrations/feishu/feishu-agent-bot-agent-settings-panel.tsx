@@ -197,10 +197,18 @@ export function FeishuAgentBotAgentSettingsPanel({
                 />
                 <FeishuAgentSettingsCommand
                   label={tx("Smoke Plan", "Smoke plan")}
+                  note={tx(
+                    "默认输出可读 blockers 和下一步命令；需要机器可读结果时在命令末尾追加 --json。",
+                    "Prints readable blockers and next commands by default; append --json for machine-readable output.",
+                  )}
                   value={currentIntegration.setupGuide.commands.smokePlan}
                 />
                 <FeishuAgentSettingsCommand
                   label={tx("最终证据", "Final evidence")}
+                  note={tx(
+                    "默认输出可读 gate、artifact 和 remediation 摘要；需要完整 counters 时在命令末尾追加 --json。",
+                    "Prints readable gate, artifact, and remediation summaries by default; append --json for full counters.",
+                  )}
                   value={currentIntegration.setupGuide.commands.evidence}
                 />
               </div>

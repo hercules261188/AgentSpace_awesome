@@ -30,6 +30,8 @@ import {
   runFeishuDataOperationApprovalReviewForCli,
   buildFeishuSmokePlanReport,
   buildFeishuSmokeEnvTemplateReport,
+  formatFeishuEvidenceCommandText,
+  formatFeishuSmokePlanCommandText,
   formatFeishuSmokeEnvCommandText,
   getFeishuSmokeEnvExitCode,
   getFeishuSmokePlanExitCode,
@@ -1957,6 +1959,37 @@ test("Feishu evidence report requires one anchor integration to satisfy non-nati
   assert.equal(serialized.includes("doccn_secret"), false);
   assert.equal(serialized.includes("shtcn_secret"), false);
   assert.equal(serialized.includes("tbl_secret"), false);
+});
+
+test("Feishu evidence text output summarizes final gate failures and remediation", () => {
+  const report = buildFeishuEvidenceReport({
+    workspaceId: "workspace-1",
+    requiredEvidence: "all" as const,
+    integrations: [],
+  });
+  const output = formatFeishuEvidenceCommandText(report);
+
+  assert.match(output, /AgentSpace Feishu evidence/);
+  assert.match(output, /Workspace: workspace-1/);
+  assert.match(output, /Required evidence: all/);
+  assert.match(output, /Strict evidence satisfied: no/);
+  assert.match(output, /Workspace gates:/);
+  assert.match(output, /bot reply: no \(0\)/);
+  assert.match(output, /Artifact evidence:/);
+  assert.match(output, /OpenAPI strict live: present=no, valid=no/);
+  assert.match(output, /openapi_evidence_missing/);
+  assert.match(output, /Bot-added payload: present=no, valid=no/);
+  assert.match(output, /bot_added_payload_evidence_missing/);
+  assert.match(output, /Integration evidence:/);
+  assert.match(output, /none found; create or select an active Feishu agent bot integration/);
+  assert.match(output, /Remediation:/);
+  assert.match(output, /run isolated Feishu callback and OpenAPI harness/);
+  assert.match(output, /--strict-live --evidence runtime-output\/feishu-smoke\/live\.json --json --require-todo120-native/);
+  assert.match(output, /verify captured Feishu bot-added callback payload/);
+  assert.match(output, /--verify-bot-added-payload runtime-output\/feishu-smoke\/bot-added-callback\.json/);
+  assert.match(output, /Use --json for full counters/);
+  assert.doesNotMatch(output, /\[object Object\]/);
+  assert.doesNotMatch(output, /FEISHU_APP_SECRET=/);
 });
 
 test("Feishu evidence report requires degraded health for failure visibility smoke", () => {
@@ -7879,6 +7912,7 @@ test("Feishu smoke plan converts readiness into live smoke checklist without ext
   assert.equal(report.readinessSummary.readyForBotSmokeCount, 1);
   assert.equal(report.readinessSummary.readyForDataPlaneSmokeCount, 1);
   assert.equal(report.readinessSummary.readyForWorkerSmokeCount, 1);
+  assert.deepEqual(report.blockers, []);
   assert.equal(report.smokeHarness.envExamplePath, "scripts/feishu/env.example");
   assert.equal(report.smokeHarness.envFilePath, "scripts/feishu/.env");
   assert.equal(report.smokeHarness.evidencePath, "runtime-output/feishu-smoke/live.json");
@@ -8613,6 +8647,21 @@ test("Feishu smoke plan includes CLI agent bot bind command when no integration 
   assert.equal(report.integrationCount, 0);
   assert.deepEqual(report.appSetup.requiredCredentialFields, ["app_id", "app_secret"]);
   assert.equal(report.runtimeSetup.credentialEncryption.status, "missing");
+  assert.deepEqual(report.blockers.slice(0, 2).map((blocker) => blocker.issue), [
+    "credential_encryption_key_missing",
+    "integration_missing",
+  ]);
+  assert.ok(report.blockers.find((blocker) =>
+    blocker.issue === "integration_missing" &&
+    blocker.severity === "blocked" &&
+    blocker.affectedStepCount > 1 &&
+    blocker.nextAction.includes("Create or bind an active Feishu agent bot integration")
+  ));
+  assert.ok(report.blockers.find((blocker) =>
+    blocker.issue === "credential_encryption_key_missing" &&
+    blocker.firstStepId === "configure_credential_encryption_key" &&
+    blocker.nextAction.includes("base64-encoded 32-byte key")
+  ));
   assert.equal(encryptionStep?.status, "pending");
   assert.match(encryptionStep?.command ?? "", /AGENT_SPACE_FEISHU_CREDENTIAL_ENCRYPTION_KEY/);
   assert.deepEqual(encryptionStep?.issues, ["credential_encryption_key_missing"]);
@@ -8632,6 +8681,34 @@ test("Feishu smoke plan includes CLI agent bot bind command when no integration 
   assert.doesNotMatch(createStep?.command ?? "", /--encrypt-key-env/);
   assert.equal(liveFirstMessageAutoProvision?.status, "blocked");
   assert.deepEqual(liveFirstMessageAutoProvision?.issues, ["integration_missing"]);
+});
+
+test("Feishu smoke plan text output summarizes blockers and next commands", () => {
+  const report = buildFeishuSmokePlanReport({
+    workspaceId: "workspace-1",
+    integrations: [],
+    runtimeEnv: {},
+  });
+  const output = formatFeishuSmokePlanCommandText(report);
+
+  assert.match(output, /AgentSpace Feishu smoke plan/);
+  assert.match(output, /Workspace: workspace-1/);
+  assert.match(output, /Blockers:/);
+  assert.match(output, /credential_encryption_key_missing/);
+  assert.match(output, /Set AGENT_SPACE_FEISHU_CREDENTIAL_ENCRYPTION_KEY/);
+  assert.match(output, /integration_missing/);
+  assert.match(output, /Create or bind an active Feishu agent bot integration/);
+  assert.match(output, /second_agent_bot_missing/);
+  assert.match(output, /Next steps:/);
+  assert.match(output, /\[pending\] Configure AgentSpace credential encryption key/);
+  assert.match(output, /command: export AGENT_SPACE_FEISHU_CREDENTIAL_ENCRYPTION_KEY/);
+  assert.match(output, /Smoke commands:/);
+  assert.match(output, /prepare env: agent-space integrations feishu smoke-env --workspace-id workspace-1/);
+  assert.match(output, /check env: npm run smoke:feishu -- --env-file scripts\/feishu\/\.env --check-env --json --require-todo120-native/);
+  assert.match(output, /final AgentSpace evidence: agent-space integrations feishu evidence --workspace-id workspace-1/);
+  assert.match(output, /Use --json for machine-readable blockers/);
+  assert.doesNotMatch(output, /\[object Object\]/);
+  assert.doesNotMatch(output, /FEISHU_APP_SECRET=/);
 });
 
 test("Feishu smoke plan requires second agent bot to use a distinct ready Feishu app", () => {
@@ -8713,6 +8790,11 @@ test("Feishu smoke plan reports invalid AgentSpace credential encryption key wit
   const createStep = report.steps.find((step) => step.id === "bind_feishu_agent_bot");
 
   assert.equal(report.runtimeSetup.credentialEncryption.status, "invalid");
+  assert.ok(report.blockers.find((blocker) =>
+    blocker.issue === "credential_encryption_key_invalid" &&
+    blocker.firstStepTitle === "Configure AgentSpace credential encryption key" &&
+    blocker.nextAction.includes("valid base64-encoded 32-byte key")
+  ));
   assert.equal(
     report.runtimeSetup.credentialEncryption.configuredEnvName,
     "AGENT_SPACE_INTEGRATION_CREDENTIAL_ENCRYPTION_KEY",

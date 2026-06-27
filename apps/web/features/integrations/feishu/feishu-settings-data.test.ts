@@ -274,7 +274,7 @@ describe("Feishu settings data", () => {
       "agent-space integrations feishu smoke-env --workspace-id workspace-1 --integration feishu-1 --app-url CHANGE_ME_PUBLIC_AGENTSPACE_URL > scripts/feishu/.env",
     );
     expect(item?.setupGuide?.commands.smokePlan).toBe(
-      "agent-space integrations feishu smoke-plan --workspace-id workspace-1 --integration feishu-1 --app-url CHANGE_ME_PUBLIC_AGENTSPACE_URL --json",
+      "agent-space integrations feishu smoke-plan --workspace-id workspace-1 --integration feishu-1 --app-url CHANGE_ME_PUBLIC_AGENTSPACE_URL",
     );
     expect(item?.setupGuide?.commands.verifyBotAddedPayload).toBe(
       "npm run smoke:feishu -- --verify-bot-added-payload runtime-output/feishu-smoke/bot-added-callback.json --bot-added-payload-evidence runtime-output/feishu-smoke/bot-added-payload-evidence.json --json",
@@ -499,8 +499,8 @@ describe("Feishu settings data", () => {
         strictLiveSmoke: "npm run smoke:feishu -- --env-file scripts/feishu/.env --live --strict-live --evidence runtime-output/feishu-smoke/live.json --json --require-todo120-native",
         verifyOpenApiEvidence: "npm run smoke:feishu -- --verify-evidence runtime-output/feishu-smoke/live.json --json",
         verifyBotAddedPayload: "npm run smoke:feishu -- --verify-bot-added-payload runtime-output/feishu-smoke/bot-added-callback.json --bot-added-payload-evidence runtime-output/feishu-smoke/bot-added-payload-evidence.json --json",
-        smokePlan: "agent-space integrations feishu smoke-plan --workspace-id workspace-1 --integration feishu-1 --app-url https://agent.test --json",
-        evidence: "agent-space integrations feishu evidence --workspace-id workspace-1 --integration feishu-1 --openapi-evidence runtime-output/feishu-smoke/live.json --bot-added-payload-evidence runtime-output/feishu-smoke/bot-added-payload-evidence.json --strict --require all --json",
+        smokePlan: "agent-space integrations feishu smoke-plan --workspace-id workspace-1 --integration feishu-1 --app-url https://agent.test",
+        evidence: "agent-space integrations feishu evidence --workspace-id workspace-1 --integration feishu-1 --openapi-evidence runtime-output/feishu-smoke/live.json --bot-added-payload-evidence runtime-output/feishu-smoke/bot-added-payload-evidence.json --strict --require all",
       },
     });
     expect(JSON.stringify(item)).not.toContain("encrypted-secret-marker");

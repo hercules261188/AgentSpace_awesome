@@ -465,8 +465,8 @@ function buildFeishuIntegrationSetupGuide(input: {
       strictLiveSmoke: `npm run smoke:feishu -- --env-file scripts/feishu/.env --live --strict-live --evidence ${FEISHU_SMOKE_EVIDENCE_PATH} --json --require-todo120-native`,
       verifyOpenApiEvidence: `npm run smoke:feishu -- --verify-evidence ${FEISHU_SMOKE_EVIDENCE_PATH} --json`,
       verifyBotAddedPayload: `npm run smoke:feishu -- --verify-bot-added-payload ${FEISHU_BOT_ADDED_PAYLOAD_PATH} --bot-added-payload-evidence ${FEISHU_BOT_ADDED_PAYLOAD_EVIDENCE_PATH} --json`,
-      smokePlan: `agent-space integrations feishu smoke-plan ${flags} ${appUrlFlag} --json`,
-      evidence: `agent-space integrations feishu evidence ${flags} --openapi-evidence ${FEISHU_SMOKE_EVIDENCE_PATH} --bot-added-payload-evidence ${FEISHU_BOT_ADDED_PAYLOAD_EVIDENCE_PATH} --strict --require all --json`,
+      smokePlan: `agent-space integrations feishu smoke-plan ${flags} ${appUrlFlag}`,
+      evidence: `agent-space integrations feishu evidence ${flags} --openapi-evidence ${FEISHU_SMOKE_EVIDENCE_PATH} --bot-added-payload-evidence ${FEISHU_BOT_ADDED_PAYLOAD_EVIDENCE_PATH} --strict --require all`,
     },
   };
 }
