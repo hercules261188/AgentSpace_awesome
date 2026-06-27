@@ -415,15 +415,15 @@ function FeishuSetupGuide({
     },
     {
       key: "verify-openapi-evidence",
-      label: tx("校验 OpenAPI 证据", "Verify OpenAPI Evidence"),
+      label: tx("校验 24 小时 OpenAPI 证据", "Verify 24h OpenAPI Evidence"),
       value: guide.commands.verifyOpenApiEvidence,
     },
     {
       key: "verify-bot-added-payload",
-      label: tx("校验进群事件样本", "Verify Bot-Added Payload"),
+      label: tx("校验 24 小时进群事件样本", "Verify 24h Bot-Added Payload"),
       note: tx(
-        "把一次真实机器人进群回调 JSON 保存在 runtime-output 后运行；输出只包含脱敏引用、哈希和字段来源。",
-        "Save one real bot-added callback JSON under runtime-output first; the output only includes redacted references, hashes, and field sources.",
+        "把一次真实机器人进群回调 JSON 保存在 runtime-output 后运行；输出只包含脱敏引用、哈希、字段来源和 24 小时有效时间。",
+        "Save one real bot-added callback JSON under runtime-output first; the output only includes redacted references, hashes, field sources, and a 24h freshness timestamp.",
       ),
       value: guide.commands.verifyBotAddedPayload,
     },
@@ -807,9 +807,9 @@ function translateEvidenceGateLabel(
     case "failure_visibility":
       return tx("失败可见证据", "Failure Visibility Evidence");
     case "openapi_artifact":
-      return tx("OpenAPI 证据", "OpenAPI Evidence");
+      return tx("24 小时 OpenAPI 证据", "24h OpenAPI Evidence");
     case "bot_added_payload_artifact":
-      return tx("Bot 进群 Payload 证据", "Bot-Added Payload Evidence");
+      return tx("24 小时 Bot 进群 Payload 证据", "24h Bot-Added Payload Evidence");
   }
 }
 

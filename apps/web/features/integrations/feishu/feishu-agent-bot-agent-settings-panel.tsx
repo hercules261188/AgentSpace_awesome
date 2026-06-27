@@ -184,14 +184,14 @@ export function FeishuAgentBotAgentSettingsPanel({
                   value={currentIntegration.setupGuide.commands.strictLiveSmoke}
                 />
                 <FeishuAgentSettingsCommand
-                  label={tx("验证 OpenAPI 证据", "Verify OpenAPI evidence")}
+                  label={tx("验证 24 小时 OpenAPI 证据", "Verify 24h OpenAPI evidence")}
                   value={currentIntegration.setupGuide.commands.verifyOpenApiEvidence}
                 />
                 <FeishuAgentSettingsCommand
-                  label={tx("验证进群事件样本", "Verify bot-added payload")}
+                  label={tx("验证 24 小时进群事件样本", "Verify 24h bot-added payload")}
                   note={tx(
-                    "把一次真实机器人进群回调 JSON 保存在 runtime-output 后运行；输出只包含脱敏引用、哈希和字段来源。",
-                    "Save one real bot-added callback JSON under runtime-output first; the output only includes redacted references, hashes, and field sources.",
+                    "把一次真实机器人进群回调 JSON 保存在 runtime-output 后运行；输出只包含脱敏引用、哈希、字段来源和 24 小时有效时间。",
+                    "Save one real bot-added callback JSON under runtime-output first; the output only includes redacted references, hashes, field sources, and a 24h freshness timestamp.",
                   )}
                   value={currentIntegration.setupGuide.commands.verifyBotAddedPayload}
                 />

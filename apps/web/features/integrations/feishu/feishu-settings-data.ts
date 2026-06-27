@@ -521,11 +521,11 @@ function buildFeishuEvidenceGates(transportMode: string): FeishuIntegrationSetup
     },
     {
       key: "openapi_artifact",
-      required: `strict_live_artifact:${FEISHU_SMOKE_EVIDENCE_PATH}`,
+      required: `fresh_24h_strict_live_artifact:${FEISHU_SMOKE_EVIDENCE_PATH}`,
     },
     {
       key: "bot_added_payload_artifact",
-      required: `bot_added_payload_artifact:${FEISHU_BOT_ADDED_PAYLOAD_EVIDENCE_PATH}`,
+      required: `fresh_24h_bot_added_payload_artifact:${FEISHU_BOT_ADDED_PAYLOAD_EVIDENCE_PATH}`,
     },
   ];
 }

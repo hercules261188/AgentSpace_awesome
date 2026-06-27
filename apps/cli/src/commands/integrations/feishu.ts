@@ -93,6 +93,9 @@ import {
 import { getNumberFlag, getStringFlag, parseArgs } from "../../lib/args.ts";
 import { writeData, type OutputFormat } from "../../lib/format.ts";
 
+const FEISHU_SMOKE_EVIDENCE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+const FEISHU_SMOKE_EVIDENCE_MAX_FUTURE_SKEW_MS = 5 * 60 * 1000;
+
 const FEISHU_CLI_PLACEHOLDERS = {
   publicAppUrl: "CHANGE_ME_PUBLIC_AGENTSPACE_URL",
   integrationId: "CHANGE_ME_FEISHU_INTEGRATION_ID",
@@ -709,6 +712,8 @@ export interface FeishuOpenApiSmokeEvidenceVerification {
     liveFailed: number;
     destructiveLiveChecks: number;
     requiredLiveSteps: number;
+    generatedAtPresent: boolean;
+    generatedAtFresh: boolean;
     appIdentityPresent: boolean;
     appIdHashPresent: boolean;
     appIdentityMatched: boolean;
@@ -747,8 +752,12 @@ export interface FeishuBotAddedPayloadEvidenceVerification {
     chatNamePresent: boolean;
     externalEventReference?: string;
     externalEventIdRedacted: boolean;
+    eventCreateTimePresent: boolean;
+    eventCreateTimeFresh: boolean;
     payloadHashPresent: boolean;
     rawPayloadStored: boolean;
+    generatedAtPresent: boolean;
+    generatedAtFresh: boolean;
   };
 }
 
@@ -4480,6 +4489,13 @@ function formatFeishuArtifactEvidenceLines(
   if (evidence.evidencePath) {
     lines.push(`  path: ${evidence.evidencePath}`);
   }
+  if (evidence.summary) {
+    lines.push(`  generatedAtFresh: ${formatFeishuCliYesNo(evidence.summary.generatedAtFresh)}`);
+    const botAddedSummary = evidence.summary as { eventCreateTimeFresh?: unknown };
+    if (typeof botAddedSummary.eventCreateTimeFresh === "boolean") {
+      lines.push(`  eventCreateTimeFresh: ${formatFeishuCliYesNo(botAddedSummary.eventCreateTimeFresh)}`);
+    }
+  }
   if (evidence.issues.length > 0) {
     lines.push(`  issues: ${evidence.issues.slice(0, 12).join(", ")}${evidence.issues.length > 12 ? ", ..." : ""}`);
   } else {
@@ -5405,7 +5421,7 @@ export function buildFeishuSmokePlanReport(input: BuildFeishuSmokePlanReportInpu
         area: "data-plane",
         title: "Live smoke: run isolated Feishu callback and OpenAPI harness",
         status: readyForDataPlane ? "pending" : "blocked",
-        detail: `Run the throwaway smoke harness after check-env passes. It must pass ${smokeHarness.requiredLiveSteps} live checks, including destructive writes for ${smokeHarness.destructiveLiveStepNames.join(", ")}, before saving the redacted OpenAPI evidence artifact consumed by the final AgentSpace evidence gate.`,
+        detail: `Run the throwaway smoke harness after check-env passes. It must pass ${smokeHarness.requiredLiveSteps} live checks, including destructive writes for ${smokeHarness.destructiveLiveStepNames.join(", ")}, before saving the redacted OpenAPI evidence artifact consumed by the final AgentSpace evidence gate. Regenerate it if final evidence will run more than 24 hours later.`,
         command: smokeHarness.strictLiveCommand,
         issues: readyForDataPlane ? [] : dataPlaneIssues,
       },
@@ -5414,7 +5430,7 @@ export function buildFeishuSmokePlanReport(input: BuildFeishuSmokePlanReportInpu
         area: "data-plane",
         title: "Verify redacted Feishu live smoke evidence",
         status: readyForDataPlane ? "pending" : "blocked",
-        detail: `Validate that the saved evidence artifact came from a strict live run, includes all ${smokeHarness.requiredLiveSteps} required IM/Docs/Sheets/Base checks plus ${smokeHarness.destructiveLiveChecks} destructive write checks, and keeps resource tokens redacted.`,
+        detail: `Validate that the saved evidence artifact came from a strict live run, was generated within 24 hours, includes all ${smokeHarness.requiredLiveSteps} required IM/Docs/Sheets/Base checks plus ${smokeHarness.destructiveLiveChecks} destructive write checks, and keeps resource tokens redacted.`,
         command: smokeHarness.verifyEvidenceCommand,
         issues: readyForDataPlane ? [] : dataPlaneIssues,
       },
@@ -5432,7 +5448,7 @@ export function buildFeishuSmokePlanReport(input: BuildFeishuSmokePlanReportInpu
         area: "failure",
         title: "Verify AgentSpace-side Feishu live smoke evidence",
         status: finalEvidenceReady ? "pending" : "blocked",
-        detail: "After live native agent bot, guest-policy, data-plane, worker when using websocket_worker, and failure smoke, verify local AgentSpace DB evidence without exposing external ids or resource tokens. Native evidence requires two Phase 6-ready agent bot bindings, agent-specific bot routing, auto-provisioning, multi-agent channel reuse, thread/task binding, thread continuation, thread collaboration with sent card proof, bot sender loop guard, and disabled-policy no-reply proof; guest evidence requires allow, reply_all, require_identity, sent identity-binding notice, ignore, and mention-required decisions.",
+        detail: "After live native agent bot, guest-policy, data-plane, worker when using websocket_worker, and failure smoke, verify local AgentSpace DB evidence without exposing external ids or resource tokens. Native evidence requires two Phase 6-ready agent bot bindings, agent-specific bot routing, auto-provisioning, multi-agent channel reuse, thread/task binding, thread continuation, thread collaboration with sent card proof, bot sender loop guard, and disabled-policy no-reply proof; guest evidence requires allow, reply_all, require_identity, sent identity-binding notice, ignore, and mention-required decisions. OpenAPI and bot-added artifacts must both be generated within 24 hours.",
         command: `agent-space integrations feishu evidence --workspace-id ${readiness.workspaceId} --integration ${setupIntegrationFlag} --openapi-evidence ${smokeHarness.evidencePath} --bot-added-payload-evidence ${smokeHarness.botAddedPayloadEvidencePath} --strict --require all`,
         issues: finalEvidenceIssues,
       },
@@ -5672,11 +5688,11 @@ function buildFeishuSmokePlanEvidenceGates(input: {
     },
     {
       key: "openapi_artifact",
-      required: `strict_live_artifact:${input.openApiEvidencePath}`,
+      required: `fresh_24h_strict_live_artifact:${input.openApiEvidencePath}`,
     },
     {
       key: "bot_added_payload_artifact",
-      required: `bot_added_payload_artifact:${input.botAddedPayloadEvidencePath}`,
+      required: `fresh_24h_bot_added_payload_artifact:${input.botAddedPayloadEvidencePath}`,
     },
   ];
 }
@@ -8013,6 +8029,14 @@ function verifyFeishuOpenApiSmokeEvidence(input: {
   if (!output) {
     issues.push("openapi_evidence_not_object");
   }
+  const generatedAtState = readFeishuSmokeEvidenceGeneratedAtState(output?.generatedAt);
+  if (!generatedAtState.present) {
+    issues.push("openapi_evidence_generated_at_missing");
+  } else if (!generatedAtState.valid) {
+    issues.push("openapi_evidence_generated_at_invalid");
+  } else if (!generatedAtState.fresh) {
+    issues.push("openapi_evidence_stale");
+  }
   if (output?.live !== true) {
     issues.push("openapi_not_live_run");
   }
@@ -8183,6 +8207,8 @@ function verifyFeishuOpenApiSmokeEvidence(input: {
       liveFailed: readNumber(summary?.liveFailed),
       destructiveLiveChecks: readNumber(summary?.destructiveLiveChecks),
       requiredLiveSteps: FEISHU_OPENAPI_REQUIRED_LIVE_SMOKE_STEPS.length,
+      generatedAtPresent: generatedAtState.present,
+      generatedAtFresh: generatedAtState.fresh,
       appIdentityPresent: Boolean(appIdentity),
       appIdHashPresent: hasFeishuSha256HashEvidence(appIdentity?.appIdHash),
       appIdentityMatched: Boolean(appMatchedIdentityProof),
@@ -8282,6 +8308,14 @@ function verifyFeishuBotAddedPayloadEvidence(input: {
   if (!output) {
     issues.push("bot_added_payload_evidence_not_object");
   }
+  const generatedAtState = readFeishuSmokeEvidenceGeneratedAtState(output?.generatedAt);
+  if (!generatedAtState.present) {
+    issues.push("bot_added_payload_evidence_generated_at_missing");
+  } else if (!generatedAtState.valid) {
+    issues.push("bot_added_payload_evidence_generated_at_invalid");
+  } else if (!generatedAtState.fresh) {
+    issues.push("bot_added_payload_evidence_stale");
+  }
   if (output?.valid !== true) {
     issues.push("bot_added_payload_evidence_not_valid");
   }
@@ -8336,6 +8370,11 @@ function verifyFeishuBotAddedPayloadEvidence(input: {
     }
     if (summary.externalEventIdRedacted !== true) {
       issues.push("bot_added_payload_event_id_not_redacted");
+    }
+    if (summary.eventCreateTimePresent !== true) {
+      issues.push("bot_added_payload_event_create_time_missing");
+    } else if (summary.eventCreateTimeFresh !== true) {
+      issues.push("bot_added_payload_event_create_time_stale");
     }
     if (!isSafeFeishuBotAddedReference(summary.externalEventReference, "event")) {
       issues.push("bot_added_payload_event_reference_missing");
@@ -8399,8 +8438,12 @@ function verifyFeishuBotAddedPayloadEvidence(input: {
             ? { externalEventReference: summary.externalEventReference }
             : {}),
           externalEventIdRedacted: summary.externalEventIdRedacted === true,
+          eventCreateTimePresent: summary.eventCreateTimePresent === true,
+          eventCreateTimeFresh: summary.eventCreateTimeFresh === true,
           payloadHashPresent: hasFeishuPayloadHashEvidence(summary.payloadHash),
           rawPayloadStored: summary.rawPayloadStored === true,
+          generatedAtPresent: generatedAtState.present,
+          generatedAtFresh: generatedAtState.fresh,
         },
       }
       : {}),
@@ -8705,6 +8748,29 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function readNumber(value: unknown): number {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+function readFeishuSmokeEvidenceGeneratedAtState(value: unknown): {
+  present: boolean;
+  valid: boolean;
+  fresh: boolean;
+} {
+  if (typeof value !== "string" || !value.trim()) {
+    return { present: false, valid: false, fresh: false };
+  }
+  const generatedAtMs = Date.parse(value);
+  if (!Number.isFinite(generatedAtMs)) {
+    return { present: true, valid: false, fresh: false };
+  }
+  const now = Date.now();
+  if (generatedAtMs - now > FEISHU_SMOKE_EVIDENCE_MAX_FUTURE_SKEW_MS) {
+    return { present: true, valid: false, fresh: false };
+  }
+  return {
+    present: true,
+    valid: true,
+    fresh: now - generatedAtMs <= FEISHU_SMOKE_EVIDENCE_MAX_AGE_MS,
+  };
 }
 
 interface FeishuWorkspaceEvidenceSatisfaction {

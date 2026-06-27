@@ -481,11 +481,11 @@ describe("Feishu settings data", () => {
         },
         {
           key: "openapi_artifact",
-          required: "strict_live_artifact:runtime-output/feishu-smoke/live.json",
+          required: "fresh_24h_strict_live_artifact:runtime-output/feishu-smoke/live.json",
         },
         {
           key: "bot_added_payload_artifact",
-          required: "bot_added_payload_artifact:runtime-output/feishu-smoke/bot-added-payload-evidence.json",
+          required: "fresh_24h_bot_added_payload_artifact:runtime-output/feishu-smoke/bot-added-payload-evidence.json",
         },
       ],
       commands: {

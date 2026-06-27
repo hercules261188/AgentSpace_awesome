@@ -5452,6 +5452,79 @@ test("Feishu evidence report reads smoke evidence artifacts from disk", () => {
   }
 });
 
+test("Feishu evidence report rejects stale OpenAPI smoke evidence artifacts", () => {
+  const staleOpenApiEvidence = buildOpenApiEvidenceFixture();
+  staleOpenApiEvidence.generatedAt = "2000-01-01T00:00:00.000Z";
+
+  const report = buildFeishuEvidenceReport({
+    ...withSecondActiveFeishuAgentBotEvidence(buildCompleteFeishuEvidenceInput()),
+    openApiEvidence: staleOpenApiEvidence,
+    botAddedPayloadEvidence: buildBotAddedPayloadEvidenceFixture(),
+  });
+
+  assert.equal(report.strictSatisfied, false);
+  assert.equal(report.openApiEvidence?.present, true);
+  assert.equal(report.openApiEvidence?.valid, false);
+  assert.equal(report.openApiEvidence?.summary?.generatedAtPresent, true);
+  assert.equal(report.openApiEvidence?.summary?.generatedAtFresh, false);
+  assert.ok(report.openApiEvidence?.issues.includes("openapi_evidence_stale"));
+});
+
+test("Feishu evidence report rejects stale bot-added payload evidence artifacts", () => {
+  const staleBotAddedEvidence = buildBotAddedPayloadEvidenceFixture();
+  staleBotAddedEvidence.generatedAt = "2000-01-01T00:00:00.000Z";
+
+  const report = buildFeishuEvidenceReport({
+    ...withSecondActiveFeishuAgentBotEvidence(buildCompleteFeishuEvidenceInput()),
+    openApiEvidence: buildOpenApiEvidenceFixture(),
+    botAddedPayloadEvidence: staleBotAddedEvidence,
+  });
+
+  assert.equal(report.strictSatisfied, false);
+  assert.equal(report.botAddedPayloadEvidence?.present, true);
+  assert.equal(report.botAddedPayloadEvidence?.valid, false);
+  assert.equal(report.botAddedPayloadEvidence?.summary?.generatedAtPresent, true);
+  assert.equal(report.botAddedPayloadEvidence?.summary?.generatedAtFresh, false);
+  assert.ok(report.botAddedPayloadEvidence?.issues.includes("bot_added_payload_evidence_stale"));
+});
+
+test("Feishu evidence report rejects bot-added artifacts from stale Feishu events", () => {
+  const staleEventEvidence = buildBotAddedPayloadEvidenceFixture();
+  staleEventEvidence.summary.eventCreateTimeFresh = false;
+
+  const report = buildFeishuEvidenceReport({
+    ...withSecondActiveFeishuAgentBotEvidence(buildCompleteFeishuEvidenceInput()),
+    openApiEvidence: buildOpenApiEvidenceFixture(),
+    botAddedPayloadEvidence: staleEventEvidence,
+  });
+
+  assert.equal(report.strictSatisfied, false);
+  assert.equal(report.botAddedPayloadEvidence?.present, true);
+  assert.equal(report.botAddedPayloadEvidence?.valid, false);
+  assert.equal(report.botAddedPayloadEvidence?.summary?.eventCreateTimePresent, true);
+  assert.equal(report.botAddedPayloadEvidence?.summary?.eventCreateTimeFresh, false);
+  assert.ok(report.botAddedPayloadEvidence?.issues.includes("bot_added_payload_event_create_time_stale"));
+});
+
+test("Feishu evidence report rejects bot-added artifacts without Feishu event time proof", () => {
+  const missingEventTimeEvidence = buildBotAddedPayloadEvidenceFixture();
+  delete (missingEventTimeEvidence.summary as { eventCreateTimePresent?: boolean }).eventCreateTimePresent;
+  delete (missingEventTimeEvidence.summary as { eventCreateTimeFresh?: boolean }).eventCreateTimeFresh;
+
+  const report = buildFeishuEvidenceReport({
+    ...withSecondActiveFeishuAgentBotEvidence(buildCompleteFeishuEvidenceInput()),
+    openApiEvidence: buildOpenApiEvidenceFixture(),
+    botAddedPayloadEvidence: missingEventTimeEvidence,
+  });
+
+  assert.equal(report.strictSatisfied, false);
+  assert.equal(report.botAddedPayloadEvidence?.present, true);
+  assert.equal(report.botAddedPayloadEvidence?.valid, false);
+  assert.equal(report.botAddedPayloadEvidence?.summary?.eventCreateTimePresent, false);
+  assert.equal(report.botAddedPayloadEvidence?.summary?.eventCreateTimeFresh, false);
+  assert.ok(report.botAddedPayloadEvidence?.issues.includes("bot_added_payload_event_create_time_missing"));
+});
+
 test("Feishu evidence report blocks strict gates when local proof is incomplete", () => {
   const report = buildFeishuEvidenceReport({
     workspaceId: "workspace-1",
@@ -8087,11 +8160,11 @@ test("Feishu smoke plan converts readiness into live smoke checklist without ext
     },
     {
       key: "openapi_artifact",
-      required: "strict_live_artifact:runtime-output/feishu-smoke/live.json",
+      required: "fresh_24h_strict_live_artifact:runtime-output/feishu-smoke/live.json",
     },
     {
       key: "bot_added_payload_artifact",
-      required: "bot_added_payload_artifact:runtime-output/feishu-smoke/bot-added-payload-evidence.json",
+      required: "fresh_24h_bot_added_payload_artifact:runtime-output/feishu-smoke/bot-added-payload-evidence.json",
     },
   ]);
 
@@ -8312,6 +8385,7 @@ test("Feishu smoke plan converts readiness into live smoke checklist without ext
   assert.match(liveHarness?.command ?? "", /npm run smoke:feishu/);
   assert.match(liveHarness?.detail ?? "", /after check-env passes/);
   assert.match(liveHarness?.detail ?? "", /final AgentSpace evidence gate/);
+  assert.match(liveHarness?.detail ?? "", /24 hours/);
   assert.doesNotMatch(liveHarness?.detail ?? "", /TODO119/);
   assert.match(liveHarness?.detail ?? "", /12 live checks/);
   assert.match(liveHarness?.detail ?? "", /Docs docx append blocks/);
@@ -8319,6 +8393,7 @@ test("Feishu smoke plan converts readiness into live smoke checklist without ext
   assert.match(liveHarness?.detail ?? "", /Base update record/);
   assert.equal(verifyHarness?.status, "pending");
   assert.match(verifyHarness?.command ?? "", /--verify-evidence/);
+  assert.match(verifyHarness?.detail ?? "", /generated within 24 hours/);
   assert.match(verifyHarness?.detail ?? "", /12 required/);
   assert.match(verifyHarness?.detail ?? "", /3 destructive write checks/);
   assert.equal(failure?.status, "pending");
@@ -8332,6 +8407,7 @@ test("Feishu smoke plan converts readiness into live smoke checklist without ext
   assert.match(agentSpaceEvidence?.detail ?? "", /Native evidence requires/);
   assert.match(agentSpaceEvidence?.detail ?? "", /two Phase 6-ready agent bot bindings/);
   assert.match(agentSpaceEvidence?.detail ?? "", /worker when using websocket_worker/);
+  assert.match(agentSpaceEvidence?.detail ?? "", /generated within 24 hours/);
   assert.match(agentSpaceEvidence?.detail ?? "", /thread continuation/);
   assert.match(agentSpaceEvidence?.detail ?? "", /thread collaboration/);
   assert.match(agentSpaceEvidence?.detail ?? "", /sent card proof/);
@@ -9733,7 +9809,7 @@ function buildOpenApiEvidenceFixture() {
     }, true),
   ];
   return {
-    generatedAt: "2026-06-24T00:00:00.000Z",
+    generatedAt: new Date().toISOString(),
     live: true,
     strictLive: true,
     appIdentity: {
@@ -9792,6 +9868,7 @@ function buildOpenApiEvidenceFixture() {
 
 function buildBotAddedPayloadEvidenceFixture() {
   return {
+    generatedAt: new Date().toISOString(),
     payloadPath: "runtime-output/feishu-smoke/bot-added-callback.json",
     valid: true,
     issues: [],
@@ -9812,6 +9889,8 @@ function buildBotAddedPayloadEvidenceFixture() {
       chatNameLength: 19,
       externalEventReference: "event abcdef1234567890",
       externalEventIdRedacted: true,
+      eventCreateTimePresent: true,
+      eventCreateTimeFresh: true,
       payloadHash: createHash("sha256").update("bot-added-payload", "utf8").digest("hex"),
       rawPayloadStored: false,
     },

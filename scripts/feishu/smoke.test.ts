@@ -27,6 +27,8 @@ test("verifies a complete strict live Feishu smoke evidence artifact", () => {
       livePassed: number;
       requiredLiveSteps: number;
       destructiveLiveChecks: number;
+      generatedAtPresent: boolean;
+      generatedAtFresh: boolean;
       appIdentityPresent: boolean;
       appIdHashPresent: boolean;
       tenantKeyHashPresent: boolean;
@@ -43,6 +45,8 @@ test("verifies a complete strict live Feishu smoke evidence artifact", () => {
   assert.equal(output.summary.livePassed, 12);
   assert.equal(output.summary.requiredLiveSteps, 12);
   assert.equal(output.summary.destructiveLiveChecks, 3);
+  assert.equal(output.summary.generatedAtPresent, true);
+  assert.equal(output.summary.generatedAtFresh, true);
   assert.equal(output.summary.appIdentityPresent, true);
   assert.equal(output.summary.appIdHashPresent, true);
   assert.equal(output.summary.tenantKeyHashPresent, false);
@@ -51,6 +55,36 @@ test("verifies a complete strict live Feishu smoke evidence artifact", () => {
   assert.equal(output.summary.todo120NativeSmokeRequired, 2);
   assert.equal(output.summary.todo120NativeSmokeConfigured, 2);
   assert.equal(output.summary.todo120NativeSmokeSecondAgentAppIdHashPresent, true);
+});
+
+test("rejects stale strict live Feishu smoke evidence artifacts", () => {
+  const evidence = buildEvidenceFixture();
+  evidence.generatedAt = "2000-01-01T00:00:00.000Z";
+  const evidencePath = writeEvidenceFixture(evidence);
+  const result = runVerifyEvidence(evidencePath);
+
+  assert.equal(result.status, 1);
+  const output = JSON.parse(result.stdout) as {
+    valid: boolean;
+    issues: string[];
+    summary: {
+      generatedAtPresent: boolean;
+      generatedAtFresh: boolean;
+    };
+  };
+  assert.equal(output.valid, false);
+  assert.equal(output.summary.generatedAtPresent, true);
+  assert.equal(output.summary.generatedAtFresh, false);
+  assert.ok(output.issues.includes("evidence_stale"));
+});
+
+test("text verification output reports strict live Feishu evidence freshness", () => {
+  const evidencePath = writeEvidenceFixture(buildEvidenceFixture());
+  const result = runVerifyEvidenceText(evidencePath);
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /Feishu smoke evidence: valid/);
+  assert.match(result.stdout, /Evidence freshness: fresh \(24h required for final AgentSpace evidence\)\./);
 });
 
 test("rejects old Feishu smoke evidence that lacks Doc append coverage", () => {
@@ -354,7 +388,7 @@ test("verifies a captured bot-added payload without leaking Feishu identifiers",
     header: {
       event_id: "evt_real_bot_added",
       event_type: "im.chat.member.bot.added_v1",
-      create_time: "1710000000000",
+      create_time: String(Date.now()),
       app_id: "cli_real_app",
       tenant_key: "tenant-real",
     },
@@ -389,6 +423,7 @@ test("verifies a captured bot-added payload without leaking Feishu identifiers",
 
   assert.equal(result.status, 0, result.stderr);
   const output = JSON.parse(result.stdout) as {
+    generatedAt: string;
     valid: boolean;
     issues: string[];
     summary: {
@@ -404,9 +439,12 @@ test("verifies a captured bot-added payload without leaking Feishu identifiers",
       chatNamePresent: boolean;
       chatNameHash?: string;
       chatNameLength?: number;
+      eventCreateTimePresent: boolean;
+      eventCreateTimeFresh: boolean;
       rawPayloadStored: boolean;
     };
   };
+  assert.match(output.generatedAt, /^\d{4}-\d{2}-\d{2}T/);
   assert.equal(output.valid, true);
   assert.deepEqual(output.issues, []);
   assert.equal(output.summary.botAddedEvent, true);
@@ -421,6 +459,8 @@ test("verifies a captured bot-added payload without leaking Feishu identifiers",
   assert.equal(output.summary.chatNamePresent, true);
   assert.match(output.summary.chatNameHash ?? "", /^[a-f0-9]{64}$/);
   assert.ok((output.summary.chatNameLength ?? 0) > 0);
+  assert.equal(output.summary.eventCreateTimePresent, true);
+  assert.equal(output.summary.eventCreateTimeFresh, true);
   assert.equal(output.summary.rawPayloadStored, false);
   assert.equal(result.stdout.includes("oc_real_secret_chat"), false);
   assert.equal(result.stdout.includes("ou_real_operator"), false);
@@ -431,13 +471,157 @@ test("verifies a captured bot-added payload without leaking Feishu identifiers",
   assert.equal(existsSync(evidencePath), true);
   const artifact = readJsonFile(evidencePath) as typeof output;
   assert.equal(artifact.valid, true);
+  assert.equal(artifact.generatedAt, output.generatedAt);
   assert.equal(artifact.summary.chatReference, output.summary.chatReference);
   assert.equal(artifact.summary.appIdHash, output.summary.appIdHash);
   assert.equal(artifact.summary.tenantKeyHash, output.summary.tenantKeyHash);
+  assert.equal(artifact.summary.eventCreateTimeFresh, true);
   assert.equal(JSON.stringify(artifact).includes("oc_real_secret_chat"), false);
   assert.equal(JSON.stringify(artifact).includes("cli_real_app"), false);
   assert.equal(JSON.stringify(artifact).includes("tenant-real"), false);
   assert.equal(JSON.stringify(artifact).includes("真实验收群"), false);
+});
+
+test("text verification output reports bot-added payload artifact freshness start", () => {
+  const directory = mkdtempSync(join(tmpdir(), "agentspace-feishu-bot-added-text-"));
+  const payloadPath = join(directory, "callback.json");
+  writeFileSync(payloadPath, `${JSON.stringify({
+    schema: "2.0",
+    header: {
+      event_id: "evt_real_bot_added_text",
+      event_type: "im.chat.member.bot.added_v1",
+      create_time: String(Date.now()),
+      app_id: "cli_real_app_text",
+    },
+    event: {
+      chat: {
+        open_chat_id: "oc_real_text_chat",
+        type: "group",
+      },
+    },
+  }, null, 2)}\n`, "utf8");
+  tempFixtureDirectories.push(directory);
+
+  const result = spawnSync(
+    process.execPath,
+    [
+      "--experimental-strip-types",
+      "scripts/feishu/smoke.ts",
+      "--verify-bot-added-payload",
+      payloadPath,
+    ],
+    { cwd: process.cwd(), encoding: "utf8" },
+  );
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /Feishu bot-added payload: valid/);
+  assert.match(result.stdout, /Generated at: .*24h artifact freshness starts here/);
+  assert.match(result.stdout, /event create time: fresh/);
+  assert.equal(result.stdout.includes("oc_real_text_chat"), false);
+  assert.equal(result.stdout.includes("cli_real_app_text"), false);
+});
+
+test("rejects stale bot-added payload event create_time even when verified now", () => {
+  const directory = mkdtempSync(join(tmpdir(), "agentspace-feishu-bot-added-stale-event-"));
+  const payloadPath = join(directory, "callback.json");
+  const evidencePath = join(directory, "bot-added-evidence.json");
+  writeFileSync(evidencePath, "{\"existing\":true}\n", "utf8");
+  writeFileSync(payloadPath, `${JSON.stringify({
+    schema: "2.0",
+    header: {
+      event_id: "evt_old_bot_added",
+      event_type: "im.chat.member.bot.added_v1",
+      create_time: "946684800000",
+      app_id: "cli_old_app",
+    },
+    event: {
+      chat: {
+        open_chat_id: "oc_old_chat",
+        type: "group",
+      },
+    },
+  }, null, 2)}\n`, "utf8");
+  tempFixtureDirectories.push(directory);
+  const result = spawnSync(
+    process.execPath,
+    [
+      "--experimental-strip-types",
+      "scripts/feishu/smoke.ts",
+      "--verify-bot-added-payload",
+      payloadPath,
+      "--bot-added-payload-evidence",
+      evidencePath,
+      "--json",
+    ],
+    { cwd: process.cwd(), encoding: "utf8" },
+  );
+
+  assert.equal(result.status, 1);
+  const output = JSON.parse(result.stdout) as {
+    valid: boolean;
+    issues: string[];
+    summary: {
+      eventCreateTimePresent: boolean;
+      eventCreateTimeFresh: boolean;
+    };
+  };
+  assert.equal(output.valid, false);
+  assert.equal(output.summary.eventCreateTimePresent, true);
+  assert.equal(output.summary.eventCreateTimeFresh, false);
+  assert.ok(output.issues.includes("bot_added_event_create_time_stale"));
+  assert.equal(result.stdout.includes("oc_old_chat"), false);
+  assert.deepEqual(readJsonFile(evidencePath), { existing: true });
+});
+
+test("rejects bot-added payloads without event create_time", () => {
+  const directory = mkdtempSync(join(tmpdir(), "agentspace-feishu-bot-added-missing-event-time-"));
+  const payloadPath = join(directory, "callback.json");
+  const evidencePath = join(directory, "bot-added-evidence.json");
+  writeFileSync(evidencePath, "{\"existing\":true}\n", "utf8");
+  writeFileSync(payloadPath, `${JSON.stringify({
+    schema: "2.0",
+    header: {
+      event_id: "evt_missing_time_bot_added",
+      event_type: "im.chat.member.bot.added_v1",
+      app_id: "cli_missing_time_app",
+    },
+    event: {
+      chat: {
+        open_chat_id: "oc_missing_time_chat",
+        type: "group",
+      },
+    },
+  }, null, 2)}\n`, "utf8");
+  tempFixtureDirectories.push(directory);
+  const result = spawnSync(
+    process.execPath,
+    [
+      "--experimental-strip-types",
+      "scripts/feishu/smoke.ts",
+      "--verify-bot-added-payload",
+      payloadPath,
+      "--bot-added-payload-evidence",
+      evidencePath,
+      "--json",
+    ],
+    { cwd: process.cwd(), encoding: "utf8" },
+  );
+
+  assert.equal(result.status, 1);
+  const output = JSON.parse(result.stdout) as {
+    valid: boolean;
+    issues: string[];
+    summary: {
+      eventCreateTimePresent: boolean;
+      eventCreateTimeFresh: boolean;
+    };
+  };
+  assert.equal(output.valid, false);
+  assert.equal(output.summary.eventCreateTimePresent, false);
+  assert.equal(output.summary.eventCreateTimeFresh, false);
+  assert.ok(output.issues.includes("bot_added_event_create_time_missing"));
+  assert.equal(result.stdout.includes("oc_missing_time_chat"), false);
+  assert.deepEqual(readJsonFile(evidencePath), { existing: true });
 });
 
 test("rejects captured payloads that are not bot-added events", () => {
@@ -1798,6 +1982,18 @@ function runVerifyEvidence(path: string) {
   });
 }
 
+function runVerifyEvidenceText(path: string) {
+  return spawnSync(process.execPath, [
+    "--experimental-strip-types",
+    "scripts/feishu/smoke.ts",
+    "--verify-evidence",
+    path,
+  ], {
+    cwd: process.cwd(),
+    encoding: "utf8",
+  });
+}
+
 function runSmokeJson() {
   return spawnSync(process.execPath, [
     "--experimental-strip-types",
@@ -2048,7 +2244,7 @@ function buildEvidenceFixture() {
     },
   ];
   return {
-    generatedAt: "2026-06-24T00:00:00.000Z",
+    generatedAt: new Date().toISOString(),
     live: true,
     strictLive: true,
     appIdentity: {

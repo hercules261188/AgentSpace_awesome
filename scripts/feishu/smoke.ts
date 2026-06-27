@@ -24,6 +24,9 @@ import {
   type FeishuApiRequest,
 } from "../../packages/services/src/integrations/providers/feishu/client.ts";
 
+const FEISHU_SMOKE_EVIDENCE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+const FEISHU_SMOKE_EVIDENCE_MAX_FUTURE_SKEW_MS = 5 * 60 * 1000;
+
 type SmokeStatus = "pass" | "skip" | "fail";
 
 interface LarkSdkModule {
@@ -109,6 +112,8 @@ interface SmokeEvidenceVerificationOutput {
     liveFailed: number;
     destructiveLiveChecks: number;
     requiredLiveSteps: number;
+    generatedAtPresent: boolean;
+    generatedAtFresh: boolean;
     appIdentityPresent: boolean;
     appIdHashPresent: boolean;
     tenantKeyHashPresent: boolean;
@@ -121,6 +126,7 @@ interface SmokeEvidenceVerificationOutput {
 }
 
 interface FeishuBotAddedPayloadVerificationOutput {
+  generatedAt: string;
   payloadPath: string;
   valid: boolean;
   issues: string[];
@@ -141,6 +147,8 @@ interface FeishuBotAddedPayloadVerificationOutput {
     chatNameLength?: number;
     externalEventReference?: string;
     externalEventIdRedacted: boolean;
+    eventCreateTimePresent: boolean;
+    eventCreateTimeFresh: boolean;
     payloadHash: string;
     rawPayloadStored: false;
   };
@@ -1727,6 +1735,16 @@ function verifyFeishuBotAddedPayloadFile(path: string): FeishuBotAddedPayloadVer
   if (!resolveFeishuChatDescriptor(safePayload)) {
     issues.push("bot_added_chat_descriptor_missing");
   }
+  if (isFeishuBotAddedToChatPayload(safePayload)) {
+    const createTimeState = readFeishuBotAddedPayloadCreateTimeState(safePayload);
+    if (!createTimeState.present) {
+      issues.push("bot_added_event_create_time_missing");
+    } else if (!createTimeState.valid) {
+      issues.push("bot_added_event_create_time_invalid");
+    } else if (!createTimeState.fresh) {
+      issues.push("bot_added_event_create_time_stale");
+    }
+  }
 
   const output = buildFeishuBotAddedPayloadVerificationOutput({
     payloadPath: path,
@@ -1760,7 +1778,9 @@ function buildFeishuBotAddedPayloadVerificationOutput(input: {
   const chatName = descriptor?.externalChatName?.trim();
   const appId = resolveFeishuBotAddedPayloadAppId(input.payload);
   const tenantKey = resolveFeishuBotAddedPayloadTenantKey(input.payload);
+  const createTimeState = readFeishuBotAddedPayloadCreateTimeState(input.payload);
   return {
+    generatedAt: new Date().toISOString(),
     payloadPath: sanitizeSmokeOutputText(input.payloadPath),
     valid: input.issues.length === 0,
     issues: [...input.issues],
@@ -1783,10 +1803,58 @@ function buildFeishuBotAddedPayloadVerificationOutput(input: {
       ...(chatName ? { chatNameLength: Buffer.byteLength(chatName, "utf8") } : {}),
       ...(externalEventReference ? { externalEventReference } : {}),
       externalEventIdRedacted,
+      eventCreateTimePresent: createTimeState.present,
+      eventCreateTimeFresh: createTimeState.fresh,
       payloadHash,
       rawPayloadStored: false,
     },
   };
+}
+
+function readFeishuBotAddedPayloadCreateTimeState(payload: Record<string, unknown>): {
+  present: boolean;
+  valid: boolean;
+  fresh: boolean;
+} {
+  const header = readRecord(payload.header);
+  const event = readRecord(payload.event);
+  const timestampMs = readFeishuEventCreateTimeMs(
+    header?.create_time ?? header?.createTime ?? event?.create_time ?? event?.createTime,
+  );
+  if (timestampMs === undefined) {
+    return { present: false, valid: false, fresh: false };
+  }
+  if (!Number.isFinite(timestampMs)) {
+    return { present: true, valid: false, fresh: false };
+  }
+  const now = Date.now();
+  if (timestampMs - now > FEISHU_SMOKE_EVIDENCE_MAX_FUTURE_SKEW_MS) {
+    return { present: true, valid: false, fresh: false };
+  }
+  return {
+    present: true,
+    valid: true,
+    fresh: now - timestampMs <= FEISHU_SMOKE_EVIDENCE_MAX_AGE_MS,
+  };
+}
+
+function readFeishuEventCreateTimeMs(value: unknown): number | undefined {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return normalizeFeishuEventTimestampMs(value);
+  }
+  if (typeof value !== "string" || !value.trim()) {
+    return undefined;
+  }
+  const normalized = value.trim();
+  if (/^\d+$/.test(normalized)) {
+    return normalizeFeishuEventTimestampMs(Number(normalized));
+  }
+  const parsed = Date.parse(normalized);
+  return Number.isFinite(parsed) ? parsed : Number.NaN;
+}
+
+function normalizeFeishuEventTimestampMs(value: number): number {
+  return value > 0 && value < 10_000_000_000 ? value * 1000 : value;
 }
 
 function resolveFeishuBotAddedPayloadAppId(payload: Record<string, unknown>): string | undefined {
@@ -1854,6 +1922,14 @@ function verifySmokeEvidence(path: string, evidence: unknown): SmokeEvidenceVeri
 
   if (!output) {
     issues.push("evidence_not_object");
+  }
+  const generatedAtState = readSmokeEvidenceGeneratedAtState(output?.generatedAt);
+  if (!generatedAtState.present) {
+    issues.push("evidence_generated_at_missing");
+  } else if (!generatedAtState.valid) {
+    issues.push("evidence_generated_at_invalid");
+  } else if (!generatedAtState.fresh) {
+    issues.push("evidence_stale");
   }
   if (output?.live !== true) {
     issues.push("not_live_run");
@@ -2002,6 +2078,8 @@ function verifySmokeEvidence(path: string, evidence: unknown): SmokeEvidenceVeri
       liveFailed: readNumber(summary?.liveFailed),
       destructiveLiveChecks: readNumber(summary?.destructiveLiveChecks),
       requiredLiveSteps: FEISHU_OPENAPI_REQUIRED_LIVE_SMOKE_STEPS.length,
+      generatedAtPresent: generatedAtState.present,
+      generatedAtFresh: generatedAtState.fresh,
       appIdentityPresent: Boolean(appIdentity),
       appIdHashPresent: isSha256Hex(appIdentity?.appIdHash),
       tenantKeyHashPresent: isSha256Hex(appIdentity?.tenantKeyHash),
@@ -2016,6 +2094,29 @@ function verifySmokeEvidence(path: string, evidence: unknown): SmokeEvidenceVeri
 
 function isSafeSmokeStepNamed(value: unknown, name: string): value is SafeSmokeStep {
   return isSafeSmokeStep(value) && value.name === name;
+}
+
+function readSmokeEvidenceGeneratedAtState(value: unknown): {
+  present: boolean;
+  valid: boolean;
+  fresh: boolean;
+} {
+  if (typeof value !== "string" || !value.trim()) {
+    return { present: false, valid: false, fresh: false };
+  }
+  const generatedAtMs = Date.parse(value);
+  if (!Number.isFinite(generatedAtMs)) {
+    return { present: true, valid: false, fresh: false };
+  }
+  const now = Date.now();
+  if (generatedAtMs - now > FEISHU_SMOKE_EVIDENCE_MAX_FUTURE_SKEW_MS) {
+    return { present: true, valid: false, fresh: false };
+  }
+  return {
+    present: true,
+    valid: true,
+    fresh: now - generatedAtMs <= FEISHU_SMOKE_EVIDENCE_MAX_AGE_MS,
+  };
 }
 
 function isSafeSmokeStep(value: unknown): value is SafeSmokeStep {
@@ -2406,6 +2507,10 @@ function printEvidenceVerificationSummary(input: SmokeEvidenceVerificationOutput
     + `; destructive checks: ${input.summary.destructiveLiveChecks}`,
   );
   console.log(
+    `Evidence freshness: ${input.summary.generatedAtFresh ? "fresh" : "stale or missing"}`
+    + ` (24h required for final AgentSpace evidence).`,
+  );
+  console.log(
     `TODO120 native env: ${input.summary.todo120NativeSmokeConfigured}/`
     + `${input.summary.todo120NativeSmokeRequired} configured`
     + `; required: ${input.summary.todo120NativeSmokeRequiredForCommand ? "yes" : "no"}`
@@ -2419,10 +2524,12 @@ function printEvidenceVerificationSummary(input: SmokeEvidenceVerificationOutput
 function printBotAddedPayloadVerificationSummary(input: FeishuBotAddedPayloadVerificationOutput): void {
   console.log(`Feishu bot-added payload: ${input.valid ? "valid" : "invalid"}`);
   console.log(`Payload: ${input.payloadPath}`);
+  console.log(`Generated at: ${input.generatedAt} (24h artifact freshness starts here).`);
   console.log(
     `Event: ${input.summary.eventType || "(missing)"}`
     + `; bot-added: ${input.summary.botAddedEvent ? "yes" : "no"}`
-    + `; chat descriptor: ${input.summary.chatDescriptorPresent ? "yes" : "no"}`,
+    + `; chat descriptor: ${input.summary.chatDescriptorPresent ? "yes" : "no"}`
+    + `; event create time: ${input.summary.eventCreateTimeFresh ? "fresh" : "stale or missing"}`,
   );
   console.log(
     `Chat: ${input.summary.chatReference ?? "(missing)"}`
