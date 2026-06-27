@@ -5909,7 +5909,8 @@ function hasFeishuSafeInboundMessageContext(metadata: Record<string, unknown> | 
     hasNonEmptyString(metadata.externalChatReference) &&
     hasNonEmptyString(metadata.externalThreadReference) &&
     hasNoFeishuRawExternalLocationContext(metadata) &&
-    hasNoFeishuRawProviderIdentityContext(metadata);
+    hasNoFeishuRawProviderIdentityContext(metadata) &&
+    hasNoFeishuUnsafeSerializedEvidenceContext(metadata);
 }
 
 function hasFeishuMessageMappingAgentBotContext(
@@ -5940,12 +5941,11 @@ function countFeishuSentAgentBotReplyOutboxEvidence(outbox: readonly ExternalMes
       !hasNonEmptyString(metadata.agentId) ||
       !hasNonEmptyString(metadata.botBindingId) ||
       metadata.botBindingId.trim() !== item.integrationId ||
-      !hasFeishuSafeInboundMessageContext(metadata)
+      !hasFeishuSafeBotReplyMetadataContext(metadata)
     ) {
       return false;
     }
-    return hasNoFeishuRawExternalLocationContext(metadata) &&
-      hasNoFeishuRawProviderIdentityContext(metadata);
+    return true;
   }).length;
 }
 
@@ -5960,7 +5960,8 @@ function countFeishuProcessedInboundMessageEvents(events: ExternalIntegrationEve
       payload.rawPayloadStored !== false ||
       !hasNonEmptyString(payload.payloadHash) ||
       !hasNonEmptyString(payload.externalEventReference) ||
-      payload.externalEventIdRedacted !== true
+      payload.externalEventIdRedacted !== true ||
+      !hasNoFeishuUnsafeSerializedEvidenceContext(payload)
     ) {
       return false;
     }
@@ -6002,7 +6003,12 @@ function countFeishuProcessedApprovalCardActionEvents(events: ExternalIntegratio
       return false;
     }
     const payload = readJsonRecord(event.payloadJson);
-    if (!payload || readStringMetadata(payload.provider) !== FEISHU_PROVIDER_ID || payload.rawPayloadStored !== false) {
+    if (
+      !payload ||
+      readStringMetadata(payload.provider) !== FEISHU_PROVIDER_ID ||
+      payload.rawPayloadStored !== false ||
+      !hasNoFeishuUnsafeSerializedEvidenceContext(payload)
+    ) {
       return false;
     }
     const approvalCardAction = isRecord(payload.approvalCardAction) ? payload.approvalCardAction : undefined;
@@ -6014,9 +6020,17 @@ function countFeishuProcessedApprovalCardActionEvents(events: ExternalIntegratio
       (decision === "approved" || decision === "rejected") &&
       approvalCardAction?.tokenStored === false &&
       approvalCardAction?.rawActionPayloadStored === false &&
-      hasNoFeishuRawApprovalCardActionData(approvalCardAction) &&
+      hasFeishuSafeApprovalCardActionContext(approvalCardAction) &&
       hasNoFeishuUserIdentity(approvalCardAction);
   }).length;
+}
+
+function hasFeishuSafeApprovalCardActionContext(action: Record<string, unknown>): boolean {
+  const serialized = JSON.stringify(action);
+  return hasNoFeishuRawApprovalCardActionData(action) &&
+    hasNoFeishuRawDataOperationResourceContext(action) &&
+    !containsFeishuSecretLikeEvidence(serialized) &&
+    !containsRawFeishuOpenApiEvidenceIdentifier(serialized);
 }
 
 function hasNoFeishuRawApprovalCardActionData(action: Record<string, unknown>): boolean {
@@ -6617,12 +6631,23 @@ function countFeishuNativeBotReplyEvidence(
       ? outboundMetadata.agentActionPolicyInput
       : undefined;
     const action = isRecord(policyInput?.action) ? policyInput.action : undefined;
-    return hasNonEmptyString(action?.resourceReference) &&
-      action?.resourceIdRedacted === true &&
-      !hasNonEmptyString(action?.resourceId) &&
+    return hasFeishuSafeBotReplyActionContext(action) &&
       hasNoFeishuRawExternalLocationContext(outboundMetadata) &&
       hasNoFeishuRawProviderIdentityContext(outboundMetadata);
   }).length;
+}
+
+function hasFeishuSafeBotReplyActionContext(action: Record<string, unknown> | undefined): boolean {
+  if (!action) {
+    return false;
+  }
+  const serialized = JSON.stringify(action);
+  return hasNonEmptyString(action.resourceReference) &&
+    action.resourceIdRedacted === true &&
+    !hasNonEmptyString(action.resourceId) &&
+    hasNoFeishuRawDataOperationResourceContext(action) &&
+    !containsFeishuSecretLikeEvidence(serialized) &&
+    !containsRawFeishuOpenApiEvidenceIdentifier(serialized);
 }
 
 function hasMatchingFeishuBotReplyMetadata(
@@ -6659,11 +6684,26 @@ function hasMatchingFeishuBotReplyMetadata(
 function hasFeishuSafeBotReplyMappingContext(
   metadata: Record<string, unknown> | undefined,
 ): metadata is Record<string, unknown> {
-  return metadata !== undefined &&
-    hasNonEmptyString(metadata.externalChatReference) &&
-    hasNonEmptyString(metadata.externalThreadReference) &&
-    hasNoFeishuRawExternalLocationContext(metadata) &&
-    hasNoFeishuRawProviderIdentityContext(metadata);
+  return hasFeishuSafeBotReplyMetadataContext(metadata);
+}
+
+function hasFeishuSafeBotReplyMetadataContext(
+  metadata: Record<string, unknown> | undefined,
+): metadata is Record<string, unknown> {
+  if (!hasFeishuSafeInboundMessageContext(metadata)) {
+    return false;
+  }
+  const serialized = JSON.stringify(metadata);
+  return hasNoFeishuRawDataOperationResourceContext(metadata) &&
+    !containsFeishuSecretLikeEvidence(serialized) &&
+    !containsRawFeishuOpenApiEvidenceIdentifier(serialized);
+}
+
+function hasNoFeishuUnsafeSerializedEvidenceContext(metadata: Record<string, unknown>): boolean {
+  const serialized = JSON.stringify(metadata);
+  return hasNoFeishuRawDataOperationResourceContext(metadata) &&
+    !containsFeishuSecretLikeEvidence(serialized) &&
+    !containsRawFeishuOpenApiEvidenceIdentifier(serialized);
 }
 
 function countFeishuAgentBotRouteEvidence(
@@ -6920,7 +6960,8 @@ function hasMatchingFeishuIdentityBindingNotice(
     metadata.externalChatReference === inboundMetadata.externalChatReference &&
     metadata.externalThreadReference === replyTargetReference &&
     hasNoFeishuUserIdentity(metadata) &&
-    hasNoFeishuRawExternalLocationContext(metadata);
+    hasNoFeishuRawExternalLocationContext(metadata) &&
+    hasNoFeishuUnsafeSerializedEvidenceContext(metadata);
 }
 
 function countFeishuAutoProvisionedChannelBindings(
@@ -6994,7 +7035,8 @@ function hasFeishuSafeAutoProvisionMetadata(
     hasNonEmptyString(metadata.externalChatReference) &&
     isFeishuAutoProvisionReviewStatus(metadata.reviewStatus) &&
     hasNoFeishuRawExternalLocationContext(metadata) &&
-    hasNoFeishuRawProviderIdentityContext(metadata);
+    hasNoFeishuRawProviderIdentityContext(metadata) &&
+    hasNoFeishuUnsafeSerializedEvidenceContext(metadata);
 }
 
 function hasFeishuAutoProvisionedAgentBotContext(
@@ -7147,6 +7189,7 @@ function countFeishuThreadCollaborationCardEvidence(
       externalThreadReference !== undefined &&
       hasNoFeishuRawExternalLocationContext(metadata) &&
       hasNoFeishuRawProviderIdentityContext(metadata) &&
+      hasNoFeishuUnsafeSerializedEvidenceContext(metadata) &&
       hasMatchingFeishuThreadCollaborationBindingForCard(bindings, {
         integrationId: item.integrationId,
         agentId,
@@ -7219,7 +7262,8 @@ function hasFeishuSafeThreadEvidenceContext(
     hasNonEmptyString(metadata.externalChatReference) &&
     hasNonEmptyString(metadata.externalThreadReference) &&
     hasNoFeishuRawExternalLocationContext(metadata) &&
-    hasNoFeishuRawProviderIdentityContext(metadata);
+    hasNoFeishuRawProviderIdentityContext(metadata) &&
+    hasNoFeishuUnsafeSerializedEvidenceContext(metadata);
 }
 
 function hasFeishuCollaboratingIdIntersection(value: unknown, expectedIds: readonly string[]): boolean {
@@ -7259,6 +7303,7 @@ function countFeishuFailedOutboxAgentBotEvidence(
       !hasNonEmptyString(metadata.target_external_chat_id) &&
       !hasNonEmptyString(metadata.targetExternalThreadId) &&
       !hasNonEmptyString(metadata.target_external_thread_id) &&
+      hasNoFeishuUnsafeSerializedEvidenceContext(metadata) &&
       hasNoFeishuRawFailureText(item.lastError) &&
       hasFeishuFailureOutboxSource(metadata);
   }).length;
@@ -7283,6 +7328,7 @@ function countFeishuFailedDataOperationAgentBotEvidence(
       hasNonEmptyString(operation.resourceBindingId) &&
       hasNonEmptyString(operation.operationType) &&
       hasNonEmptyString(operation.providerResourceType) &&
+      hasFeishuSafeDataOperationResultSummary(operation) &&
       hasNoFeishuRawFailureText(operation.errorMessage);
   }).length;
 }
@@ -7311,7 +7357,7 @@ function hasFeishuSafeDataOperationResourceContext(governanceContext: Record<str
     governanceContext.resourceIdRedacted === true &&
     hasNoFeishuRawExternalLocationContext(governanceContext) &&
     hasNoFeishuRawProviderIdentityContext(governanceContext) &&
-    hasNoFeishuRawDataOperationResourceContext(governanceContext);
+    hasNoFeishuUnsafeSerializedEvidenceContext(governanceContext);
 }
 
 function hasNoFeishuRawProviderIdentityContext(metadata: Record<string, unknown>): boolean {
