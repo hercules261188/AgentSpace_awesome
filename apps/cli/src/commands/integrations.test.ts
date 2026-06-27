@@ -291,7 +291,8 @@ test("Feishu create CLI stores encrypted credentials and returns redacted setup 
     required: ["app_id", "app_secret"],
   });
   assert.match(report.nextCommands.healthCheck, /health-check --workspace-id workspace-1 --integration integration-created --strict --json/);
-  assert.match(report.nextCommands.smokePlan, /smoke-plan --workspace-id workspace-1 --integration integration-created --app-url https:\/\/agentspace\.example\.com --json/);
+  assert.match(report.nextCommands.smokePlan, /smoke-plan --workspace-id workspace-1 --integration integration-created --app-url https:\/\/agentspace\.example\.com$/);
+  assert.doesNotMatch(report.nextCommands.smokePlan, /--json/);
   assert.match(report.nextCommands.smokeEnv, /smoke-env --workspace-id workspace-1 --integration integration-created --app-url https:\/\/agentspace\.example\.com > scripts\/feishu\/\.env/);
   assert.match(report.nextCommands.checkEnv, /npm run smoke:feishu -- --env-file scripts\/feishu\/\.env --check-env --json/);
   assert.match(report.nextCommands.checkEnv, /--require-todo120-native/);
@@ -299,7 +300,8 @@ test("Feishu create CLI stores encrypted credentials and returns redacted setup 
   assert.match(report.nextCommands.strictLiveSmoke, /--require-todo120-native/);
   assert.match(report.nextCommands.verifyOpenApiEvidence, /npm run smoke:feishu -- --verify-evidence runtime-output\/feishu-smoke\/live\.json --json/);
   assert.match(report.nextCommands.verifyBotAddedPayload, /npm run smoke:feishu -- --verify-bot-added-payload runtime-output\/feishu-smoke\/bot-added-callback\.json --bot-added-payload-evidence runtime-output\/feishu-smoke\/bot-added-payload-evidence\.json --json/);
-  assert.match(report.nextCommands.finalEvidence, /evidence --workspace-id workspace-1 --integration integration-created --openapi-evidence runtime-output\/feishu-smoke\/live\.json --bot-added-payload-evidence runtime-output\/feishu-smoke\/bot-added-payload-evidence\.json --strict --require all --json/);
+  assert.match(report.nextCommands.finalEvidence, /evidence --workspace-id workspace-1 --integration integration-created --openapi-evidence runtime-output\/feishu-smoke\/live\.json --bot-added-payload-evidence runtime-output\/feishu-smoke\/bot-added-payload-evidence\.json --strict --require all$/);
+  assert.doesNotMatch(report.nextCommands.finalEvidence, /--json/);
   assert.match(report.nextCommands.bindSecondAgentBot, /bind-agent-bot --workspace-id workspace-1 --agent CHANGE_ME_SECOND_AGENT_NAME/);
   assert.match(report.nextCommands.bindSecondAgentBot, /--app-id-env FEISHU_SECOND_AGENT_APP_ID/);
   assert.match(report.nextCommands.bindSecondAgentBot, /--app-secret-env FEISHU_SECOND_AGENT_APP_SECRET/);
@@ -577,7 +579,8 @@ test("Feishu agent channel access CLI updates AgentSpace governance for no-reply
   assert.equal(report.channelMemberAccess, "disabled");
   assert.match(report.nextCommands.disableForSmoke, /agent-channel-access --workspace-id workspace-1 --agent Codex --access disabled --json/);
   assert.match(report.nextCommands.restoreAfterSmoke, /agent-channel-access --workspace-id workspace-1 --agent Codex --access enabled --json/);
-  assert.match(report.nextCommands.smokePlan, /smoke-plan --workspace-id workspace-1 --integration agent-bot-codex --json/);
+  assert.match(report.nextCommands.smokePlan, /smoke-plan --workspace-id workspace-1 --integration agent-bot-codex$/);
+  assert.doesNotMatch(report.nextCommands.smokePlan, /--json/);
 
   assert.throws(() => buildFeishuAgentChannelAccessCliInputFromFlags({
     workspaceId: "workspace-1",
@@ -3357,6 +3360,29 @@ test("Feishu evidence report requires data-plane guest permission profiles to ma
   assert.ok(item?.issues.includes("external_guest_actor_data_operation_evidence_missing"));
 });
 
+test("Feishu evidence report requires data-plane external guest proof to show no workspace member was created", () => {
+  const complete = buildCompleteFeishuEvidenceInput();
+  const report = buildFeishuEvidenceReport({
+    ...complete,
+    requiredEvidence: "data-plane",
+    dataOperationsByIntegrationId: {
+      "integration-evidence": complete.dataOperationsByIntegrationId["integration-evidence"].map((operation) =>
+        readTestGovernanceActorType(operation) === "external_guest"
+          ? withGovernanceContextFields(operation, { workspaceMemberCreated: true })
+          : operation
+      ),
+    },
+  });
+
+  assert.equal(report.strictSatisfied, false);
+  assert.equal(report.summary.dataPlaneSatisfiedCount, 0);
+  const [item] = report.integrations;
+  assert.equal(item?.dataPlane.externalGuestActorEvidence, 0);
+  assert.equal(item?.dataPlane.externalGuestReadSucceeded, 0);
+  assert.equal(item?.dataPlane.externalGuestWriteDeniedEvidence, 0);
+  assert.ok(item?.issues.includes("external_guest_actor_data_operation_evidence_missing"));
+});
+
 test("Feishu evidence report accepts require_identity write denial with no guest permissions", () => {
   const complete = buildCompleteFeishuEvidenceInput();
   const report = buildFeishuEvidenceReport({
@@ -3614,6 +3640,39 @@ test("Feishu evidence report requires native route evidence from direct bot ment
   assert.ok(item?.issues.includes("bound_user_bot_mention_evidence_missing"));
   assert.ok(item?.issues.includes("external_guest_bot_mention_evidence_missing"));
   assert.ok(item?.issues.includes("agent_channel_policy_disabled_evidence_missing"));
+});
+
+test("Feishu evidence report rejects slash-agent command routing as native mention evidence", () => {
+  const complete = buildCompleteFeishuEvidenceInput();
+  const report = buildFeishuEvidenceReport({
+    ...complete,
+    requiredEvidence: "native",
+    messageMappingsByIntegrationId: {
+      "integration-evidence": complete.messageMappingsByIntegrationId["integration-evidence"].map((mapping) => {
+        const metadataSource = mapping as { direction?: string; metadataJson?: string };
+        const metadata = JSON.parse(metadataSource.metadataJson ?? "{}") as Record<string, unknown>;
+        return metadataSource.direction === "inbound" &&
+            metadata.dispatchStatus === "sent" &&
+            metadata.agentBotMentioned === true
+          ? withMetadataFields(mapping, {
+            agentSpaceCommandUsed: true,
+            textSummary: "/agent Atlas summarize this",
+          })
+          : mapping;
+      }),
+    },
+  });
+
+  assert.equal(report.strictSatisfied, false);
+  assert.equal(report.summary.nativeExperienceSatisfiedCount, 0);
+  const [item] = report.integrations;
+  assert.equal(item?.nativeExperience.agentBotRouteEvidence, 0);
+  assert.equal(item?.nativeExperience.boundUserMentionEvidence, 0);
+  assert.equal(item?.nativeExperience.externalGuestMentionEvidence, 0);
+  assert.ok(item?.issues.includes("agent_bot_route_evidence_missing"));
+  assert.ok(item?.issues.includes("bound_user_bot_mention_evidence_missing"));
+  assert.ok(item?.issues.includes("external_guest_bot_mention_evidence_missing"));
+  assert.equal(JSON.stringify(report).includes("/agent Atlas"), false);
 });
 
 test("Feishu evidence report requires native route safe chat and thread context", () => {
@@ -4298,6 +4357,47 @@ test("Feishu evidence report rejects external guest message proof with user iden
   assert.equal(item?.nativeExperience.externalGuestMentionEvidence, 0);
   assert.ok(item?.issues.includes("external_guest_bot_mention_evidence_missing"));
   assert.equal(JSON.stringify(report).includes("ou_secret"), false);
+});
+
+test("Feishu evidence report requires external guest proof to show no workspace member was created", () => {
+  const complete = buildCompleteFeishuEvidenceInput();
+  const promotedMappings = complete.messageMappingsByIntegrationId["integration-evidence"].map((mapping) => {
+    const metadataSource = mapping as { metadataJson?: string };
+    const metadata = JSON.parse(metadataSource.metadataJson ?? "{}") as Record<string, unknown>;
+    return metadata.actorType === "external_guest"
+      ? withMetadataFields(mapping, { workspaceMemberCreated: true })
+      : mapping;
+  });
+
+  const nativeReport = buildFeishuEvidenceReport({
+    ...complete,
+    requiredEvidence: "native",
+    messageMappingsByIntegrationId: {
+      "integration-evidence": promotedMappings,
+    },
+  });
+
+  assert.equal(nativeReport.strictSatisfied, false);
+  const [nativeItem] = nativeReport.integrations;
+  assert.equal(nativeItem?.nativeExperience.externalGuestMentionEvidence, 0);
+  assert.ok(nativeItem?.issues.includes("external_guest_bot_mention_evidence_missing"));
+
+  const guestPolicyReport = buildFeishuEvidenceReport({
+    ...complete,
+    requiredEvidence: "guest-policy",
+    messageMappingsByIntegrationId: {
+      "integration-evidence": promotedMappings,
+    },
+  });
+
+  assert.equal(guestPolicyReport.strictSatisfied, false);
+  const [guestPolicyItem] = guestPolicyReport.integrations;
+  assert.equal(guestPolicyItem?.guestPolicy.externalGuestAllowedEvidence, 0);
+  assert.equal(guestPolicyItem?.guestPolicy.externalGuestReplyAllEvidence, 0);
+  assert.equal(guestPolicyItem?.guestPolicy.externalGuestRequireIdentityEvidence, 0);
+  assert.ok(guestPolicyItem?.issues.includes("external_guest_policy_allow_evidence_missing"));
+  assert.ok(guestPolicyItem?.issues.includes("external_guest_policy_reply_all_evidence_missing"));
+  assert.ok(guestPolicyItem?.issues.includes("external_guest_policy_require_identity_evidence_missing"));
 });
 
 test("Feishu evidence report gates external guest policy proof", () => {
@@ -6133,8 +6233,8 @@ test("Feishu agent bot CLI returns redacted JSON for successful bindings", () =>
       strictLiveSmoke: "npm run smoke:feishu -- --env-file scripts/feishu/.env --live --strict-live --evidence runtime-output/feishu-smoke/live.json --json --require-todo120-native",
       verifyOpenApiEvidence: "npm run smoke:feishu -- --verify-evidence runtime-output/feishu-smoke/live.json --json",
       verifyBotAddedPayload: "npm run smoke:feishu -- --verify-bot-added-payload runtime-output/feishu-smoke/bot-added-callback.json --bot-added-payload-evidence runtime-output/feishu-smoke/bot-added-payload-evidence.json --json",
-      smokePlan: "agent-space integrations feishu smoke-plan --workspace-id workspace-1 --integration agent-bot-codex --app-url CHANGE_ME_PUBLIC_AGENTSPACE_URL --json",
-      finalEvidence: "agent-space integrations feishu evidence --workspace-id workspace-1 --integration agent-bot-codex --openapi-evidence runtime-output/feishu-smoke/live.json --bot-added-payload-evidence runtime-output/feishu-smoke/bot-added-payload-evidence.json --strict --require all --json",
+      smokePlan: "agent-space integrations feishu smoke-plan --workspace-id workspace-1 --integration agent-bot-codex --app-url CHANGE_ME_PUBLIC_AGENTSPACE_URL",
+      finalEvidence: "agent-space integrations feishu evidence --workspace-id workspace-1 --integration agent-bot-codex --openapi-evidence runtime-output/feishu-smoke/live.json --bot-added-payload-evidence runtime-output/feishu-smoke/bot-added-payload-evidence.json --strict --require all",
       bindSecondAgentBot: "agent-space integrations feishu bind-agent-bot --workspace-id workspace-1 --agent CHANGE_ME_SECOND_AGENT_NAME --env-file scripts/feishu/.env --app-id-env FEISHU_SECOND_AGENT_APP_ID --app-secret-env FEISHU_SECOND_AGENT_APP_SECRET --json",
     },
   });
@@ -8227,7 +8327,8 @@ test("Feishu smoke plan converts readiness into live smoke checklist without ext
   assert.match(agentSpaceEvidence?.command ?? "", /--integration integration-ready/);
   assert.match(agentSpaceEvidence?.command ?? "", /--openapi-evidence runtime-output\/feishu-smoke\/live\.json/);
   assert.match(agentSpaceEvidence?.command ?? "", /--bot-added-payload-evidence runtime-output\/feishu-smoke\/bot-added-payload-evidence\.json/);
-  assert.match(agentSpaceEvidence?.command ?? "", /--strict --require all --json/);
+  assert.match(agentSpaceEvidence?.command ?? "", /--strict --require all$/);
+  assert.doesNotMatch(agentSpaceEvidence?.command ?? "", /--json/);
   assert.match(agentSpaceEvidence?.detail ?? "", /Native evidence requires/);
   assert.match(agentSpaceEvidence?.detail ?? "", /two Phase 6-ready agent bot bindings/);
   assert.match(agentSpaceEvidence?.detail ?? "", /worker when using websocket_worker/);
@@ -8302,7 +8403,8 @@ test("Feishu smoke plan blocks final all evidence gate until a second native age
   assert.match(finalEvidence?.detail ?? "", /two Phase 6-ready agent bot bindings/);
   assert.ok(finalEvidence?.issues?.includes("second_agent_bot_missing"));
   assert.ok(finalEvidence?.issues?.includes("second_agent_bot_distinct_agent_missing"));
-  assert.match(finalEvidence?.command ?? "", /--strict --require all --json/);
+  assert.match(finalEvidence?.command ?? "", /--strict --require all$/);
+  assert.doesNotMatch(finalEvidence?.command ?? "", /--json/);
   assert.match(finalEvidence?.command ?? "", /--bot-added-payload-evidence runtime-output\/feishu-smoke\/bot-added-payload-evidence\.json/);
 });
 
@@ -9190,6 +9292,7 @@ function buildMessageMapping(
           ...(actorType === "user"
             ? { userId: "user-1", actorUserId: "user-1" }
             : {
+              workspaceMemberCreated: false,
               externalGuestReference: "guest-ref-hash",
               externalGuestPermissionProfile: "channel_context_only",
               externalGuestPolicyDecision: options.externalGuestPolicyDecision,
@@ -9339,6 +9442,7 @@ function buildExternalGuestReplyAllMapping(integrationId: string) {
       mappedChannelName: "general",
       dispatchStatus: "sent",
       actorType: "external_guest",
+      workspaceMemberCreated: false,
       externalGuestReference: "guest-ref-hash",
       externalGuestPermissionProfile: "channel_context_only",
       externalGuestPolicyDecision: "allow",
@@ -9404,6 +9508,7 @@ function buildAgentChannelPolicyDeniedMapping(integrationId: string) {
       dispatchStatus: "ignored",
       reasonCode: "feishu_agent_channel_member_access_disabled",
       actorType: "external_guest",
+      workspaceMemberCreated: false,
       externalGuestReference: "guest-ref-hash",
       externalGuestPermissionProfile: "channel_context_only",
       externalGuestPolicyDecision: "allow",
@@ -9470,6 +9575,7 @@ function buildPolicyBlockedMessageMapping(
       dispatchStatus: "ignored",
       reasonCode: input.reasonCode,
       actorType: "external_guest",
+      workspaceMemberCreated: false,
       externalGuestReference: "guest-ref-hash",
       externalGuestPermissionProfile: input.unboundUserMode === "reply_on_mention" ? "channel_context_only" : "none",
       externalGuestPolicyDecision: input.decision,
@@ -9902,6 +10008,7 @@ function buildIdentityBindingNoticeOutboxItem(integrationId: string, status: "fa
         noticeSource: "external_guest_policy",
         reasonCode: "feishu_external_guest_identity_required",
         actorType: "external_guest",
+        workspaceMemberCreated: false,
         agentId: "Atlas",
         botBindingId: integrationId,
         externalGuestReference: "guest-ref-hash",
@@ -10151,6 +10258,7 @@ interface DataOperationRunOptions {
   governanceExternalActorReference?: string | null;
   governanceExternalGuestPermissionProfile?: string | null;
   governanceExternalGuestResourceAccess?: string | null;
+  governanceWorkspaceMemberCreated?: boolean | null;
   governanceResourceReference?: string | null;
   governanceResourceIdRedacted?: boolean | null;
   errorCode?: string;
@@ -10189,6 +10297,7 @@ function buildDataOperationRun(
     externalActorReference: options.governanceExternalActorReference,
     externalGuestPermissionProfile: options.governanceExternalGuestPermissionProfile,
     externalGuestResourceAccess: options.governanceExternalGuestResourceAccess,
+    workspaceMemberCreated: options.governanceWorkspaceMemberCreated,
     resourceReference: options.governanceResourceReference === undefined
       ? `${providerResourceType} / resource safe-ref`
       : options.governanceResourceReference,
@@ -10242,6 +10351,7 @@ function buildFeishuTestGovernanceContext(input: {
   externalActorReference?: string | null;
   externalGuestPermissionProfile?: string | null;
   externalGuestResourceAccess?: string | null;
+  workspaceMemberCreated?: boolean | null;
   resourceReference?: string | null;
   resourceIdRedacted?: boolean | null;
 }) {
@@ -10260,6 +10370,9 @@ function buildFeishuTestGovernanceContext(input: {
       : {}),
     ...(input.actorType === "external_guest"
       ? {
+        ...(input.workspaceMemberCreated === null
+          ? {}
+          : { workspaceMemberCreated: input.workspaceMemberCreated ?? false }),
         ...(input.externalActorReference === null
           ? {}
           : { externalActorReference: input.externalActorReference ?? "external-guest-ref-hash" }),

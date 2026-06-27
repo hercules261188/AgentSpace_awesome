@@ -1523,13 +1523,13 @@ export function createFeishuIntegrationForCli(
     auditRecorded,
     nextCommands: {
       healthCheck: `agent-space integrations feishu health-check ${flags} --strict --json`,
-      smokePlan: `agent-space integrations feishu smoke-plan ${flags}${appUrlFlag} --json`,
+      smokePlan: `agent-space integrations feishu smoke-plan ${flags}${appUrlFlag}`,
       smokeEnv: smokeHarness.prepareEnvCommand,
       checkEnv: smokeHarness.checkEnvCommand,
       strictLiveSmoke: smokeHarness.strictLiveCommand,
       verifyOpenApiEvidence: smokeHarness.verifyEvidenceCommand,
       verifyBotAddedPayload: smokeHarness.verifyBotAddedPayloadCommand,
-      finalEvidence: `agent-space integrations feishu evidence ${flags} --openapi-evidence ${smokeHarness.evidencePath} --bot-added-payload-evidence ${smokeHarness.botAddedPayloadEvidencePath} --strict --require all --json`,
+      finalEvidence: `agent-space integrations feishu evidence ${flags} --openapi-evidence ${smokeHarness.evidencePath} --bot-added-payload-evidence ${smokeHarness.botAddedPayloadEvidencePath} --strict --require all`,
       bindSecondAgentBot: `agent-space integrations feishu bind-agent-bot --workspace-id ${input.workspaceId} --agent ${FEISHU_CLI_PLACEHOLDERS.secondAgentName} --env-file scripts/feishu/.env --app-id-env FEISHU_SECOND_AGENT_APP_ID --app-secret-env FEISHU_SECOND_AGENT_APP_SECRET --json`,
       bindChannel: `agent-space integrations feishu bind-channel ${flags} --channel ${FEISHU_CLI_PLACEHOLDERS.agentSpaceChannel} --chat-id ${FEISHU_CLI_PLACEHOLDERS.feishuChatId} --json`,
       bindUser: `agent-space integrations feishu bind-user ${flags} --user-id ${FEISHU_CLI_PLACEHOLDERS.agentSpaceUserId} --open-id ${FEISHU_CLI_PLACEHOLDERS.feishuOpenId} --json`,
@@ -1706,7 +1706,7 @@ function buildFeishuAgentChannelAccessNextCommands(input: {
   return {
     disableForSmoke: `agent-space integrations feishu agent-channel-access --workspace-id ${input.workspaceId} ${targetFlags} --access disabled --json`,
     restoreAfterSmoke: `agent-space integrations feishu agent-channel-access --workspace-id ${input.workspaceId} ${targetFlags} --access enabled --json`,
-    smokePlan: `agent-space integrations feishu smoke-plan --workspace-id ${input.workspaceId} ${input.integrationId ? `--integration ${input.integrationId} ` : ""}--json`,
+    smokePlan: `agent-space integrations feishu smoke-plan --workspace-id ${input.workspaceId} ${input.integrationId ? `--integration ${input.integrationId}` : ""}`.trim(),
   };
 }
 
@@ -1755,8 +1755,8 @@ function buildFeishuAgentBotNextCommands(binding: FeishuAgentBotBinding): Feishu
     strictLiveSmoke: smokeHarness.strictLiveCommand,
     verifyOpenApiEvidence: smokeHarness.verifyEvidenceCommand,
     verifyBotAddedPayload: smokeHarness.verifyBotAddedPayloadCommand,
-    smokePlan: `agent-space integrations feishu smoke-plan ${integrationFlags} --app-url ${FEISHU_CLI_PLACEHOLDERS.publicAppUrl} --json`,
-    finalEvidence: `agent-space integrations feishu evidence ${integrationFlags} --openapi-evidence ${smokeHarness.evidencePath} --bot-added-payload-evidence ${smokeHarness.botAddedPayloadEvidencePath} --strict --require all --json`,
+    smokePlan: `agent-space integrations feishu smoke-plan ${integrationFlags} --app-url ${FEISHU_CLI_PLACEHOLDERS.publicAppUrl}`,
+    finalEvidence: `agent-space integrations feishu evidence ${integrationFlags} --openapi-evidence ${smokeHarness.evidencePath} --bot-added-payload-evidence ${smokeHarness.botAddedPayloadEvidencePath} --strict --require all`,
     bindSecondAgentBot: `agent-space integrations feishu bind-agent-bot --workspace-id ${binding.workspaceId} --agent ${FEISHU_CLI_PLACEHOLDERS.secondAgentName} --env-file scripts/feishu/.env --app-id-env FEISHU_SECOND_AGENT_APP_ID --app-secret-env FEISHU_SECOND_AGENT_APP_SECRET --json`,
   };
 }
@@ -5433,7 +5433,7 @@ export function buildFeishuSmokePlanReport(input: BuildFeishuSmokePlanReportInpu
         title: "Verify AgentSpace-side Feishu live smoke evidence",
         status: finalEvidenceReady ? "pending" : "blocked",
         detail: "After live native agent bot, guest-policy, data-plane, worker when using websocket_worker, and failure smoke, verify local AgentSpace DB evidence without exposing external ids or resource tokens. Native evidence requires two Phase 6-ready agent bot bindings, agent-specific bot routing, auto-provisioning, multi-agent channel reuse, thread/task binding, thread continuation, thread collaboration with sent card proof, bot sender loop guard, and disabled-policy no-reply proof; guest evidence requires allow, reply_all, require_identity, sent identity-binding notice, ignore, and mention-required decisions.",
-        command: `agent-space integrations feishu evidence --workspace-id ${readiness.workspaceId} --integration ${setupIntegrationFlag} --openapi-evidence ${smokeHarness.evidencePath} --bot-added-payload-evidence ${smokeHarness.botAddedPayloadEvidencePath} --strict --require all --json`,
+        command: `agent-space integrations feishu evidence --workspace-id ${readiness.workspaceId} --integration ${setupIntegrationFlag} --openapi-evidence ${smokeHarness.evidencePath} --bot-added-payload-evidence ${smokeHarness.botAddedPayloadEvidencePath} --strict --require all`,
         issues: finalEvidenceIssues,
       },
   ];
@@ -6267,7 +6267,7 @@ function countFeishuGovernanceActorEvidence(
     }
     return hasNonEmptyString(governanceContext.externalActorReference) &&
       isFeishuAcceptedExternalGuestDataPlanePermissionProfile(governanceContext.externalGuestPermissionProfile) &&
-      hasNoFeishuUserIdentity(governanceContext);
+      hasFeishuExternalGuestNoWorkspaceMemberEvidence(governanceContext);
   }).length;
 }
 
@@ -6377,6 +6377,10 @@ function hasNoFeishuUserIdentity(metadata: Record<string, unknown>): boolean {
     "provider_union_id",
   ];
   return rawIdentityFields.every((field) => !hasNonEmptyString(metadata[field]));
+}
+
+function hasFeishuExternalGuestNoWorkspaceMemberEvidence(metadata: Record<string, unknown>): boolean {
+  return metadata.workspaceMemberCreated === false && hasNoFeishuUserIdentity(metadata);
 }
 
 function hasFeishuSafeInboundMessageContext(metadata: Record<string, unknown> | undefined): metadata is Record<string, unknown> {
@@ -7192,6 +7196,7 @@ function countFeishuAgentBotRouteEvidence(
     return metadata?.provider === FEISHU_PROVIDER_ID &&
       metadata.dispatchStatus === "sent" &&
       hasFeishuSafeInboundMessageContext(metadata) &&
+      hasNoFeishuAgentSpaceCommandRoute(metadata) &&
       metadata.agentBotMentioned === true &&
       hasFeishuMessageMappingAgentBotContext(mapping, metadata);
   }).length;
@@ -7210,6 +7215,7 @@ function countFeishuNativeActorMentionEvidence(
       metadata?.provider !== FEISHU_PROVIDER_ID ||
       metadata.dispatchStatus !== "sent" ||
       !hasFeishuSafeInboundMessageContext(metadata) ||
+      !hasNoFeishuAgentSpaceCommandRoute(metadata) ||
       metadata.agentBotMentioned !== true ||
       metadata.actorType !== actorType ||
       !hasFeishuMessageMappingAgentBotContext(mapping, metadata)
@@ -7220,7 +7226,7 @@ function countFeishuNativeActorMentionEvidence(
       return typeof metadata.externalGuestReference === "string" &&
         metadata.externalGuestReference.trim().length > 0 &&
         metadata.externalGuestPermissionProfile === "channel_context_only" &&
-        hasNoFeishuUserIdentity(metadata);
+        hasFeishuExternalGuestNoWorkspaceMemberEvidence(metadata);
     }
     return typeof metadata.actorUserId === "string" &&
       metadata.actorUserId.trim().length > 0 &&
@@ -7248,6 +7254,7 @@ function countFeishuAgentChannelPolicyDeniedEvidence(
       metadata.dispatchStatus === "ignored" &&
       hasFeishuMessageMappingAgentBotContext(mapping, metadata) &&
       hasFeishuSafeInboundMessageContext(metadata) &&
+      hasNoFeishuAgentSpaceCommandRoute(metadata) &&
       hasNoFeishuRawExternalLocationContext(metadata) &&
       hasNoFeishuRawProviderIdentityContext(metadata) &&
       metadata.agentBotMentioned === true &&
@@ -7273,6 +7280,36 @@ function hasFeishuCorrelatedOutboundReply(
     return !inbound.channelBindingId ||
       !mapping.channelBindingId ||
       inbound.channelBindingId === mapping.channelBindingId;
+  });
+}
+
+function hasNoFeishuAgentSpaceCommandRoute(metadata: Record<string, unknown>): boolean {
+  if (
+    metadata.agentSpaceCommandUsed === true ||
+    metadata.routeCommandUsed === true ||
+    metadata.slashCommandUsed === true ||
+    metadata.agentCommandUsed === true
+  ) {
+    return false;
+  }
+  return !containsFeishuAgentSpaceCommandSummary(metadata);
+}
+
+function containsFeishuAgentSpaceCommandSummary(metadata: Record<string, unknown>): boolean {
+  const textFields = [
+    "text",
+    "messageText",
+    "messageSummary",
+    "textSummary",
+    "textPreview",
+    "contentPreview",
+    "safeText",
+    "safeTextPreview",
+    "normalizedText",
+  ];
+  return textFields.some((field) => {
+    const value = metadata[field];
+    return typeof value === "string" && /(^|\s)\/agent(?:\s|$)/i.test(value.trim());
   });
 }
 
@@ -7325,7 +7362,8 @@ function countFeishuExternalGuestPolicyEvidence(
       !hasFeishuSafeInboundMessageContext(metadata) ||
       typeof metadata.externalGuestPermissionProfile !== "string" ||
       metadata.externalGuestPermissionProfile.trim().length === 0 ||
-      !hasNoFeishuUserIdentity(metadata) ||
+      !hasFeishuExternalGuestNoWorkspaceMemberEvidence(metadata) ||
+      !hasNoFeishuAgentSpaceCommandRoute(metadata) ||
       !hasFeishuMessageMappingAgentBotContext(mapping, metadata)
     ) {
       return false;
@@ -7370,11 +7408,12 @@ function countFeishuExternalGuestReplyAllEvidence(
       metadata.externalGuestPolicyReasonCode === "feishu_external_guest_allowed" &&
       metadata.externalGuestUnboundUserMode === "reply_all" &&
       metadata.agentBotMentioned === false &&
+      hasNoFeishuAgentSpaceCommandRoute(metadata) &&
       hasFeishuSafeInboundMessageContext(metadata) &&
       typeof metadata.externalGuestReference === "string" &&
       metadata.externalGuestReference.trim().length > 0 &&
       metadata.externalGuestPermissionProfile === "channel_context_only" &&
-      hasNoFeishuUserIdentity(metadata) &&
+      hasFeishuExternalGuestNoWorkspaceMemberEvidence(metadata) &&
       hasFeishuMessageMappingAgentBotContext(mapping, metadata);
   }).length;
 }
@@ -7396,8 +7435,9 @@ function countFeishuIdentityBindingNoticeEvidence(
       metadata.externalGuestPolicyReasonCode !== "feishu_external_guest_identity_required" ||
       metadata.externalGuestUnboundUserMode !== "require_identity" ||
       metadata.agentBotMentioned !== true ||
-      !hasNoFeishuUserIdentity(metadata) ||
+      !hasFeishuExternalGuestNoWorkspaceMemberEvidence(metadata) ||
       !hasFeishuMessageMappingAgentBotContext(mapping, metadata) ||
+      !hasNoFeishuAgentSpaceCommandRoute(metadata) ||
       !hasFeishuSafeInboundMessageContext(metadata)
     ) {
       return false;
@@ -7434,7 +7474,7 @@ function hasMatchingFeishuIdentityBindingNotice(
     metadata.externalGuestPermissionProfile === "none" &&
     metadata.externalChatReference === inboundMetadata.externalChatReference &&
     metadata.externalThreadReference === replyTargetReference &&
-    hasNoFeishuUserIdentity(metadata) &&
+    hasFeishuExternalGuestNoWorkspaceMemberEvidence(metadata) &&
     hasNoFeishuRawExternalLocationContext(metadata) &&
     hasNoFeishuUnsafeSerializedEvidenceContext(metadata);
 }

@@ -1609,6 +1609,7 @@ function createFeishuInboundMapping(input: {
       userId: input.userId,
       actorUserId: input.actorType === "user" || input.userId ? input.userId : undefined,
       actorType: input.actorType ?? (input.userId ? "user" : undefined),
+      workspaceMemberCreated: input.actorType === "external_guest" ? false : undefined,
       externalGuestReference: input.externalGuestActor?.providerUserRefHash,
       externalGuestPermissionProfile: input.externalGuestActor?.permissionProfile,
       externalGuestRequireIdentityFor: input.externalGuestActor?.requireIdentityFor,
@@ -1618,6 +1619,7 @@ function createFeishuInboundMapping(input: {
       agentId: input.agentId,
       botBindingId: input.botBindingId,
       agentBotMentioned: input.agentBotMentioned,
+      agentSpaceCommandUsed: containsFeishuAgentSpaceCommand(input.message.text),
       threadBindingId: input.threadBindingId,
       threadCollaboration: input.threadCollaboration ? true : undefined,
       threadCollaboratorAgentIds: input.threadCollaboration?.previousAgentIds,
@@ -1639,6 +1641,10 @@ function shortHash(value: string): string {
 function buildFeishuInboundSafeThreadReference(message: ExternalMessageEnvelope): string | undefined {
   const targetExternalMessageId = resolveFeishuInboundReplyTargetExternalMessageId(message);
   return targetExternalMessageId ? shortHash(targetExternalMessageId) : undefined;
+}
+
+function containsFeishuAgentSpaceCommand(text: string | undefined): boolean {
+  return /(^|\s)\/agent(?:\s|$)/i.test(text?.trim() ?? "");
 }
 
 function resolveRoutedFeishuText(input: {
@@ -1869,6 +1875,7 @@ function queueFeishuIdentityBindingRequiredCardOutboxSync(input: {
       noticeSource: "external_guest_policy",
       reasonCode: "feishu_external_guest_identity_required",
       actorType: "external_guest",
+      workspaceMemberCreated: false,
       agentId: input.agentId,
       botBindingId: input.context.integrationId,
       externalChatReference: shortHash(input.message.externalChatId),

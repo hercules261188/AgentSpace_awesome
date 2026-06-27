@@ -1,7 +1,5 @@
 import { createHash } from "node:crypto";
 import type { ExternalIntegrationRecord } from "@agent-space/db";
-import { readWorkspaceStateSync, writeWorkspaceStateSync } from "../../../shared/state-io.ts";
-import { sameValue, uniqueNames } from "../../../shared/helpers.ts";
 import { asRecord, asString } from "./events.ts";
 import { isFeishuAgentBotBinding } from "./agent-bot-bindings.ts";
 import { FEISHU_PROVIDER_ID } from "./constants.ts";
@@ -152,34 +150,10 @@ export function defaultFeishuExternalGuestRequireIdentityFor(): FeishuExternalGu
   ];
 }
 
-export function ensureFeishuExternalGuestChannelActorSync(input: {
+export function ensureFeishuExternalGuestChannelActorSync(_input: {
   workspaceId: string;
   channelName: string;
 }): string {
-  const state = readWorkspaceStateSync(input.workspaceId);
-  const channel = state.channels.find((item) => sameValue(item.name, input.channelName));
-  if (!channel) {
-    throw new Error(`Channel "${input.channelName}" does not exist.`);
-  }
-  let changed = false;
-  if (!state.humanMembers.some((member) => sameValue(member.name, FEISHU_EXTERNAL_GUEST_DISPLAY_NAME))) {
-    state.humanMembers.push({
-      name: FEISHU_EXTERNAL_GUEST_DISPLAY_NAME,
-      role: "External Guest",
-    });
-    changed = true;
-  }
-  if (!resolveHumanNames(channel).some((name) => sameValue(name, FEISHU_EXTERNAL_GUEST_DISPLAY_NAME))) {
-    channel.humanMemberNames = uniqueNames([
-      ...resolveHumanNames(channel),
-      FEISHU_EXTERNAL_GUEST_DISPLAY_NAME,
-    ]);
-    channel.humanMembers = channel.humanMemberNames.length;
-    changed = true;
-  }
-  if (changed) {
-    writeWorkspaceStateSync(state, input.workspaceId);
-  }
   return FEISHU_EXTERNAL_GUEST_DISPLAY_NAME;
 }
 
@@ -273,12 +247,6 @@ function resolveExternalGuestIdentityRequirementReasonCode(action: FeishuExterna
     case "runtime_sensitive_tools":
       return "feishu_external_guest_runtime_sensitive_tool_identity_required";
   }
-}
-
-function resolveHumanNames(channel: {
-  humanMemberNames?: string[];
-}): string[] {
-  return Array.isArray(channel.humanMemberNames) ? channel.humanMemberNames : [];
 }
 
 function hashExternalRef(value: string): string {

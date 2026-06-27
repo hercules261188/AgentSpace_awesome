@@ -1577,6 +1577,7 @@ function applyFeishuDataOperationGovernanceContext(
     actorUserId: actorType === "user"
       ? readStringValue(existing.actorUserId) ?? userActor?.userId.trim() ?? request.actorId?.trim()
       : undefined,
+    workspaceMemberCreated: actorType === "external_guest" ? false : undefined,
     externalActorReference: actorType === "external_guest"
       ? readStringValue(existing.externalActorReference)
         ?? readStringValue(existing.externalGuestReference)

@@ -261,7 +261,6 @@ export function sendChannelHumanMessageSync(
   if (!channel) {
     throw new Error(`Channel "${channelName}" does not exist.`);
   }
-  assertHumanCanAccessChannel(state, channel.name, speaker, requesterUserId, effectiveWorkspaceId);
 
   const trimmed = summary.trim();
   if (!trimmed) {
@@ -271,6 +270,7 @@ export function sendChannelHumanMessageSync(
     hasAttachments: Boolean(attachments && attachments.length > 0),
   });
   assertWorkspaceDataPolicyAllowsExternalMessageInput(governedExternalInput);
+  assertHumanCanAccessChannel(state, channel.name, speaker, requesterUserId, effectiveWorkspaceId, governedExternalInput);
 
   const mentionCandidates = buildMentionCandidates(state, channel.name);
   const mentionParse = parseChannelMentionsSync(state, channel.name, trimmed);
@@ -616,10 +616,14 @@ function assertHumanCanAccessChannel(
   actorName: string,
   actorUserId?: string,
   workspaceId?: string,
+  externalInput?: ExternalMessageInputContext,
 ): void {
   const channel = state.channels.find((item) => sameValue(item.name, channelName));
   if (!channel) {
     throw new Error(`Channel "${channelName}" does not exist.`);
+  }
+  if (isExternalGuestChannelContextActor(externalInput)) {
+    return;
   }
   if (
     actorUserId &&
@@ -636,6 +640,16 @@ function assertHumanCanAccessChannel(
     return;
   }
   throw new Error(`Human member "${actorName}" does not belong to channel "${channelName}".`);
+}
+
+function isExternalGuestChannelContextActor(input: ExternalMessageInputContext | undefined): boolean {
+  const actor = input?.actor;
+  return actor?.actorType === "external_guest" &&
+    !actor.userId &&
+    typeof actor.externalActorReference === "string" &&
+    actor.externalActorReference.trim().length > 0 &&
+    (actor.externalGuestPermissionProfile === "channel_context_only" ||
+      actor.externalGuestPermissionProfile === "channel_readonly");
 }
 
 export function completeAgentChannelReplySync(input: {

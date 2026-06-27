@@ -439,6 +439,7 @@ export function summarizeFeishuStoredDataOperationGovernanceContext(
     channelName: readString(governance, "channelName"),
     actorType,
     actorUserId: actorType === "user" ? readString(governance, "actorUserId") : undefined,
+    workspaceMemberCreated: actorType === "external_guest" ? readBoolean(governance, "workspaceMemberCreated") : undefined,
     externalActorReference: readString(governance, "externalActorReference")
       ?? readString(governance, "externalGuestReference"),
     externalGuestPermissionProfile: actorType === "external_guest"

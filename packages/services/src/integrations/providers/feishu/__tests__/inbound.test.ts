@@ -405,7 +405,41 @@ test("agent bot first messages auto-provision a channel and route @bot to the ag
   assert.ok(mapping);
   assert.equal(mapping.taskQueueId, queuedTask?.id);
   assert.equal(mapping.routerSessionId, queuedTask?.routerSessionId);
-  assert.equal(JSON.parse(mapping.metadataJson).threadBindingId, threadBinding.id);
+  const mappingMetadata = JSON.parse(mapping.metadataJson) as Record<string, unknown>;
+  assert.equal(mappingMetadata.threadBindingId, threadBinding.id);
+  assert.equal(mappingMetadata.agentBotMentioned, true);
+  assert.equal(mappingMetadata.agentSpaceCommandUsed, false);
+});
+
+test("agent bot inbound mapping records slash-agent command usage without storing message text", databaseTestOptions, () => {
+  const fixtures = seedBoundFeishuWorkspace({ agentBot: true, bindChannel: false });
+
+  const result = processFeishuInboundEventSync({
+    context: {
+      workspaceId: DEFAULT_WORKSPACE_ID,
+      integrationId: fixtures.integration.id,
+      provider: FEISHU_PROVIDER_ID,
+    },
+    payload: buildFeishuMessagePayload({
+      eventId: "evt-agent-bot-slash-agent",
+      messageId: "om-agent-bot-slash-agent",
+      chatId: "oc_launch",
+      chatName: "Launch Room",
+      text: '<at user_id="ou_bot_atlas">@Atlas Bot</at> /agent Atlas summarize launch notes',
+    }),
+  });
+
+  assert.equal(result.dispatchStatus, "sent");
+  const mapping = readExternalMessageMappingByExternalMessageSync({
+    workspaceId: DEFAULT_WORKSPACE_ID,
+    integrationId: fixtures.integration.id,
+    externalMessageId: "om-agent-bot-slash-agent",
+  });
+  assert.ok(mapping);
+  const metadata = JSON.parse(mapping.metadataJson) as Record<string, unknown>;
+  assert.equal(metadata.agentBotMentioned, true);
+  assert.equal(metadata.agentSpaceCommandUsed, true);
+  assert.doesNotMatch(mapping.metadataJson, /\/agent Atlas summarize launch notes|oc_launch|ou_mina|on_mina/);
 });
 
 test("pending review auto-provisioned channels do not dispatch first messages", databaseTestOptions, () => {
@@ -1111,9 +1145,9 @@ test("unbound Feishu users can dispatch as a governed external guest on agent bo
   assert.equal(result.dispatchStatus, "sent");
   assert.equal(result.reasonCode, undefined);
   const state = readWorkspaceStateSync(DEFAULT_WORKSPACE_ID);
-  assert.ok(state.humanMembers.some((member) => member.name === FEISHU_EXTERNAL_GUEST_DISPLAY_NAME));
+  assert.equal(state.humanMembers.some((member) => member.name === FEISHU_EXTERNAL_GUEST_DISPLAY_NAME), false);
   const channel = state.channels.find((item) => item.name === "general");
-  assert.ok(channel?.humanMemberNames?.includes(FEISHU_EXTERNAL_GUEST_DISPLAY_NAME));
+  assert.equal(channel?.humanMemberNames?.includes(FEISHU_EXTERNAL_GUEST_DISPLAY_NAME), false);
   const humanMessage = state.messages.find((message) =>
     message.channel === "general" &&
     message.speaker === FEISHU_EXTERNAL_GUEST_DISPLAY_NAME &&
@@ -1159,6 +1193,7 @@ test("unbound Feishu users can dispatch as a governed external guest on agent bo
   assert.ok(mapping);
   const metadata = JSON.parse(mapping.metadataJson) as Record<string, unknown>;
   assert.equal(metadata.actorType, "external_guest");
+  assert.equal(metadata.workspaceMemberCreated, false);
   assert.equal(metadata.externalGuestPermissionProfile, "channel_context_only");
   assert.equal(metadata.agentBotMentioned, true);
   assert.deepEqual(metadata.externalGuestRequireIdentityFor, [
@@ -1275,6 +1310,7 @@ test("agent bot require_identity policy sends an identity binding card without d
   assert.ok(mapping);
   const metadata = JSON.parse(mapping.metadataJson) as Record<string, unknown>;
   assert.equal(metadata.actorType, "external_guest");
+  assert.equal(metadata.workspaceMemberCreated, false);
   assert.equal(metadata.externalGuestPolicyDecision, "require_identity");
   assert.equal(metadata.externalGuestPolicyReasonCode, "feishu_external_guest_identity_required");
   assert.equal(metadata.externalGuestUnboundUserMode, "require_identity");
@@ -1289,6 +1325,7 @@ test("agent bot require_identity policy sends an identity binding card without d
   assert.equal(noticeMetadata.noticeSource, "external_guest_policy");
   assert.equal(noticeMetadata.reasonCode, "feishu_external_guest_identity_required");
   assert.equal(noticeMetadata.actorType, "external_guest");
+  assert.equal(noticeMetadata.workspaceMemberCreated, false);
   assert.equal(noticeMetadata.agentId, "Atlas");
   assert.equal(noticeMetadata.botBindingId, fixtures.integration.id);
   assert.match(String(noticeMetadata.externalChatReference), /^[a-f0-9]{16}$/);
@@ -1476,6 +1513,9 @@ test("agent bot reply_all policy dispatches unmentioned unbound Feishu users to 
   assert.equal(result.reasonCode, undefined);
 
   const state = readWorkspaceStateSync(DEFAULT_WORKSPACE_ID);
+  assert.equal(state.humanMembers.some((member) => member.name === FEISHU_EXTERNAL_GUEST_DISPLAY_NAME), false);
+  const channel = state.channels.find((item) => item.name === "general");
+  assert.equal(channel?.humanMemberNames?.includes(FEISHU_EXTERNAL_GUEST_DISPLAY_NAME), false);
   const humanMessage = state.messages.find((message) =>
     message.channel === "general" &&
     message.speaker === FEISHU_EXTERNAL_GUEST_DISPLAY_NAME &&
@@ -1494,6 +1534,7 @@ test("agent bot reply_all policy dispatches unmentioned unbound Feishu users to 
   assert.ok(mapping);
   const metadata = JSON.parse(mapping.metadataJson) as Record<string, unknown>;
   assert.equal(metadata.actorType, "external_guest");
+  assert.equal(metadata.workspaceMemberCreated, false);
   assert.equal(metadata.externalGuestPolicyDecision, "allow");
   assert.equal(metadata.externalGuestPolicyReasonCode, "feishu_external_guest_allowed");
   assert.equal(metadata.externalGuestUnboundUserMode, "reply_all");
