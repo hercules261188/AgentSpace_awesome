@@ -3822,6 +3822,9 @@ test("Feishu evidence report blocks strict gates when local proof is incomplete"
     step.stepId === "live_agent_bot_direct_mention"
   );
   assert.ok(nativeRouteRemediation?.issues.includes("agent_bot_route_evidence_missing"));
+  assert.match(nativeRouteRemediation?.detail ?? "", /actorType=user/);
+  assert.match(nativeRouteRemediation?.detail ?? "", /actorUserId/);
+  assert.match(nativeRouteRemediation?.detail ?? "", /safe audit references/);
   const guestMentionRemediation = item?.remediationSteps.find((step) =>
     step.stepId === "live_external_guest_agent_bot_mention"
   );
@@ -3890,15 +3893,38 @@ test("Feishu evidence report blocks strict gates when local proof is incomplete"
   const docWriteRemediation = item?.remediationSteps.find((step) =>
     step.stepId === "live_doc_write_with_approval"
   );
+  assert.match(docWriteRemediation?.detail ?? "", /approvalId/);
+  assert.match(docWriteRemediation?.detail ?? "", /SHA-256 payloadHash/);
+  assert.match(docWriteRemediation?.detail ?? "", /active resource binding/);
   assert.match(docWriteRemediation?.command ?? "", /--operation plan-doc-append/);
   assert.match(docWriteRemediation?.command ?? "", /review-data-operation/);
+  const sheetReadRemediation = item?.remediationSteps.find((step) =>
+    step.stepId === "live_sheet_read"
+  );
+  assert.match(sheetReadRemediation?.detail ?? "", /active resource binding/);
+  assert.match(sheetReadRemediation?.detail ?? "", /Feishu governance context/);
+  assert.match(sheetReadRemediation?.detail ?? "", /agentId/);
+  assert.match(sheetReadRemediation?.detail ?? "", /botBindingId/);
+  assert.match(sheetReadRemediation?.detail ?? "", /actor provenance/);
+  assert.match(sheetReadRemediation?.detail ?? "", /no raw resource tokens/);
   const sheetWriteRemediation = item?.remediationSteps.find((step) =>
     step.stepId === "live_sheet_write_with_approval"
   );
+  assert.match(sheetWriteRemediation?.detail ?? "", /approvalId/);
+  assert.match(sheetWriteRemediation?.detail ?? "", /SHA-256 payloadHash/);
+  assert.match(sheetWriteRemediation?.detail ?? "", /active resource binding/);
   assert.match(sheetWriteRemediation?.command ?? "", /--operation plan-sheet-write/);
   const baseRemediation = item?.remediationSteps.find((step) =>
     step.stepId === "live_base_preview_and_update"
   );
+  assert.match(baseRemediation?.detail ?? "", /approvalId/);
+  assert.match(baseRemediation?.detail ?? "", /SHA-256 payloadHash/);
+  assert.match(baseRemediation?.detail ?? "", /active resource binding/);
+  assert.match(baseRemediation?.detail ?? "", /Feishu governance context/);
+  assert.match(baseRemediation?.detail ?? "", /botBindingId/);
+  assert.match(baseRemediation?.detail ?? "", /actor provenance/);
+  assert.match(baseRemediation?.detail ?? "", /no raw resource tokens/);
+  assert.match(baseRemediation?.detail ?? "", /Feishu Base write evidence/);
   assert.match(baseRemediation?.command ?? "", /--operation plan-base-update/);
   const userActorRemediation = item?.remediationSteps.find((step) =>
     step.stepId === "live_bound_user_data_operation"
@@ -4005,6 +4031,43 @@ test("Feishu smoke-env template reports missing public app URL without exposing 
   assert.equal(output.stdout, undefined);
   assert.match(output.stderr ?? "", /app_id_missing, app_url_missing/);
   assert.equal(getFeishuSmokeEnvExitCode(report), 1);
+});
+
+test("Feishu smoke-env template ignores disabled integrations as env sources", () => {
+  const report = buildFeishuSmokeEnvTemplateReport({
+    workspaceId: "workspace-1",
+    appUrl: "https://agentspace.test",
+    integrations: [
+      buildIntegrationRecord({
+        id: "integration-smoke-env-disabled",
+        displayName: "Disabled Smoke Env Feishu",
+        appId: "cli_disabled_smoke_env",
+        tenantKey: "tenant_disabled_smoke_env",
+        status: "disabled",
+      }),
+    ],
+  });
+
+  assert.equal(report.integrationCount, 1);
+  assert.equal(report.selectedIntegrationId, undefined);
+  assert.deepEqual(report.issues, ["selected_integration_not_active"]);
+  assert.equal(readSmokeEnvEntry(report, "FEISHU_APP_ID")?.value, "CHANGE_ME_FEISHU_APP_ID");
+  assert.equal(readSmokeEnvEntry(report, "FEISHU_APP_ID")?.source, "placeholder");
+  assert.equal(readSmokeEnvEntry(report, "FEISHU_TENANT_KEY"), undefined);
+  assert.equal(
+    readSmokeEnvEntry(report, "FEISHU_SMOKE_CALLBACK_URL")?.value,
+    "CHANGE_ME_AGENTSPACE_CALLBACK_URL",
+  );
+  assert.equal(readSmokeEnvEntry(report, "FEISHU_SMOKE_CALLBACK_URL")?.source, "placeholder");
+  assert.equal(getFeishuSmokeEnvExitCode(report), 1);
+
+  const output = formatFeishuSmokeEnvCommandText(report);
+  assert.equal(output.stdout, undefined);
+  assert.match(output.stderr ?? "", /selected_integration_not_active/);
+  const serialized = JSON.stringify(report) + (output.stderr ?? "");
+  assert.equal(serialized.includes("cli_disabled_smoke_env"), false);
+  assert.equal(serialized.includes("tenant_disabled_smoke_env"), false);
+  assert.equal(serialized.includes("integration-smoke-env-disabled"), false);
 });
 
 test("Feishu smoke-env template treats generated public URL placeholders as missing", () => {
@@ -6290,6 +6353,7 @@ test("Feishu smoke plan converts readiness into live smoke checklist without ext
   ]);
 
   const credentialEncryption = report.steps.find((step) => step.id === "configure_credential_encryption_key");
+  const createDisposableApps = report.steps.find((step) => step.id === "create_disposable_feishu_apps");
   const bindAgentBot = report.steps.find((step) => step.id === "bind_feishu_agent_bot");
   const env = report.steps.find((step) => step.id === "prepare_live_smoke_env");
   const checkEnv = report.steps.find((step) => step.id === "check_live_smoke_env");
@@ -6332,6 +6396,9 @@ test("Feishu smoke plan converts readiness into live smoke checklist without ext
   const agentSpaceEvidence = report.steps.find((step) => step.id === "verify_agentspace_live_evidence");
   assert.equal(credentialEncryption?.status, "done");
   assert.deepEqual(credentialEncryption?.issues, []);
+  assert.equal(createDisposableApps?.status, "done");
+  assert.deepEqual(createDisposableApps?.issues, []);
+  assert.match(createDisposableApps?.detail ?? "", /two Phase 6-ready active AgentSpace agent bot bindings/);
   assert.equal(bindAgentBot?.status, "done");
   assert.match(bindAgentBot?.detail ?? "", /Feishu integration\/bot binding/);
   assert.equal(env?.status, "pending");
@@ -6353,6 +6420,9 @@ test("Feishu smoke plan converts readiness into live smoke checklist without ext
   assert.match(liveBot?.detail ?? "", /safe chat\/thread context/);
   assert.doesNotMatch(liveBot?.detail ?? "", /@AgentSpaceBot/);
   assert.equal(liveDirectMention?.status, "pending");
+  assert.match(liveDirectMention?.detail ?? "", /actorType=user/);
+  assert.match(liveDirectMention?.detail ?? "", /actorUserId/);
+  assert.match(liveDirectMention?.detail ?? "", /safe audit references/);
   assert.match(liveDirectMention?.detail ?? "", /concrete agentId/);
   assert.match(liveDirectMention?.detail ?? "", /without using \/agent/);
   assert.equal(liveAutoProvision?.status, "pending");
@@ -6448,6 +6518,12 @@ test("Feishu smoke plan converts readiness into live smoke checklist without ext
   assert.equal(liveDocRead?.status, "pending");
   assert.match(liveDocRead?.command ?? "", /integrations feishu data-operation --workspace-id workspace-1 --integration integration-ready --operation read-doc/);
   assert.match(liveDocRead?.command ?? "", /--resource CHANGE_ME_FEISHU_DOC_URL_OR_TOKEN --json/);
+  assert.match(liveDocRead?.detail ?? "", /active resource binding/);
+  assert.match(liveDocRead?.detail ?? "", /Feishu governance context/);
+  assert.match(liveDocRead?.detail ?? "", /agentId/);
+  assert.match(liveDocRead?.detail ?? "", /botBindingId/);
+  assert.match(liveDocRead?.detail ?? "", /actor provenance/);
+  assert.match(liveDocRead?.detail ?? "", /raw resource tokens/);
   assert.equal(liveDocWrite?.status, "pending");
   assert.match(liveDocWrite?.detail ?? "", /payload hash/);
   assert.match(liveDocWrite?.command ?? "", /--operation plan-doc-append/);
@@ -6458,6 +6534,11 @@ test("Feishu smoke plan converts readiness into live smoke checklist without ext
   assert.match(liveSheetRead?.command ?? "", /--operation read-sheet/);
   assert.match(liveSheetRead?.command ?? "", /--range CHANGE_ME_FEISHU_SHEET_RANGE/);
   assert.match(liveSheetRead?.detail ?? "", /safe summary/);
+  assert.match(liveSheetRead?.detail ?? "", /active resource binding/);
+  assert.match(liveSheetRead?.detail ?? "", /Feishu governance context/);
+  assert.match(liveSheetRead?.detail ?? "", /botBindingId/);
+  assert.match(liveSheetRead?.detail ?? "", /actor provenance/);
+  assert.match(liveSheetRead?.detail ?? "", /raw resource tokens/);
   assert.match(liveSheet?.command ?? "", /--operation plan-sheet-write/);
   assert.match(liveSheet?.command ?? "", /--range CHANGE_ME_FEISHU_SHEET_WRITE_RANGE/);
   assert.match(liveSheet?.command ?? "", /--approval-agent CHANGE_ME_AGENT_NAME --approval-channel CHANGE_ME_AGENTSPACE_CHANNEL/);
@@ -6466,6 +6547,13 @@ test("Feishu smoke plan converts readiness into live smoke checklist without ext
   assert.match(liveBase?.command ?? "", /--operation query-base --resource CHANGE_ME_FEISHU_BASE_TABLE_URL_WITH_APP_TOKEN/);
   assert.match(liveBase?.command ?? "", /--operation plan-base-update --resource CHANGE_ME_FEISHU_BASE_TABLE_URL_WITH_APP_TOKEN/);
   assert.match(liveBase?.command ?? "", /--record-id CHANGE_ME_FEISHU_BASE_RECORD_ID/);
+  assert.match(liveBase?.detail ?? "", /approvalId/);
+  assert.match(liveBase?.detail ?? "", /payload hash/);
+  assert.match(liveBase?.detail ?? "", /active resource binding/);
+  assert.match(liveBase?.detail ?? "", /Feishu governance context/);
+  assert.match(liveBase?.detail ?? "", /botBindingId/);
+  assert.match(liveBase?.detail ?? "", /raw resource tokens/);
+  assert.match(liveBase?.detail ?? "", /Feishu Base update/);
   assert.match(liveBase?.command ?? "", /--approval-agent CHANGE_ME_AGENT_NAME --approval-channel CHANGE_ME_AGENTSPACE_CHANNEL/);
   assert.match(liveBase?.command ?? "", /review-data-operation --workspace-id workspace-1 --approval-id CHANGE_ME_FEISHU_APPROVAL_ID --decision approved --json/);
   assert.equal(liveHarness?.status, "pending");
@@ -6547,11 +6635,16 @@ test("Feishu smoke plan blocks final all evidence gate until a second native age
     },
   });
 
+  const createDisposableApps = report.steps.find((step) => step.id === "create_disposable_feishu_apps");
   const bindSecondAgentBot = report.steps.find((step) => step.id === "bind_second_feishu_agent_bot");
   const finalEvidence = report.steps.find((step) => step.id === "verify_agentspace_live_evidence");
 
   assert.equal(report.readinessSummary.readyForBotSmokeCount, 1);
   assert.equal(report.readinessSummary.readyForDataPlaneSmokeCount, 1);
+  assert.equal(createDisposableApps?.status, "pending");
+  assert.match(createDisposableApps?.detail ?? "", /Codex Bot and HermesAgent Bot/);
+  assert.ok(createDisposableApps?.issues?.includes("second_agent_bot_missing"));
+  assert.ok(createDisposableApps?.issues?.includes("second_agent_bot_not_ready"));
   assert.equal(bindSecondAgentBot?.status, "pending");
   assert.equal(finalEvidence?.status, "blocked");
   assert.match(finalEvidence?.detail ?? "", /two Phase 6-ready agent bot bindings/);
@@ -6807,6 +6900,7 @@ test("Feishu smoke plan treats disabled integrations as unavailable for live smo
   });
 
   const bindAgentBot = report.steps.find((step) => step.id === "bind_feishu_agent_bot");
+  const prepareCreateEnv = report.steps.find((step) => step.id === "prepare_feishu_create_env");
   const configureCredentials = report.steps.find((step) => step.id === "configure_app_credentials");
   const configureScopes = report.steps.find((step) => step.id === "configure_bot_events_and_scopes");
   const health = report.steps.find((step) => step.id === "check_connection_health");
@@ -6820,6 +6914,7 @@ test("Feishu smoke plan treats disabled integrations as unavailable for live smo
   const firstMessageProvision = report.steps.find((step) =>
     step.id === "live_agent_bot_first_message_auto_provision"
   );
+  const bindResources = report.steps.find((step) => step.id === "bind_feishu_doc_sheet_base");
   const failureVisibility = report.steps.find((step) => step.id === "live_failure_visibility");
   const finalEvidence = report.steps.find((step) => step.id === "verify_agentspace_live_evidence");
 
@@ -6835,6 +6930,10 @@ test("Feishu smoke plan treats disabled integrations as unavailable for live smo
     "openapi_artifact",
     "bot_added_payload_artifact",
   ]);
+  assert.equal(prepareCreateEnv?.status, "pending");
+  assert.deepEqual(prepareCreateEnv?.issues, ["integration_not_active"]);
+  assert.match(prepareCreateEnv?.command ?? "", /cp scripts\/feishu\/env\.example scripts\/feishu\/\.env/);
+  assert.match(prepareCreateEnv?.detail ?? "", /disabled or archived/);
   assert.equal(bindAgentBot?.status, "pending");
   assert.match(bindAgentBot?.detail ?? "", /none are active|records exist/i);
   assert.ok(bindAgentBot?.issues?.includes("integration_not_active"));
@@ -6865,6 +6964,10 @@ test("Feishu smoke plan treats disabled integrations as unavailable for live smo
   assert.deepEqual(verifyBotAddedPayload?.issues, ["integration_not_active"]);
   assert.equal(firstMessageProvision?.status, "blocked");
   assert.deepEqual(firstMessageProvision?.issues, ["integration_not_active"]);
+  assert.equal(bindResources?.status, "blocked");
+  assert.deepEqual(bindResources?.issues, ["integration_not_active"]);
+  assert.match(bindResources?.command ?? "", /--integration CHANGE_ME_FEISHU_INTEGRATION_ID/);
+  assert.doesNotMatch(bindResources?.command ?? "", /agent-bot-disabled/);
   assert.equal(failureVisibility?.status, "blocked");
   assert.deepEqual(failureVisibility?.issues, ["integration_not_active"]);
   assert.match(failureVisibility?.command ?? "", /--integration CHANGE_ME_FEISHU_INTEGRATION_ID/);

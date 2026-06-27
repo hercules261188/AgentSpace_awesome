@@ -2016,7 +2016,7 @@ function buildFeishuSetupGuide(options: { agentBot?: boolean } = {}): NonNullabl
       },
       {
         key: "native_agent_bot",
-        required: "direct_agent_bot_route_with_safe_context + bound_user_bot_mention_with_safe_context + external_guest_bot_mention_with_safe_context + bot_added_auto_provision_with_channel_identity_review_state + first_message_auto_provision_with_channel_identity_review_state + multi_agent_channel_reuse_distinct_binding + thread_task_binding + thread_continuation_without_remention_active_binding + thread_collaboration + bot_sender_loop_guard_without_reply + agent_channel_policy_denial_without_reply",
+        required: "direct_agent_bot_route_with_safe_context + bound_user_bot_mention_with_safe_context + external_guest_bot_mention_with_safe_context + bot_added_auto_provision_with_channel_identity_review_state + first_message_auto_provision_with_channel_identity_review_state + multi_agent_channel_reuse_distinct_binding + thread_task_binding + thread_continuation_without_remention_active_binding + thread_collaboration_distinct_bot_binding + sent_thread_collaboration_card + bot_sender_loop_guard_without_reply + agent_channel_policy_denial_without_reply",
       },
       {
         key: "data_plane",

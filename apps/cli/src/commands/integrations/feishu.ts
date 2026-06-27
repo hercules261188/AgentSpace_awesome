@@ -4330,7 +4330,7 @@ export function buildFeishuSmokeEnvTemplateReport(
     provider: FEISHU_PROVIDER_ID,
     includeDisabled: true,
   })).filter((integration) => !input.integrationId || integration.id === input.integrationId);
-  const selectedIntegration = integrations.find((integration) => integration.status === "active") ?? integrations[0];
+  const selectedIntegration = integrations.find((integration) => integration.status === "active");
   const appUrl = normalizeFeishuCliPublicAppUrl(input.appUrl);
   const callbackUrl = selectedIntegration && appUrl
     ? buildFeishuCliEventCallbackUrl({
@@ -4343,7 +4343,7 @@ export function buildFeishuSmokeEnvTemplateReport(
   const tenantKey = selectedIntegration?.tenantKey?.trim();
   const issues = [
     ...(integrations.length === 0 ? ["integration_missing"] : []),
-    ...(selectedIntegration && selectedIntegration.status !== "active" ? ["selected_integration_not_active"] : []),
+    ...(integrations.length > 0 && !selectedIntegration ? ["selected_integration_not_active"] : []),
     ...(selectedIntegration && !appId ? ["app_id_missing"] : []),
     ...(!appUrl ? ["app_url_missing"] : []),
   ];
@@ -4649,12 +4649,17 @@ export function buildFeishuSmokePlanReport(input: BuildFeishuSmokePlanReportInpu
   const webSocketCandidate = workerCandidate?.transportMode === "websocket_worker"
     ? workerCandidate
     : activeReadinessItems.find((item) => item.transportMode === "websocket_worker");
+  const activeIntegrationIssues = hasActiveIntegration
+    ? []
+    : [hasIntegration ? "integration_not_active" : "integration_missing"];
   const readyForWorkerSmoke = readiness.readyForWorkerSmokeCount > 0;
-  const botIssues = botCandidate?.issues ?? [];
-  const dataPlaneIssues = dataPlaneCandidate?.issues ?? [];
+  const botIssues = hasActiveIntegration ? botCandidate?.issues ?? [] : activeIntegrationIssues;
+  const dataPlaneIssues = hasActiveIntegration ? dataPlaneCandidate?.issues ?? [] : activeIntegrationIssues;
   const workerIssues = readyForWorkerSmoke
     ? []
-    : buildFeishuWorkerSmokeIssues(webSocketCandidate, botIssues);
+    : hasActiveIntegration
+      ? buildFeishuWorkerSmokeIssues(webSocketCandidate, botIssues)
+      : activeIntegrationIssues;
   const missingBotScopes = uniqueStrings(activeReadinessItems.flatMap((item) => item.scopes.missingForBotSmoke));
   const missingDataPlaneScopes = uniqueStrings(activeReadinessItems.flatMap((item) =>
     item.scopes.missingForDataPlaneSmoke
@@ -4680,9 +4685,6 @@ export function buildFeishuSmokePlanReport(input: BuildFeishuSmokePlanReportInpu
   const credentialEncryptionIssues = credentialEncryptionReady
     ? []
     : [runtimeSetup.credentialEncryption.issue ?? `credential_encryption_${runtimeSetup.credentialEncryption.status}`];
-  const activeIntegrationIssues = hasActiveIntegration
-    ? []
-    : [hasIntegration ? "integration_not_active" : "integration_missing"];
   const evidenceGates = buildFeishuSmokePlanEvidenceGates({
     hasWebSocketIntegration: activeReadinessItems.some((item) => item.transportMode === "websocket_worker"),
     openApiEvidencePath: smokeHarness.evidencePath,
@@ -4756,14 +4758,26 @@ export function buildFeishuSmokePlanReport(input: BuildFeishuSmokePlanReportInpu
         id: "prepare_feishu_create_env",
         area: "setup",
         title: "Prepare Feishu agent bot env file",
-        status: hasIntegration ? "done" : "pending",
-        detail: hasIntegration
-          ? "A Feishu agent bot binding or integration already exists; use smoke-env for workspace-specific live smoke resources."
-          : "Create scripts/feishu/.env from the checked-in template, then replace the Feishu app credential placeholders before binding an AgentSpace agent to its Feishu bot.",
-        command: hasIntegration
+        status: hasActiveIntegration ? "done" : "pending",
+        detail: hasActiveIntegration
+          ? "An active Feishu agent bot binding or integration already exists; use smoke-env for workspace-specific live smoke resources."
+          : hasIntegration
+            ? "Existing Feishu records are disabled or archived. Keep the env file ready so you can bind a fresh active AgentSpace agent bot with App ID + App Secret."
+            : "Create scripts/feishu/.env from the checked-in template, then replace the Feishu app credential placeholders before binding an AgentSpace agent to its Feishu bot.",
+        command: hasActiveIntegration
           ? undefined
           : "test -f scripts/feishu/.env || cp scripts/feishu/env.example scripts/feishu/.env",
-        issues: [],
+        issues: hasActiveIntegration ? [] : activeIntegrationIssues,
+      },
+      {
+        id: "create_disposable_feishu_apps",
+        area: "setup",
+        title: "Create disposable Feishu app set for native smoke",
+        status: hasSecondAgentBot ? "done" : "pending",
+        detail: hasSecondAgentBot
+          ? "Found two Phase 6-ready active AgentSpace agent bot bindings backed by distinct Feishu apps and distinct AgentSpace agents."
+          : "In Feishu Open Platform, create two disposable custom apps in the same test tenant, such as Codex Bot and HermesAgent Bot. Enable bot capability, subscribe to im.message.receive_v1, im.chat.member.bot.added_v1, and card.action.trigger, grant bot plus Docs/Sheets/Base scopes, install or publish both apps, then bind each app to a different AgentSpace agent.",
+        issues: hasSecondAgentBot ? [] : nativeAgentBotReadiness.issues,
       },
       {
         id: "bind_feishu_agent_bot",
@@ -4879,7 +4893,7 @@ export function buildFeishuSmokePlanReport(input: BuildFeishuSmokePlanReportInpu
         area: "bot",
         title: "Live smoke: direct @agent bot route evidence",
         status: readyForBot ? "pending" : "blocked",
-        detail: "From a bound Feishu user, directly @ the agent-specific bot and verify the inbound mapping records the concrete agentId, botBindingId, task, and message evidence without using /agent routing text.",
+        detail: "From a bound Feishu user, directly @ the agent-specific bot and verify AgentSpace records actorType=user, actorUserId, safe audit references, the concrete agentId, botBindingId, task, and message evidence without using /agent routing text.",
         issues: readyForBot ? [] : botIssues,
       },
       {
@@ -5084,22 +5098,24 @@ export function buildFeishuSmokePlanReport(input: BuildFeishuSmokePlanReportInpu
         id: "bind_feishu_doc_sheet_base",
         area: "data-plane",
         title: "Bind Feishu Doc, Sheet, and Base resources",
-        status: prereqStatus(hasIntegration, hasDocBinding && hasSheetBinding && hasBaseBinding),
+        status: prereqStatus(hasActiveIntegration, hasDocBinding && hasSheetBinding && hasBaseBinding),
         detail: "Bind one Feishu Doc, one Sheet, and one Base table to AgentSpace resources for data-plane smoke.",
         command: [
           `agent-space integrations feishu bind-resource --workspace-id ${readiness.workspaceId} --integration ${setupIntegrationFlag} --type doc --resource ${FEISHU_CLI_PLACEHOLDERS.docResource} --agent-space-type channel_document --channel ${FEISHU_CLI_PLACEHOLDERS.agentSpaceChannel} --allow-write --json`,
           `agent-space integrations feishu bind-resource --workspace-id ${readiness.workspaceId} --integration ${setupIntegrationFlag} --type sheet --resource ${FEISHU_CLI_PLACEHOLDERS.sheetResource} --agent-space-type data_table --channel ${FEISHU_CLI_PLACEHOLDERS.agentSpaceChannel} --allow-write --json`,
           `agent-space integrations feishu bind-resource --workspace-id ${readiness.workspaceId} --integration ${setupIntegrationFlag} --type base_table --resource ${FEISHU_CLI_PLACEHOLDERS.baseResource} --agent-space-type data_table --channel ${FEISHU_CLI_PLACEHOLDERS.agentSpaceChannel} --allow-write --json`,
         ].join("\n"),
-        issues: collectDataPlaneBindingIssues({
-          hasDocBinding,
-          hasAnyDocBinding,
-          hasSheetBinding,
-          hasAnySheetBinding,
-          hasBaseBinding,
-          hasAnyBaseBinding,
-          hasBaseReadyBinding,
-        }),
+        issues: hasActiveIntegration
+          ? collectDataPlaneBindingIssues({
+            hasDocBinding,
+            hasAnyDocBinding,
+            hasSheetBinding,
+            hasAnySheetBinding,
+            hasBaseBinding,
+            hasAnyBaseBinding,
+            hasBaseReadyBinding,
+          })
+          : activeIntegrationIssues,
       },
       {
         id: "run_data_plane_readiness_gate",
@@ -5117,7 +5133,7 @@ export function buildFeishuSmokePlanReport(input: BuildFeishuSmokePlanReportInpu
         area: "data-plane",
         title: "Live smoke: read bound Feishu Doc",
         status: readyForDataPlane ? "pending" : "blocked",
-        detail: "Read the bound Feishu Doc through AgentSpace and verify the operation run stores only a safe summary.",
+        detail: "Read the bound Feishu Doc through AgentSpace and verify the operation run uses an active resource binding, records Feishu governance context with agentId, botBindingId, and actor provenance, stores only safe resource references plus a safe summary, and never stores raw resource tokens.",
         command: dataPlaneSmokeCommands.liveDocReadCommand,
         issues: readyForDataPlane ? [] : dataPlaneIssues,
       },
@@ -5135,7 +5151,7 @@ export function buildFeishuSmokePlanReport(input: BuildFeishuSmokePlanReportInpu
         area: "data-plane",
         title: "Live smoke: read bound Feishu Sheet",
         status: readyForDataPlane ? "pending" : "blocked",
-        detail: "Read a small bound Sheet range through AgentSpace and verify the operation run stores only a safe summary.",
+        detail: "Read a small bound Sheet range through AgentSpace and verify the operation run uses an active resource binding, records Feishu governance context with agentId, botBindingId, and actor provenance, stores only safe resource references plus a safe summary, and never stores raw resource tokens.",
         command: dataPlaneSmokeCommands.liveSheetReadCommand,
         issues: readyForDataPlane ? [] : dataPlaneIssues,
       },
@@ -5153,7 +5169,7 @@ export function buildFeishuSmokePlanReport(input: BuildFeishuSmokePlanReportInpu
         area: "data-plane",
         title: "Live smoke: preview and update one Base record",
         status: readyForDataPlane ? "pending" : "blocked",
-        detail: "Read Base records, create a governed Base update approval from CLI, review the returned approval id through the same AgentSpace approval execution path, then verify the operation run and AgentSpace data table sync succeed.",
+        detail: "Read Base records through an active resource binding with Feishu governance context, agentId, botBindingId, actor provenance, safe resource references, and no raw resource tokens; then create a governed Base update approval from CLI, review the returned approval id through the same AgentSpace approval execution path, and verify approvalId, payload hash check, Feishu Base update, operation run, and AgentSpace data table sync succeed.",
         command: dataPlaneSmokeCommands.liveBaseCommand,
         issues: readyForDataPlane ? [] : dataPlaneIssues,
       },
@@ -6256,7 +6272,7 @@ function mapFeishuEvidenceIssueToRemediationSpec(input: {
       return {
         stepId: "live_agent_bot_direct_mention",
         title: "Live smoke: @agent bot routes to its AgentSpace agent",
-        detail: "From a bound Feishu user, mention the agent-specific Feishu bot in a group and verify AgentSpace records a sent inbound mapping with agentId, botBindingId, task, and message evidence.",
+        detail: "From a bound Feishu user, mention the agent-specific Feishu bot in a group and verify AgentSpace records actorType=user, actorUserId, safe audit references, and a sent inbound mapping with agentId, botBindingId, task, and message evidence.",
       };
     case "external_guest_bot_mention_evidence_missing":
       return {
@@ -6367,7 +6383,7 @@ function mapFeishuEvidenceIssueToRemediationSpec(input: {
       return {
         stepId: "live_doc_read",
         title: "Live smoke: read bound Feishu Doc",
-        detail: "Run the AgentSpace data-operation Doc read smoke so a succeeded, non-runtime Doc read operation is recorded.",
+        detail: "Run the AgentSpace data-operation Doc read smoke so a succeeded, non-runtime Doc read operation is recorded with active resource binding, Feishu governance context, agentId, botBindingId, actor provenance, safe resource references, and no raw resource tokens.",
         command: dataPlaneCommands.liveDocReadCommand,
       };
     case "agent_doc_read_evidence_missing":
@@ -6381,14 +6397,14 @@ function mapFeishuEvidenceIssueToRemediationSpec(input: {
       return {
         stepId: "live_doc_write_with_approval",
         title: "Live smoke: approve a small Doc write",
-        detail: "Create and approve the governed Doc append operation so the operation run carries approved policy metadata and a safe Feishu write result.",
+        detail: "Create and approve the governed Doc append operation so the operation run carries approvalId, SHA-256 payloadHash, approved policy metadata, active resource binding, and a safe Feishu write result.",
         command: dataPlaneCommands.liveDocWriteCommand,
       };
     case "sheet_read_evidence_missing":
       return {
         stepId: "live_sheet_read",
         title: "Live smoke: read bound Feishu Sheet",
-        detail: "Run the AgentSpace data-operation Sheet read smoke so a succeeded safe range preview is recorded.",
+        detail: "Run the AgentSpace data-operation Sheet read smoke so a succeeded safe range preview is recorded with active resource binding, Feishu governance context, agentId, botBindingId, actor provenance, safe resource references, and no raw resource tokens.",
         command: dataPlaneCommands.liveSheetReadCommand,
       };
     case "sheet_write_evidence_missing":
@@ -6397,7 +6413,7 @@ function mapFeishuEvidenceIssueToRemediationSpec(input: {
       return {
         stepId: "live_sheet_write_with_approval",
         title: "Live smoke: approve a small Sheet write",
-        detail: "Create and approve the governed Sheet write smoke, then let AgentSpace sync the bound data table preview from the approved write result.",
+        detail: "Create and approve the governed Sheet write smoke so the operation run carries approvalId, SHA-256 payloadHash, approved policy metadata, active resource binding, and AgentSpace syncs the bound data table preview from the approved write result.",
         command: dataPlaneCommands.liveSheetWriteCommand,
       };
     case "base_read_evidence_missing":
@@ -6407,7 +6423,7 @@ function mapFeishuEvidenceIssueToRemediationSpec(input: {
       return {
         stepId: "live_base_preview_and_update",
         title: "Live smoke: preview and update one Base record",
-        detail: "Run the Base preview plus approved Base update smoke so AgentSpace records both safe read evidence and approved data-table sync evidence.",
+        detail: "Run the Base preview plus approved Base update smoke so AgentSpace records safe read evidence with active resource binding, Feishu governance context, agentId, botBindingId, actor provenance, safe resource references, and no raw resource tokens, plus approvalId, SHA-256 payloadHash, Feishu Base write evidence, and approved data-table sync evidence.",
         command: dataPlaneCommands.liveBaseCommand,
       };
     case "user_actor_data_operation_evidence_missing":
