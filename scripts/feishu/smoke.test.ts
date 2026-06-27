@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -26,6 +27,9 @@ test("verifies a complete strict live Feishu smoke evidence artifact", () => {
       livePassed: number;
       requiredLiveSteps: number;
       destructiveLiveChecks: number;
+      appIdentityPresent: boolean;
+      appIdHashPresent: boolean;
+      tenantKeyHashPresent: boolean;
       todo120NativeSmokeReady: boolean;
       todo120NativeSmokeRequiredForCommand: boolean;
       todo120NativeSmokeRequired: number;
@@ -38,6 +42,9 @@ test("verifies a complete strict live Feishu smoke evidence artifact", () => {
   assert.equal(output.summary.livePassed, 12);
   assert.equal(output.summary.requiredLiveSteps, 12);
   assert.equal(output.summary.destructiveLiveChecks, 3);
+  assert.equal(output.summary.appIdentityPresent, true);
+  assert.equal(output.summary.appIdHashPresent, true);
+  assert.equal(output.summary.tenantKeyHashPresent, false);
   assert.equal(output.summary.todo120NativeSmokeReady, true);
   assert.equal(output.summary.todo120NativeSmokeRequiredForCommand, true);
   assert.equal(output.summary.todo120NativeSmokeRequired, 2);
@@ -68,6 +75,27 @@ test("rejects old Feishu smoke evidence that lacks Doc append coverage", () => {
   assert.ok(output.issues.includes("live_passed_summary_incomplete"));
   assert.ok(output.issues.includes("doc_append_not_marked_destructive"));
   assert.ok(output.issues.includes("destructive_live_checks_missing"));
+});
+
+test("rejects Feishu smoke evidence without app identity proof", () => {
+  const evidence = buildEvidenceFixture();
+  delete (evidence as Partial<ReturnType<typeof buildEvidenceFixture>>).appIdentity;
+  const evidencePath = writeEvidenceFixture(evidence);
+  const result = runVerifyEvidence(evidencePath);
+
+  assert.equal(result.status, 1);
+  const output = JSON.parse(result.stdout) as {
+    valid: boolean;
+    issues: string[];
+    summary: {
+      appIdentityPresent: boolean;
+      appIdHashPresent: boolean;
+    };
+  };
+  assert.equal(output.valid, false);
+  assert.equal(output.summary.appIdentityPresent, false);
+  assert.equal(output.summary.appIdHashPresent, false);
+  assert.ok(output.issues.includes("app_identity_missing"));
 });
 
 test("rejects Feishu smoke evidence without TODO120 native multi-agent proof", () => {
@@ -297,7 +325,10 @@ test("dry-run validates Feishu message, bot-added, and card-action EventDispatch
 });
 
 test("verifies a captured bot-added payload without leaking Feishu identifiers", () => {
-  const payloadPath = writePayloadFixture({
+  const directory = mkdtempSync(join(tmpdir(), "agentspace-feishu-bot-added-evidence-"));
+  const payloadPath = join(directory, "callback.json");
+  const evidencePath = join(directory, "bot-added-evidence.json");
+  writeFileSync(payloadPath, `${JSON.stringify({
     schema: "2.0",
     header: {
       event_id: "evt_real_bot_added",
@@ -319,7 +350,8 @@ test("verifies a captured bot-added payload without leaking Feishu identifiers",
         union_id: "on_real_operator",
       },
     },
-  });
+  }, null, 2)}\n`, "utf8");
+  tempFixtureDirectories.push(directory);
   const result = spawnSync(
     process.execPath,
     [
@@ -327,6 +359,8 @@ test("verifies a captured bot-added payload without leaking Feishu identifiers",
       "scripts/feishu/smoke.ts",
       "--verify-bot-added-payload",
       payloadPath,
+      "--bot-added-payload-evidence",
+      evidencePath,
       "--json",
     ],
     { cwd: process.cwd(), encoding: "utf8" },
@@ -338,6 +372,10 @@ test("verifies a captured bot-added payload without leaking Feishu identifiers",
     issues: string[];
     summary: {
       botAddedEvent: boolean;
+      appIdPresent: boolean;
+      appIdHash?: string;
+      tenantKeyPresent: boolean;
+      tenantKeyHash?: string;
       chatDescriptorPresent: boolean;
       chatIdSource?: string;
       chatReference?: string;
@@ -351,6 +389,10 @@ test("verifies a captured bot-added payload without leaking Feishu identifiers",
   assert.equal(output.valid, true);
   assert.deepEqual(output.issues, []);
   assert.equal(output.summary.botAddedEvent, true);
+  assert.equal(output.summary.appIdPresent, true);
+  assert.match(output.summary.appIdHash ?? "", /^[a-f0-9]{64}$/);
+  assert.equal(output.summary.tenantKeyPresent, true);
+  assert.match(output.summary.tenantKeyHash ?? "", /^[a-f0-9]{64}$/);
   assert.equal(output.summary.chatDescriptorPresent, true);
   assert.equal(output.summary.chatIdSource, "event.chat.openChatId");
   assert.match(output.summary.chatReference ?? "", /^chat [a-f0-9]{16}$/);
@@ -362,11 +404,27 @@ test("verifies a captured bot-added payload without leaking Feishu identifiers",
   assert.equal(result.stdout.includes("oc_real_secret_chat"), false);
   assert.equal(result.stdout.includes("ou_real_operator"), false);
   assert.equal(result.stdout.includes("on_real_operator"), false);
+  assert.equal(result.stdout.includes("cli_real_app"), false);
+  assert.equal(result.stdout.includes("tenant-real"), false);
   assert.equal(result.stdout.includes("真实验收群"), false);
+  assert.equal(existsSync(evidencePath), true);
+  const artifact = readJsonFile(evidencePath) as typeof output;
+  assert.equal(artifact.valid, true);
+  assert.equal(artifact.summary.chatReference, output.summary.chatReference);
+  assert.equal(artifact.summary.appIdHash, output.summary.appIdHash);
+  assert.equal(artifact.summary.tenantKeyHash, output.summary.tenantKeyHash);
+  assert.equal(JSON.stringify(artifact).includes("oc_real_secret_chat"), false);
+  assert.equal(JSON.stringify(artifact).includes("cli_real_app"), false);
+  assert.equal(JSON.stringify(artifact).includes("tenant-real"), false);
+  assert.equal(JSON.stringify(artifact).includes("真实验收群"), false);
 });
 
 test("rejects captured payloads that are not bot-added events", () => {
-  const payloadPath = writePayloadFixture({
+  const directory = mkdtempSync(join(tmpdir(), "agentspace-feishu-bot-added-invalid-"));
+  const payloadPath = join(directory, "callback.json");
+  const evidencePath = join(directory, "bot-added-evidence.json");
+  writeFileSync(evidencePath, "{\"existing\":true}\n", "utf8");
+  writeFileSync(payloadPath, `${JSON.stringify({
     schema: "2.0",
     header: {
       event_id: "evt_real_message",
@@ -382,7 +440,8 @@ test("rejects captured payloads that are not bot-added events", () => {
         content: "{\"text\":\"hello\"}",
       },
     },
-  });
+  }, null, 2)}\n`, "utf8");
+  tempFixtureDirectories.push(directory);
   const result = spawnSync(
     process.execPath,
     [
@@ -390,6 +449,8 @@ test("rejects captured payloads that are not bot-added events", () => {
       "scripts/feishu/smoke.ts",
       "--verify-bot-added-payload",
       payloadPath,
+      "--bot-added-payload-evidence",
+      evidencePath,
       "--json",
     ],
     { cwd: process.cwd(), encoding: "utf8" },
@@ -404,6 +465,7 @@ test("rejects captured payloads that are not bot-added events", () => {
   assert.ok(output.issues.includes("bot_added_event_not_recognized"));
   assert.equal(result.stdout.includes("oc_real_chat"), false);
   assert.equal(result.stdout.includes("om_real_message"), false);
+  assert.deepEqual(readJsonFile(evidencePath), { existing: true });
 });
 
 test("strict-live without live mode cannot be mistaken for completed evidence", () => {
@@ -1812,6 +1874,10 @@ function writePayloadFixture(payload: Record<string, unknown>): string {
   return payloadPath;
 }
 
+function readJsonFile(path: string): unknown {
+  return JSON.parse(readFileSync(path, "utf8")) as unknown;
+}
+
 function buildEvidenceFixture() {
   const steps = [
     liveStep("Client im.message.create", {
@@ -1890,6 +1956,11 @@ function buildEvidenceFixture() {
     generatedAt: "2026-06-24T00:00:00.000Z",
     live: true,
     strictLive: true,
+    appIdentity: {
+      appIdPresent: true,
+      appIdHash: createHash("sha256").update("cli_ready_secret", "utf8").digest("hex"),
+      tenantKeyPresent: false,
+    },
     summary: {
       total: steps.length,
       passed: steps.length,

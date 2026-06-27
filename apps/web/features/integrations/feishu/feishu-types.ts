@@ -274,7 +274,8 @@ export type FeishuIntegrationEvidenceGateKey =
   | "worker_card_action"
   | "data_plane"
   | "failure_visibility"
-  | "openapi_artifact";
+  | "openapi_artifact"
+  | "bot_added_payload_artifact";
 
 export interface FeishuIntegrationEvidenceGate {
   key: FeishuIntegrationEvidenceGateKey;

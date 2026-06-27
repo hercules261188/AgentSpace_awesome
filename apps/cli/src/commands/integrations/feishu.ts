@@ -205,7 +205,8 @@ export type FeishuSmokePlanEvidenceGateKey =
   | "worker_card_action"
   | "data_plane"
   | "failure_visibility"
-  | "openapi_artifact";
+  | "openapi_artifact"
+  | "bot_added_payload_artifact";
 
 export interface FeishuSmokePlanEvidenceGate {
   key: FeishuSmokePlanEvidenceGateKey;
@@ -245,6 +246,7 @@ export interface FeishuSmokeHarnessSummary {
   envFilePath: string;
   evidencePath: string;
   botAddedPayloadPath: string;
+  botAddedPayloadEvidencePath: string;
   appUrl?: string;
   callbackUrl?: string;
   requiredLiveSteps: number;
@@ -580,6 +582,7 @@ export interface FeishuEvidenceReport {
   integrationCount: number;
   strictSatisfied: boolean;
   openApiEvidence?: FeishuOpenApiSmokeEvidenceVerification;
+  botAddedPayloadEvidence?: FeishuBotAddedPayloadEvidenceVerification;
   summary: {
     botSatisfiedCount: number;
     nativeExperienceSatisfiedCount: number;
@@ -694,10 +697,43 @@ export interface FeishuOpenApiSmokeEvidenceVerification {
     liveFailed: number;
     destructiveLiveChecks: number;
     requiredLiveSteps: number;
+    appIdentityPresent: boolean;
+    appIdHashPresent: boolean;
+    appIdentityMatched: boolean;
+    tenantKeyHashPresent: boolean;
+    tenantKeyMatched: boolean;
     todo120NativeSmokeReady: boolean;
     todo120NativeSmokeRequiredForCommand: boolean;
     todo120NativeSmokeRequired: number;
     todo120NativeSmokeConfigured: number;
+  };
+}
+
+export interface FeishuBotAddedPayloadEvidenceVerification {
+  evidencePath?: string;
+  present: boolean;
+  valid: boolean;
+  issues: string[];
+  remediationSteps: FeishuEvidenceRemediationStep[];
+  summary?: {
+    eventType: string;
+    botAddedEvent: boolean;
+    appIdPresent: boolean;
+    appIdHashPresent: boolean;
+    appIdentityMatched: boolean;
+    tenantKeyPresent: boolean;
+    tenantKeyHashPresent: boolean;
+    tenantKeyMatched: boolean;
+    chatDescriptorPresent: boolean;
+    chatIdSource?: string;
+    chatReference?: string;
+    chatIdRedacted: boolean;
+    chatType?: string;
+    chatNamePresent: boolean;
+    externalEventReference?: string;
+    externalEventIdRedacted: boolean;
+    payloadHashPresent: boolean;
+    rawPayloadStored: boolean;
   };
 }
 
@@ -743,6 +779,8 @@ interface BuildFeishuEvidenceReportInput {
   requiredEvidence?: FeishuEvidenceRequirement;
   openApiEvidencePath?: string;
   openApiEvidence?: unknown;
+  botAddedPayloadEvidencePath?: string;
+  botAddedPayloadEvidence?: unknown;
   integrations?: ExternalIntegrationRecord[];
   eventsByIntegrationId?: Record<string, ExternalIntegrationEventRecord[]>;
   messageMappingsByIntegrationId?: Record<string, ExternalMessageMappingRecord[]>;
@@ -766,6 +804,12 @@ interface FeishuIntegrationEvidenceSource {
 interface FeishuExpectedCallbackRouteProof {
   callbackRoute: string;
   callbackRouteFingerprint: string;
+}
+
+interface FeishuExpectedBotAddedPayloadIdentityProof {
+  integrationId: string;
+  appIdHash: string;
+  tenantKeyHash?: string;
 }
 
 interface BuildFeishuSmokeEnvTemplateReportInput {
@@ -1128,6 +1172,8 @@ export async function runFeishuIntegrationCommand(args: string[], format: Output
       openApiEvidencePath: getStringFlag(parsed.flags, "openapi-evidence")
         ?? getStringFlag(parsed.flags, "open-api-evidence")
         ?? getStringFlag(parsed.flags, "evidence-artifact"),
+      botAddedPayloadEvidencePath: getStringFlag(parsed.flags, "bot-added-payload-evidence")
+        ?? getStringFlag(parsed.flags, "bot_added_payload_evidence"),
     });
     writeData(format, report);
     return report.integrationCount === 0 || (strictReadiness && !report.strictSatisfied) ? 1 : 0;
@@ -1448,7 +1494,7 @@ export function createFeishuIntegrationForCli(
       strictLiveSmoke: smokeHarness.strictLiveCommand,
       verifyOpenApiEvidence: smokeHarness.verifyEvidenceCommand,
       verifyBotAddedPayload: smokeHarness.verifyBotAddedPayloadCommand,
-      finalEvidence: `agent-space integrations feishu evidence ${flags} --openapi-evidence ${smokeHarness.evidencePath} --strict --require all --json`,
+      finalEvidence: `agent-space integrations feishu evidence ${flags} --openapi-evidence ${smokeHarness.evidencePath} --bot-added-payload-evidence ${smokeHarness.botAddedPayloadEvidencePath} --strict --require all --json`,
       bindSecondAgentBot: `agent-space integrations feishu bind-agent-bot --workspace-id ${input.workspaceId} --agent ${FEISHU_CLI_PLACEHOLDERS.secondAgentName} --env-file scripts/feishu/.env --app-id-env FEISHU_SECOND_AGENT_APP_ID --app-secret-env FEISHU_SECOND_AGENT_APP_SECRET --json`,
       bindChannel: `agent-space integrations feishu bind-channel ${flags} --channel ${FEISHU_CLI_PLACEHOLDERS.agentSpaceChannel} --chat-id ${FEISHU_CLI_PLACEHOLDERS.feishuChatId} --json`,
       bindUser: `agent-space integrations feishu bind-user ${flags} --user-id ${FEISHU_CLI_PLACEHOLDERS.agentSpaceUserId} --open-id ${FEISHU_CLI_PLACEHOLDERS.feishuOpenId} --json`,
@@ -1675,7 +1721,7 @@ function buildFeishuAgentBotNextCommands(binding: FeishuAgentBotBinding): Feishu
     verifyOpenApiEvidence: smokeHarness.verifyEvidenceCommand,
     verifyBotAddedPayload: smokeHarness.verifyBotAddedPayloadCommand,
     smokePlan: `agent-space integrations feishu smoke-plan ${integrationFlags} --app-url ${FEISHU_CLI_PLACEHOLDERS.publicAppUrl} --json`,
-    finalEvidence: `agent-space integrations feishu evidence ${integrationFlags} --openapi-evidence ${smokeHarness.evidencePath} --strict --require all --json`,
+    finalEvidence: `agent-space integrations feishu evidence ${integrationFlags} --openapi-evidence ${smokeHarness.evidencePath} --bot-added-payload-evidence ${smokeHarness.botAddedPayloadEvidencePath} --strict --require all --json`,
     bindSecondAgentBot: `agent-space integrations feishu bind-agent-bot --workspace-id ${binding.workspaceId} --agent ${FEISHU_CLI_PLACEHOLDERS.secondAgentName} --env-file scripts/feishu/.env --app-id-env FEISHU_SECOND_AGENT_APP_ID --app-secret-env FEISHU_SECOND_AGENT_APP_SECRET --json`,
   };
 }
@@ -4213,11 +4259,29 @@ export function buildFeishuEvidenceReport(input: BuildFeishuEvidenceReportInput)
       integrationId: input.integrationId,
     })
     : undefined;
+  const expectedBotAddedPayloadIdentityProofs = buildFeishuExpectedBotAddedPayloadIdentityProofs(
+    sourceIntegrations,
+    { integrationId: input.integrationId },
+  );
   const openApiEvidence = requiredEvidence === "all" || input.openApiEvidencePath || input.openApiEvidence !== undefined
     ? verifyFeishuOpenApiSmokeEvidence({
       evidencePath: input.openApiEvidencePath,
       evidence: input.openApiEvidence,
       expectedCallbackRouteProof,
+      expectedIdentityProofs: expectedBotAddedPayloadIdentityProofs,
+      remediationContext: {
+        workspaceId: input.workspaceId,
+        integrationId: input.integrationId,
+      },
+    })
+    : undefined;
+  const botAddedPayloadEvidence = requiredEvidence === "all" ||
+    input.botAddedPayloadEvidencePath ||
+    input.botAddedPayloadEvidence !== undefined
+    ? verifyFeishuBotAddedPayloadEvidence({
+      evidencePath: input.botAddedPayloadEvidencePath,
+      evidence: input.botAddedPayloadEvidence,
+      expectedIdentityProofs: expectedBotAddedPayloadIdentityProofs,
       remediationContext: {
         workspaceId: input.workspaceId,
         integrationId: input.integrationId,
@@ -4229,8 +4293,11 @@ export function buildFeishuEvidenceReport(input: BuildFeishuEvidenceReportInput)
     workspaceId: input.workspaceId,
     requiredEvidence,
     integrationCount: evidenceItems.length,
-    strictSatisfied: agentSpaceStrictSatisfied && (!openApiEvidence || openApiEvidence.valid),
+    strictSatisfied: agentSpaceStrictSatisfied &&
+      (!openApiEvidence || openApiEvidence.valid) &&
+      (!botAddedPayloadEvidence || botAddedPayloadEvidence.valid),
     ...(openApiEvidence ? { openApiEvidence } : {}),
+    ...(botAddedPayloadEvidence ? { botAddedPayloadEvidence } : {}),
     summary: {
       botSatisfiedCount: evidenceItems.filter((item) => item.bot.satisfied).length,
       nativeExperienceSatisfiedCount: evidenceItems.filter((item) => item.nativeExperience.satisfied).length,
@@ -4273,6 +4340,7 @@ export function buildFeishuSmokeEnvTemplateReport(
     })
     : "CHANGE_ME_AGENTSPACE_CALLBACK_URL";
   const appId = selectedIntegration?.appId?.trim();
+  const tenantKey = selectedIntegration?.tenantKey?.trim();
   const issues = [
     ...(integrations.length === 0 ? ["integration_missing"] : []),
     ...(selectedIntegration && selectedIntegration.status !== "active" ? ["selected_integration_not_active"] : []),
@@ -4295,6 +4363,16 @@ export function buildFeishuSmokeEnvTemplateReport(
         required: true,
         source: appId ? "integration" : "placeholder",
       },
+      ...(tenantKey
+        ? [{
+          key: "FEISHU_TENANT_KEY",
+          value: tenantKey,
+          secret: false,
+          required: false,
+          source: "integration" as const,
+          note: "Optional tenant key saved on the AgentSpace integration; strict-live evidence stores only its hash.",
+        }]
+        : []),
       {
         key: "FEISHU_APP_SECRET",
         value: "CHANGE_ME_FEISHU_APP_SECRET",
@@ -4603,6 +4681,7 @@ export function buildFeishuSmokePlanReport(input: BuildFeishuSmokePlanReportInpu
   const evidenceGates = buildFeishuSmokePlanEvidenceGates({
     hasWebSocketIntegration: readiness.integrations.some((item) => item.transportMode === "websocket_worker"),
     openApiEvidencePath: smokeHarness.evidencePath,
+    botAddedPayloadEvidencePath: smokeHarness.botAddedPayloadEvidencePath,
   });
   const dataPlaneIntegrationFlag = dataPlaneCandidate?.id ?? setupIntegrationFlag;
   const dataPlaneSmokeCommands = buildFeishuDataPlaneSmokeCommands({
@@ -5091,7 +5170,7 @@ export function buildFeishuSmokePlanReport(input: BuildFeishuSmokePlanReportInpu
         title: "Verify AgentSpace-side Feishu live smoke evidence",
         status: finalEvidenceReady ? "pending" : "blocked",
         detail: "After live native agent bot, guest-policy, data-plane, worker when using websocket_worker, and failure smoke, verify local AgentSpace DB evidence without exposing external ids or resource tokens. Native evidence requires two Phase 6-ready agent bot bindings, agent-specific bot routing, auto-provisioning, multi-agent channel reuse, thread/task binding, thread continuation, thread collaboration with sent card proof, bot sender loop guard, and disabled-policy no-reply proof; guest evidence requires allow, reply_all, require_identity, sent identity-binding notice, ignore, and mention-required decisions.",
-        command: `agent-space integrations feishu evidence --workspace-id ${readiness.workspaceId} --integration ${setupIntegrationFlag} --openapi-evidence ${smokeHarness.evidencePath} --strict --require all --json`,
+        command: `agent-space integrations feishu evidence --workspace-id ${readiness.workspaceId} --integration ${setupIntegrationFlag} --openapi-evidence ${smokeHarness.evidencePath} --bot-added-payload-evidence ${smokeHarness.botAddedPayloadEvidencePath} --strict --require all --json`,
         issues: finalEvidenceIssues,
       },
     ],
@@ -5108,6 +5187,7 @@ export function getFeishuSmokePlanExitCode(
 function buildFeishuSmokePlanEvidenceGates(input: {
   hasWebSocketIntegration: boolean;
   openApiEvidencePath: string;
+  botAddedPayloadEvidencePath: string;
 }): FeishuSmokePlanEvidenceGate[] {
   return [
     {
@@ -5142,6 +5222,10 @@ function buildFeishuSmokePlanEvidenceGates(input: {
     {
       key: "openapi_artifact",
       required: `strict_live_artifact:${input.openApiEvidencePath}`,
+    },
+    {
+      key: "bot_added_payload_artifact",
+      required: `bot_added_payload_artifact:${input.botAddedPayloadEvidencePath}`,
     },
   ];
 }
@@ -5586,6 +5670,10 @@ function hasFeishuPayloadHashEvidence(value: unknown): boolean {
   const normalized = value.trim();
   return /^[a-f0-9]{64}$/i.test(normalized) ||
     /^sha256:[a-f0-9]{64}$/i.test(normalized);
+}
+
+function hasFeishuSha256HashEvidence(value: unknown): value is string {
+  return hasNonEmptyString(value) && /^[a-f0-9]{64}$/i.test(value.trim());
 }
 
 function hasFeishuApprovedDataTableWriteSyncEvidence(operation: ExternalDataOperationRunRecord): boolean {
@@ -7045,6 +7133,7 @@ function verifyFeishuOpenApiSmokeEvidence(input: {
   evidencePath?: string;
   evidence?: unknown;
   expectedCallbackRouteProof?: FeishuExpectedCallbackRouteProof;
+  expectedIdentityProofs?: readonly FeishuExpectedBotAddedPayloadIdentityProof[];
   remediationContext?: {
     workspaceId: string;
     integrationId?: string;
@@ -7085,8 +7174,10 @@ function verifyFeishuOpenApiSmokeEvidence(input: {
   const issues: string[] = [];
   const output = isRecord(evidence) ? evidence : undefined;
   const summary = isRecord(output?.summary) ? output.summary : undefined;
+  const appIdentity = isRecord(output?.appIdentity) ? output.appIdentity : undefined;
   const todo120NativeSmoke = isRecord(output?.todo120NativeSmoke) ? output.todo120NativeSmoke : undefined;
   const steps = Array.isArray(output?.steps) ? output.steps : [];
+  let matchedIdentityProof: FeishuExpectedBotAddedPayloadIdentityProof | undefined;
 
   if (!output) {
     issues.push("openapi_evidence_not_object");
@@ -7108,6 +7199,23 @@ function verifyFeishuOpenApiSmokeEvidence(input: {
   }
   if (Array.isArray(summary?.missingEnv) && summary.missingEnv.length > 0) {
     issues.push("openapi_missing_live_env");
+  }
+  if (!appIdentity) {
+    issues.push("openapi_app_identity_missing");
+  } else if (!hasFeishuSha256HashEvidence(appIdentity.appIdHash)) {
+    issues.push("openapi_app_identity_app_id_hash_missing");
+  } else if ((input.expectedIdentityProofs?.length ?? 0) > 0) {
+    matchedIdentityProof = input.expectedIdentityProofs?.find((proof) => proof.appIdHash === appIdentity.appIdHash);
+    if (!matchedIdentityProof) {
+      issues.push("openapi_app_identity_app_id_mismatch");
+    } else if (matchedIdentityProof.tenantKeyHash && !hasFeishuSha256HashEvidence(appIdentity.tenantKeyHash)) {
+      issues.push("openapi_app_identity_tenant_key_hash_missing");
+    } else if (
+      matchedIdentityProof.tenantKeyHash &&
+      appIdentity.tenantKeyHash !== matchedIdentityProof.tenantKeyHash
+    ) {
+      issues.push("openapi_app_identity_tenant_key_mismatch");
+    }
   }
   if (!todo120NativeSmoke) {
     issues.push("openapi_todo120_native_smoke_missing");
@@ -7227,6 +7335,14 @@ function verifyFeishuOpenApiSmokeEvidence(input: {
       liveFailed: readNumber(summary?.liveFailed),
       destructiveLiveChecks: readNumber(summary?.destructiveLiveChecks),
       requiredLiveSteps: FEISHU_OPENAPI_REQUIRED_LIVE_SMOKE_STEPS.length,
+      appIdentityPresent: Boolean(appIdentity),
+      appIdHashPresent: hasFeishuSha256HashEvidence(appIdentity?.appIdHash),
+      appIdentityMatched: Boolean(matchedIdentityProof),
+      tenantKeyHashPresent: hasFeishuSha256HashEvidence(appIdentity?.tenantKeyHash),
+      tenantKeyMatched: Boolean(
+        matchedIdentityProof &&
+          (!matchedIdentityProof.tenantKeyHash || appIdentity?.tenantKeyHash === matchedIdentityProof.tenantKeyHash),
+      ),
       todo120NativeSmokeReady: todo120NativeSmoke?.ready === true,
       todo120NativeSmokeRequiredForCommand: todo120NativeSmoke?.requiredForCommand === true,
       todo120NativeSmokeRequired: readNumber(todo120NativeSmoke?.required),
@@ -7255,8 +7371,192 @@ function buildFeishuOpenApiEvidenceRemediationSteps(input: {
     issues: uniqueStrings([...input.issues]),
     command: harness
       ? `${harness.strictLiveCommand}\n${harness.verifyEvidenceCommand}`
-      : "npm run smoke:feishu -- --env-file scripts/feishu/.env --live --strict-live --evidence runtime-output/feishu-smoke/live.json --json --require-todo120-native\nnpm run smoke:feishu -- --verify-evidence runtime-output/feishu-smoke/live.json --json",
+    : "npm run smoke:feishu -- --env-file scripts/feishu/.env --live --strict-live --evidence runtime-output/feishu-smoke/live.json --json --require-todo120-native\nnpm run smoke:feishu -- --verify-evidence runtime-output/feishu-smoke/live.json --json",
   }];
+}
+
+function verifyFeishuBotAddedPayloadEvidence(input: {
+  evidencePath?: string;
+  evidence?: unknown;
+  expectedIdentityProofs?: readonly FeishuExpectedBotAddedPayloadIdentityProof[];
+  remediationContext?: {
+    workspaceId: string;
+    integrationId?: string;
+  };
+}): FeishuBotAddedPayloadEvidenceVerification {
+  if (!input.evidencePath && input.evidence === undefined) {
+    const issues = ["bot_added_payload_evidence_missing"];
+    return {
+      present: false,
+      valid: false,
+      issues,
+      remediationSteps: buildFeishuBotAddedPayloadEvidenceRemediationSteps({
+        issues,
+        context: input.remediationContext,
+      }),
+    };
+  }
+
+  let evidence = input.evidence;
+  if (evidence === undefined && input.evidencePath) {
+    try {
+      evidence = JSON.parse(readFileSync(input.evidencePath, "utf8")) as unknown;
+    } catch {
+      const issues = ["bot_added_payload_evidence_unreadable"];
+      return {
+        evidencePath: input.evidencePath,
+        present: false,
+        valid: false,
+        issues,
+        remediationSteps: buildFeishuBotAddedPayloadEvidenceRemediationSteps({
+          issues,
+          context: input.remediationContext,
+        }),
+      };
+    }
+  }
+
+  const issues: string[] = [];
+  const output = isRecord(evidence) ? evidence : undefined;
+  const summary = isRecord(output?.summary) ? output.summary : undefined;
+  let matchedIdentityProof: FeishuExpectedBotAddedPayloadIdentityProof | undefined;
+
+  if (!output) {
+    issues.push("bot_added_payload_evidence_not_object");
+  }
+  if (output?.valid !== true) {
+    issues.push("bot_added_payload_evidence_not_valid");
+  }
+  if (Array.isArray(output?.issues) && output.issues.length > 0) {
+    issues.push("bot_added_payload_evidence_has_issues");
+  }
+  if (!summary) {
+    issues.push("bot_added_payload_summary_missing");
+  } else {
+    if (summary.botAddedEvent !== true) {
+      issues.push("bot_added_payload_not_bot_added");
+    }
+    if (summary.chatDescriptorPresent !== true) {
+      issues.push("bot_added_payload_chat_descriptor_missing");
+    }
+    if (summary.chatIdRedacted !== true) {
+      issues.push("bot_added_payload_chat_id_not_redacted");
+    }
+    if (!hasNonEmptyString(summary.chatIdSource)) {
+      issues.push("bot_added_payload_chat_id_source_missing");
+    }
+    if (!isSafeFeishuBotAddedReference(summary.chatReference, "chat")) {
+      issues.push("bot_added_payload_chat_reference_missing");
+    }
+    if (summary.externalEventIdRedacted !== true) {
+      issues.push("bot_added_payload_event_id_not_redacted");
+    }
+    if (!isSafeFeishuBotAddedReference(summary.externalEventReference, "event")) {
+      issues.push("bot_added_payload_event_reference_missing");
+    }
+    if (!hasFeishuPayloadHashEvidence(summary.payloadHash)) {
+      issues.push("bot_added_payload_hash_missing");
+    }
+    if (!hasFeishuSha256HashEvidence(summary.appIdHash)) {
+      issues.push("bot_added_payload_app_id_hash_missing");
+    } else if ((input.expectedIdentityProofs?.length ?? 0) > 0) {
+      matchedIdentityProof = input.expectedIdentityProofs?.find((proof) => proof.appIdHash === summary.appIdHash);
+      if (!matchedIdentityProof) {
+        issues.push("bot_added_payload_app_id_mismatch");
+      } else if (matchedIdentityProof.tenantKeyHash && !hasFeishuSha256HashEvidence(summary.tenantKeyHash)) {
+        issues.push("bot_added_payload_tenant_key_hash_missing");
+      } else if (
+        matchedIdentityProof.tenantKeyHash &&
+        summary.tenantKeyHash !== matchedIdentityProof.tenantKeyHash
+      ) {
+        issues.push("bot_added_payload_tenant_key_mismatch");
+      }
+    }
+    if (summary.rawPayloadStored !== false) {
+      issues.push("bot_added_payload_raw_payload_stored");
+    }
+  }
+
+  const serialized = JSON.stringify(evidence);
+  if (containsFeishuSecretLikeEvidence(serialized)) {
+    issues.push("bot_added_payload_secret_like_value");
+  }
+  if (containsRawFeishuOpenApiEvidenceIdentifier(serialized)) {
+    issues.push("bot_added_payload_raw_feishu_identifier");
+  }
+  if (containsAgentSpaceCallbackUrlOpenApiEvidence(serialized)) {
+    issues.push("bot_added_payload_callback_url");
+  }
+
+  return {
+    ...(input.evidencePath ? { evidencePath: input.evidencePath } : {}),
+    present: true,
+    valid: issues.length === 0,
+    issues,
+    remediationSteps: buildFeishuBotAddedPayloadEvidenceRemediationSteps({
+      issues,
+      context: input.remediationContext,
+    }),
+    ...(summary
+      ? {
+        summary: {
+          eventType: typeof summary.eventType === "string" ? summary.eventType : "",
+          botAddedEvent: summary.botAddedEvent === true,
+          appIdPresent: summary.appIdPresent === true,
+          appIdHashPresent: hasFeishuSha256HashEvidence(summary.appIdHash),
+          appIdentityMatched: Boolean(matchedIdentityProof),
+          tenantKeyPresent: summary.tenantKeyPresent === true,
+          tenantKeyHashPresent: hasFeishuSha256HashEvidence(summary.tenantKeyHash),
+          tenantKeyMatched: Boolean(
+            matchedIdentityProof &&
+              (!matchedIdentityProof.tenantKeyHash || summary.tenantKeyHash === matchedIdentityProof.tenantKeyHash),
+          ),
+          chatDescriptorPresent: summary.chatDescriptorPresent === true,
+          ...(hasNonEmptyString(summary.chatIdSource) ? { chatIdSource: summary.chatIdSource } : {}),
+          ...(isSafeFeishuBotAddedReference(summary.chatReference, "chat")
+            ? { chatReference: summary.chatReference }
+            : {}),
+          chatIdRedacted: summary.chatIdRedacted === true,
+          ...(hasNonEmptyString(summary.chatType) ? { chatType: summary.chatType } : {}),
+          chatNamePresent: summary.chatNamePresent === true,
+          ...(isSafeFeishuBotAddedReference(summary.externalEventReference, "event")
+            ? { externalEventReference: summary.externalEventReference }
+            : {}),
+          externalEventIdRedacted: summary.externalEventIdRedacted === true,
+          payloadHashPresent: hasFeishuPayloadHashEvidence(summary.payloadHash),
+          rawPayloadStored: summary.rawPayloadStored === true,
+        },
+      }
+      : {}),
+  };
+}
+
+function buildFeishuBotAddedPayloadEvidenceRemediationSteps(input: {
+  issues: readonly string[];
+  context?: {
+    workspaceId: string;
+    integrationId?: string;
+  };
+}): FeishuEvidenceRemediationStep[] {
+  if (input.issues.length === 0) {
+    return [];
+  }
+  const harness = input.context
+    ? buildFeishuSmokeHarnessSummary(input.context)
+    : undefined;
+  return [{
+    stepId: "verify_real_bot_added_payload_sample",
+    title: "Live smoke: verify captured Feishu bot-added callback payload",
+    detail: "Save one raw im.chat.member.bot.added_v1 callback JSON from the disposable Feishu tenant/app, then regenerate the safe bot-added payload evidence artifact without raw chat ids, user ids, event ids, group names, secrets, or callback URLs.",
+    issues: uniqueStrings([...input.issues]),
+    command: harness
+      ? harness.verifyBotAddedPayloadCommand
+      : "npm run smoke:feishu -- --verify-bot-added-payload runtime-output/feishu-smoke/bot-added-callback.json --bot-added-payload-evidence runtime-output/feishu-smoke/bot-added-payload-evidence.json --json",
+  }];
+}
+
+function isSafeFeishuBotAddedReference(value: unknown, prefix: "chat" | "event"): value is string {
+  return typeof value === "string" && new RegExp(`^${prefix} [a-f0-9]{16}$`).test(value);
 }
 
 function isFeishuOpenApiSmokeStepNamed(value: unknown, name: string): value is Record<string, unknown> {
@@ -7335,6 +7635,33 @@ function buildFeishuExpectedCallbackRouteProof(input: {
     callbackRoute: "/api/integrations/feishu/events",
     callbackRouteFingerprint: `sha256:${createHash("sha256").update(routeKey, "utf8").digest("hex").slice(0, 16)}`,
   };
+}
+
+function buildFeishuExpectedBotAddedPayloadIdentityProofs(
+  integrations: readonly ExternalIntegrationRecord[],
+  input: { integrationId?: string },
+): FeishuExpectedBotAddedPayloadIdentityProof[] {
+  const proofs: FeishuExpectedBotAddedPayloadIdentityProof[] = [];
+  for (const integration of integrations) {
+    if (input.integrationId && integration.id !== input.integrationId) {
+      continue;
+    }
+    if (!hasNonEmptyString(integration.appId)) {
+      continue;
+    }
+    proofs.push({
+      integrationId: integration.id,
+      appIdHash: sha256FeishuEvidenceText(integration.appId.trim()),
+      ...(hasNonEmptyString(integration.tenantKey)
+        ? { tenantKeyHash: sha256FeishuEvidenceText(integration.tenantKey.trim()) }
+        : {}),
+    });
+  }
+  return proofs;
+}
+
+function sha256FeishuEvidenceText(value: string): string {
+  return createHash("sha256").update(value, "utf8").digest("hex");
 }
 
 function hasValidFeishuCallbackRouteProof(step: unknown): boolean {
@@ -8056,6 +8383,7 @@ function buildFeishuSmokeHarnessSummary(input: {
   const envFilePath = "scripts/feishu/.env";
   const evidencePath = "runtime-output/feishu-smoke/live.json";
   const botAddedPayloadPath = "runtime-output/feishu-smoke/bot-added-callback.json";
+  const botAddedPayloadEvidencePath = "runtime-output/feishu-smoke/bot-added-payload-evidence.json";
   const integrationFlag = input.integrationId ? ` --integration ${input.integrationId}` : "";
   const appUrl = normalizeFeishuCliPublicAppUrl(input.appUrl);
   const appUrlFlag = appUrl ?? FEISHU_CLI_PLACEHOLDERS.publicAppUrl;
@@ -8071,6 +8399,7 @@ function buildFeishuSmokeHarnessSummary(input: {
     envFilePath,
     evidencePath,
     botAddedPayloadPath,
+    botAddedPayloadEvidencePath,
     ...(appUrl ? { appUrl } : {}),
     ...(callbackUrl ? { callbackUrl } : {}),
     requiredLiveSteps: FEISHU_OPENAPI_REQUIRED_LIVE_SMOKE_STEPS.length,
@@ -8080,7 +8409,7 @@ function buildFeishuSmokeHarnessSummary(input: {
     checkEnvCommand: `npm run smoke:feishu -- --env-file ${envFilePath} --check-env --json --require-todo120-native`,
     strictLiveCommand: `npm run smoke:feishu -- --env-file ${envFilePath} --live --strict-live --evidence ${evidencePath} --json --require-todo120-native`,
     verifyEvidenceCommand: `npm run smoke:feishu -- --verify-evidence ${evidencePath} --json`,
-    verifyBotAddedPayloadCommand: `npm run smoke:feishu -- --verify-bot-added-payload ${botAddedPayloadPath} --json`,
+    verifyBotAddedPayloadCommand: `npm run smoke:feishu -- --verify-bot-added-payload ${botAddedPayloadPath} --bot-added-payload-evidence ${botAddedPayloadEvidencePath} --json`,
   };
 }
 
@@ -8601,7 +8930,7 @@ function printFeishuIntegrationHelp(): void {
   agent-space integrations feishu smoke-plan [--workspace-id <id>] [--integration <id>] [--app-url <url>] [--strict] [--require bot|data-plane|worker] [--json]
   agent-space integrations feishu smoke-env [--workspace-id <id>] [--integration <id>] [--app-url <url>] [--json]
   agent-space integrations feishu health-check [--workspace-id <id>] [--integration <id>|--agent <agent-id-or-name>] [--base-url <url>] [--dry-run] [--strict] [--json]
-  agent-space integrations feishu evidence [--workspace-id <id>] [--integration <id>] [--openapi-evidence <path>] [--strict] [--require bot|native|guest-policy|data-plane|worker|failure|all] [--json]
+  agent-space integrations feishu evidence [--workspace-id <id>] [--integration <id>] [--openapi-evidence <path>] [--bot-added-payload-evidence <path>] [--strict] [--require bot|native|guest-policy|data-plane|worker|failure|all] [--json]
   agent-space integrations feishu data-operation --workspace-id <id> --integration <id> --operation read-doc|plan-doc-create|plan-doc-update|plan-doc-append|read-sheet|query-base|plan-sheet-write|plan-base-update --resource <url-or-token> [--type doc|sheet|base|base_table|base_view] [--title <doc-title>] [--folder-token <folder-token>] [--parent-block-id <block-id>] [--block-id <block-id>] [--document-revision-id <n>] [--client-token <token>] [--blocks-json <json>] [--children-json <json>] [--block-json <json>] [--app-token <base-app-token>] [--table-id <base-table-id>] [--range <sheet-range>] [--values-json <json>] [--record-id <id>] [--fields-json <json>] [--approval-agent <agent-id> --approval-channel <channel>] [--json]
   agent-space integrations feishu review-data-operation --workspace-id <id> --approval-id <approval-id> --decision approved|rejected [--comment <text>] [--base-url <url>] [--json]
   agent-space integrations feishu channel-bindings --workspace-id <id> [--integration <id>] [--status active|disabled|archived] [--json]
@@ -8671,6 +9000,7 @@ Options:
   bind-user                Create/update a Feishu Open ID -> AgentSpace user binding; output redacts external ids
   bind-resource            Create/update a Feishu Docs/Sheets/Base resource binding; output redacts resource tokens
   --openapi-evidence <path> Evidence: required for --require all; verifies redacted strict live smoke artifact from npm run smoke:feishu
+  --bot-added-payload-evidence <path> Evidence: required for --require all; verifies redacted bot-added callback payload artifact from npm run smoke:feishu
   --strict                 Readiness/smoke-plan/evidence: require matching proof; health-check: require all healthy
   --require <kind>         Readiness/smoke-plan gate: bot, data-plane, worker; evidence gate: bot, native, guest-policy, data-plane, worker, failure, all
   --json                   Print machine-readable output`);

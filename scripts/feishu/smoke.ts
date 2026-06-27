@@ -82,9 +82,17 @@ interface SmokeOutput {
   generatedAt: string;
   live: boolean;
   strictLive: boolean;
+  appIdentity: SmokeAppIdentitySummary;
   summary: SmokeSummary;
   todo120NativeSmoke: SmokeEnvCheckOutput["todo120NativeSmoke"];
   steps: SafeSmokeStep[];
+}
+
+interface SmokeAppIdentitySummary {
+  appIdPresent: boolean;
+  appIdHash?: string;
+  tenantKeyPresent: boolean;
+  tenantKeyHash?: string;
 }
 
 interface SmokeEvidenceVerificationOutput {
@@ -101,6 +109,9 @@ interface SmokeEvidenceVerificationOutput {
     liveFailed: number;
     destructiveLiveChecks: number;
     requiredLiveSteps: number;
+    appIdentityPresent: boolean;
+    appIdHashPresent: boolean;
+    tenantKeyHashPresent: boolean;
     todo120NativeSmokeReady: boolean;
     todo120NativeSmokeRequiredForCommand: boolean;
     todo120NativeSmokeRequired: number;
@@ -115,6 +126,10 @@ interface FeishuBotAddedPayloadVerificationOutput {
   summary: {
     eventType: string;
     botAddedEvent: boolean;
+    appIdPresent: boolean;
+    appIdHash?: string;
+    tenantKeyPresent: boolean;
+    tenantKeyHash?: string;
     chatDescriptorPresent: boolean;
     chatIdSource?: string;
     chatReference?: string;
@@ -194,6 +209,7 @@ interface SafeFeishuApiRequest {
 interface SmokeEnv {
   appId?: string;
   appSecret?: string;
+  tenantKey?: string;
   apiBaseUrl?: string;
   callbackUrl?: string;
   verificationToken?: string;
@@ -245,17 +261,31 @@ class SmokeCliError extends Error {
 
 async function main(): Promise<void> {
   const verifyBotAddedPayloadPath = readArgValue("--verify-bot-added-payload");
+  const botAddedPayloadEvidencePath = readArgValue("--bot-added-payload-evidence");
   if (verifyBotAddedPayloadPath) {
     const verification = verifyFeishuBotAddedPayloadFile(verifyBotAddedPayloadPath);
+    if (botAddedPayloadEvidencePath && verification.valid) {
+      writeBotAddedPayloadEvidenceFile(botAddedPayloadEvidencePath, verification);
+    }
     if (json) {
       console.log(JSON.stringify(verification, null, 2));
     } else {
       printBotAddedPayloadVerificationSummary(verification);
+      if (botAddedPayloadEvidencePath && verification.valid) {
+        console.log(`Bot-added payload evidence written: ${botAddedPayloadEvidencePath}`);
+      }
     }
     if (!verification.valid) {
       process.exitCode = 1;
     }
     return;
+  }
+  if (botAddedPayloadEvidencePath) {
+    throw new SmokeCliError({
+      code: "feishu.smoke.bot_added_payload_evidence_requires_verifier",
+      message: "--bot-added-payload-evidence only writes artifacts while verifying a captured bot-added payload.",
+      reason: "missing_verify_bot_added_payload",
+    });
   }
 
   const verifyEvidencePath = readArgValue("--verify-evidence");
@@ -454,6 +484,7 @@ async function main(): Promise<void> {
   const output = buildSmokeOutput({
     live,
     strictLive,
+    env,
     summary,
     todo120NativeSmoke: envCheck.todo120NativeSmoke,
     steps,
@@ -1032,6 +1063,7 @@ function readSmokeEnv(): SmokeEnv {
   return {
     appId: readEnv("FEISHU_APP_ID"),
     appSecret: readEnv("FEISHU_APP_SECRET"),
+    tenantKey: readEnv("FEISHU_TENANT_KEY"),
     apiBaseUrl: readEnv("FEISHU_API_BASE_URL") ?? readEnv("AGENT_SPACE_FEISHU_API_BASE_URL"),
     callbackUrl: readEnv("FEISHU_SMOKE_CALLBACK_URL"),
     verificationToken: readEnv("FEISHU_VERIFICATION_TOKEN"),
@@ -1706,6 +1738,8 @@ function buildFeishuBotAddedPayloadVerificationOutput(input: {
   const externalEventIdRedacted = eventSummary.externalEventIdRedacted === true;
   const payloadHash = readString(eventSummary.payloadHash) ?? sha256Json(input.payload);
   const chatName = descriptor?.externalChatName?.trim();
+  const appId = resolveFeishuBotAddedPayloadAppId(input.payload);
+  const tenantKey = resolveFeishuBotAddedPayloadTenantKey(input.payload);
   return {
     payloadPath: sanitizeSmokeOutputText(input.payloadPath),
     valid: input.issues.length === 0,
@@ -1713,6 +1747,10 @@ function buildFeishuBotAddedPayloadVerificationOutput(input: {
     summary: {
       eventType: sanitizeSmokeOutputText(resolveFeishuEventType(input.payload)).slice(0, 160),
       botAddedEvent: isFeishuBotAddedToChatPayload(input.payload),
+      appIdPresent: Boolean(appId),
+      ...(appId ? { appIdHash: sha256Text(appId) } : {}),
+      tenantKeyPresent: Boolean(tenantKey),
+      ...(tenantKey ? { tenantKeyHash: sha256Text(tenantKey) } : {}),
       chatDescriptorPresent: Boolean(descriptor),
       ...(descriptor ? { chatIdSource: resolveFeishuChatIdSource(input.payload) } : {}),
       ...(descriptor ? { chatReference: buildSafeReference("chat", descriptor.externalChatId) } : {}),
@@ -1729,6 +1767,24 @@ function buildFeishuBotAddedPayloadVerificationOutput(input: {
       rawPayloadStored: false,
     },
   };
+}
+
+function resolveFeishuBotAddedPayloadAppId(payload: Record<string, unknown>): string | undefined {
+  const header = readRecord(payload.header);
+  const event = readRecord(payload.event);
+  return readString(header?.app_id) ??
+    readString(header?.appId) ??
+    readString(event?.app_id) ??
+    readString(event?.appId);
+}
+
+function resolveFeishuBotAddedPayloadTenantKey(payload: Record<string, unknown>): string | undefined {
+  const header = readRecord(payload.header);
+  const event = readRecord(payload.event);
+  return readString(header?.tenant_key) ??
+    readString(header?.tenantKey) ??
+    readString(event?.tenant_key) ??
+    readString(event?.tenantKey);
 }
 
 function resolveFeishuChatIdSource(payload: Record<string, unknown>): string | undefined {
@@ -1771,6 +1827,9 @@ function verifySmokeEvidence(path: string, evidence: unknown): SmokeEvidenceVeri
   const todo120NativeSmoke = output?.todo120NativeSmoke && typeof output.todo120NativeSmoke === "object"
     ? output.todo120NativeSmoke as Partial<SmokeEnvCheckOutput["todo120NativeSmoke"]>
     : undefined;
+  const appIdentity = output?.appIdentity && typeof output.appIdentity === "object"
+    ? output.appIdentity as Partial<SmokeAppIdentitySummary>
+    : undefined;
   const steps = Array.isArray(output?.steps) ? output.steps : [];
 
   if (!output) {
@@ -1793,6 +1852,11 @@ function verifySmokeEvidence(path: string, evidence: unknown): SmokeEvidenceVeri
   }
   if ((summary?.missingEnv?.length ?? 0) !== 0) {
     issues.push("missing_live_env");
+  }
+  if (!appIdentity) {
+    issues.push("app_identity_missing");
+  } else if (!isSha256Hex(appIdentity.appIdHash)) {
+    issues.push("app_identity_app_id_hash_missing");
   }
   if (!todo120NativeSmoke) {
     issues.push("todo120_native_smoke_missing");
@@ -1915,6 +1979,9 @@ function verifySmokeEvidence(path: string, evidence: unknown): SmokeEvidenceVeri
       liveFailed: readNumber(summary?.liveFailed),
       destructiveLiveChecks: readNumber(summary?.destructiveLiveChecks),
       requiredLiveSteps: FEISHU_OPENAPI_REQUIRED_LIVE_SMOKE_STEPS.length,
+      appIdentityPresent: Boolean(appIdentity),
+      appIdHashPresent: isSha256Hex(appIdentity?.appIdHash),
+      tenantKeyHashPresent: isSha256Hex(appIdentity?.tenantKeyHash),
       todo120NativeSmokeReady: todo120NativeSmoke?.ready === true,
       todo120NativeSmokeRequiredForCommand: todo120NativeSmoke?.requiredForCommand === true,
       todo120NativeSmokeRequired: readNumber(todo120NativeSmoke?.required),
@@ -2030,6 +2097,10 @@ function readNumber(value: unknown): number {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }
 
+function isSha256Hex(value: unknown): value is string {
+  return typeof value === "string" && /^[a-f0-9]{64}$/i.test(value.trim());
+}
+
 function readString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
@@ -2055,6 +2126,7 @@ function buildSafeReference(kind: string, value: string): string {
 function buildSmokeOutput(input: {
   live: boolean;
   strictLive: boolean;
+  env: SmokeEnv;
   summary: SmokeSummary;
   todo120NativeSmoke: SmokeEnvCheckOutput["todo120NativeSmoke"];
   steps: SmokeStep[];
@@ -2063,6 +2135,7 @@ function buildSmokeOutput(input: {
     generatedAt: new Date().toISOString(),
     live: input.live,
     strictLive: input.strictLive,
+    appIdentity: buildSmokeAppIdentitySummary(input.env),
     summary: input.summary,
     todo120NativeSmoke: input.todo120NativeSmoke,
     steps: input.steps.map((step) => ({
@@ -2070,6 +2143,17 @@ function buildSmokeOutput(input: {
       ...(step.detail ? { detail: sanitizeSmokeOutputText(step.detail) } : {}),
       request: step.request ? summarizeFeishuApiRequest(step.request) : undefined,
     })),
+  };
+}
+
+function buildSmokeAppIdentitySummary(env: SmokeEnv): SmokeAppIdentitySummary {
+  const appId = env.appId?.trim();
+  const tenantKey = env.tenantKey?.trim();
+  return {
+    appIdPresent: Boolean(appId),
+    ...(appId ? { appIdHash: sha256Text(appId) } : {}),
+    tenantKeyPresent: Boolean(tenantKey),
+    ...(tenantKey ? { tenantKeyHash: sha256Text(tenantKey) } : {}),
   };
 }
 
@@ -2133,6 +2217,30 @@ function writeVerifiedEvidenceFile(path: string, output: SmokeOutput): void {
     });
   }
 
+  const directory = dirname(path);
+  if (directory && directory !== ".") {
+    mkdirSync(directory, { recursive: true });
+  }
+  writeFileSync(path, `${JSON.stringify(output, null, 2)}\n`, "utf8");
+}
+
+function writeBotAddedPayloadEvidenceFile(path: string, output: FeishuBotAddedPayloadVerificationOutput): void {
+  const serialized = JSON.stringify(output);
+  if (!output.valid) {
+    throw new SmokeCliError({
+      code: "feishu.smoke.bot_added_payload_evidence_verification_failed",
+      message: "Feishu bot-added payload evidence failed validation before writing.",
+      issues: output.issues,
+      reason: "verification_failed",
+    });
+  }
+  if (containsSecretLikeEvidence(serialized) || containsRawFeishuEvidenceIdentifier(serialized)) {
+    throw new SmokeCliError({
+      code: "feishu.smoke.bot_added_payload_evidence_redaction_failed",
+      message: "Feishu bot-added payload evidence contains unredacted sensitive values and was not written.",
+      reason: "redaction_failed",
+    });
+  }
   const directory = dirname(path);
   if (directory && directory !== ".") {
     mkdirSync(directory, { recursive: true });

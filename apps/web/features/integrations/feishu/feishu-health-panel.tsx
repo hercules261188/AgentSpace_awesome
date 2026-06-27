@@ -800,6 +800,8 @@ function translateEvidenceGateLabel(
       return tx("失败可见证据", "Failure Visibility Evidence");
     case "openapi_artifact":
       return tx("OpenAPI 证据", "OpenAPI Evidence");
+    case "bot_added_payload_artifact":
+      return tx("Bot 进群 Payload 证据", "Bot-Added Payload Evidence");
   }
 }
 

@@ -53,6 +53,7 @@ import type {
 
 const FEISHU_SMOKE_EVIDENCE_PATH = "runtime-output/feishu-smoke/live.json";
 const FEISHU_BOT_ADDED_PAYLOAD_PATH = "runtime-output/feishu-smoke/bot-added-callback.json";
+const FEISHU_BOT_ADDED_PAYLOAD_EVIDENCE_PATH = "runtime-output/feishu-smoke/bot-added-payload-evidence.json";
 const FEISHU_PUBLIC_APP_URL_PLACEHOLDER = "CHANGE_ME_PUBLIC_AGENTSPACE_URL";
 const FEISHU_SECOND_AGENT_NAME_PLACEHOLDER = "CHANGE_ME_SECOND_AGENT_NAME";
 
@@ -463,9 +464,9 @@ function buildFeishuIntegrationSetupGuide(input: {
       checkEnv: "npm run smoke:feishu -- --env-file scripts/feishu/.env --check-env --json --require-todo120-native",
       strictLiveSmoke: `npm run smoke:feishu -- --env-file scripts/feishu/.env --live --strict-live --evidence ${FEISHU_SMOKE_EVIDENCE_PATH} --json --require-todo120-native`,
       verifyOpenApiEvidence: `npm run smoke:feishu -- --verify-evidence ${FEISHU_SMOKE_EVIDENCE_PATH} --json`,
-      verifyBotAddedPayload: `npm run smoke:feishu -- --verify-bot-added-payload ${FEISHU_BOT_ADDED_PAYLOAD_PATH} --json`,
+      verifyBotAddedPayload: `npm run smoke:feishu -- --verify-bot-added-payload ${FEISHU_BOT_ADDED_PAYLOAD_PATH} --bot-added-payload-evidence ${FEISHU_BOT_ADDED_PAYLOAD_EVIDENCE_PATH} --json`,
       smokePlan: `agent-space integrations feishu smoke-plan ${flags} ${appUrlFlag} --json`,
-      evidence: `agent-space integrations feishu evidence ${flags} --openapi-evidence ${FEISHU_SMOKE_EVIDENCE_PATH} --strict --require all --json`,
+      evidence: `agent-space integrations feishu evidence ${flags} --openapi-evidence ${FEISHU_SMOKE_EVIDENCE_PATH} --bot-added-payload-evidence ${FEISHU_BOT_ADDED_PAYLOAD_EVIDENCE_PATH} --strict --require all --json`,
     },
   };
 }
@@ -521,6 +522,10 @@ function buildFeishuEvidenceGates(transportMode: string): FeishuIntegrationSetup
     {
       key: "openapi_artifact",
       required: `strict_live_artifact:${FEISHU_SMOKE_EVIDENCE_PATH}`,
+    },
+    {
+      key: "bot_added_payload_artifact",
+      required: `bot_added_payload_artifact:${FEISHU_BOT_ADDED_PAYLOAD_EVIDENCE_PATH}`,
     },
   ];
 }

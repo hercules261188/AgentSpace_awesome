@@ -68,7 +68,7 @@ Examples:
   agent-space integrations feishu worker --dry-run --include-webhook --json
   agent-space integrations feishu readiness --workspace-id default --strict --require data-plane --json
   agent-space integrations feishu health-check --workspace-id default --json
-  agent-space integrations feishu evidence --workspace-id default --openapi-evidence runtime-output/feishu-smoke/live.json --strict --require all --json
+  agent-space integrations feishu evidence --workspace-id default --openapi-evidence runtime-output/feishu-smoke/live.json --bot-added-payload-evidence runtime-output/feishu-smoke/bot-added-payload-evidence.json --strict --require all --json
   agent-space integrations feishu smoke-plan --workspace-id default --app-url https://agentspace.example.com --json
   agent-space integrations feishu smoke-env --workspace-id default --integration feishu-1 --app-url https://agentspace.example.com
   agent-space employee create --name Vega --role "发布协调员" --traits 发布窗口,跨组协调
@@ -158,7 +158,7 @@ Examples:
   agent-space integrations feishu smoke-env --workspace-id default --integration feishu-1 --app-url https://agentspace.example.com
   agent-space integrations feishu health-check --workspace-id default --json
   agent-space integrations feishu agent-channel-access --workspace-id default --agent Codex --access disabled --json
-  agent-space integrations feishu evidence --workspace-id default --openapi-evidence runtime-output/feishu-smoke/live.json --strict --require all --json
+  agent-space integrations feishu evidence --workspace-id default --openapi-evidence runtime-output/feishu-smoke/live.json --bot-added-payload-evidence runtime-output/feishu-smoke/bot-added-payload-evidence.json --strict --require all --json
   agent-space integrations feishu bind-channel --workspace-id default --integration feishu-1 --channel general --chat-id oc_xxx --json`);
     return;
   }
