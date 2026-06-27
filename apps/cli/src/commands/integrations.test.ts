@@ -40,6 +40,7 @@ import {
 } from "./integrations/feishu.ts";
 import { runIntegrationsCommand } from "./integrations/index.ts";
 import { runIntegrationsOutboxCommand } from "./integrations/outbox.ts";
+import { printCommandHelp } from "../lib/help.ts";
 
 const FEISHU_TEST_SCOPES = [
   "im:message",
@@ -112,8 +113,32 @@ test("integrations help documents Feishu worker deployment controls", async () =
   assert.match(output, /--resource CHANGE_ME_FEISHU_DOC_URL_OR_TOKEN/);
   assert.match(output, /--resource CHANGE_ME_FEISHU_SHEET_URL_OR_TOKEN/);
   assert.match(output, /--channel CHANGE_ME_AGENTSPACE_CHANNEL --chat-id CHANGE_ME_FEISHU_CHAT_ID --json/);
+  assert.match(output, /agent-space integrations feishu smoke-plan --workspace-id default --app-url https:\/\/agentspace\.example\.com\n/);
+  assert.match(output, /agent-space integrations feishu evidence --workspace-id default --openapi-evidence runtime-output\/feishu-smoke\/live\.json --bot-added-payload-evidence runtime-output\/feishu-smoke\/bot-added-payload-evidence\.json --strict --require all\n/);
+  assert.doesNotMatch(output, /smoke-plan --workspace-id default --app-url https:\/\/agentspace\.example\.com --json/);
+  assert.doesNotMatch(output, /evidence --workspace-id default --openapi-evidence runtime-output\/feishu-smoke\/live\.json --bot-added-payload-evidence runtime-output\/feishu-smoke\/bot-added-payload-evidence\.json --strict --require all --json/);
   assert.doesNotMatch(output, /--resource <doc-url-or-token>/);
   assert.doesNotMatch(output, /--resource <sheet-url-or-token>/);
+});
+
+test("global integrations help documents both Feishu final evidence artifacts", async () => {
+  const logs = await captureConsoleLog(async () => {
+    printCommandHelp("integrations");
+  });
+  const output = logs.join("\n");
+
+  assert.match(
+    output,
+    /agent-space integrations feishu evidence \[--workspace-id <id>\] \[--integration <id>\] \[--openapi-evidence <path>\] \[--bot-added-payload-evidence <path>\]/,
+  );
+  assert.match(
+    output,
+    /agent-space integrations feishu evidence --workspace-id default --openapi-evidence runtime-output\/feishu-smoke\/live\.json --bot-added-payload-evidence runtime-output\/feishu-smoke\/bot-added-payload-evidence\.json --strict --require all\n/,
+  );
+  assert.doesNotMatch(
+    output,
+    /evidence --workspace-id default --openapi-evidence runtime-output\/feishu-smoke\/live\.json --bot-added-payload-evidence runtime-output\/feishu-smoke\/bot-added-payload-evidence\.json --strict --require all --json/,
+  );
 });
 
 test("feishu worker --help prints usage without starting the worker", async () => {
@@ -1448,6 +1473,8 @@ test("Feishu evidence report rejects complete historical proof from a disabled a
   });
 
   assert.equal(report.strictSatisfied, false);
+  assert.deepEqual(report.issues, ["selected_integration_not_active"]);
+  assert.equal(report.remediationSteps[0]?.stepId, "select_active_agent_bot_binding");
   assert.equal(report.summary.botSatisfiedCount, 0);
   assert.equal(report.summary.nativeExperienceSatisfiedCount, 0);
   assert.equal(report.summary.guestPolicySatisfiedCount, 0);
@@ -1487,8 +1514,142 @@ test("Feishu evidence report rejects complete historical proof from a disabled a
   assert.equal(item?.failureVisibility.satisfied, false);
   assert.ok(item?.issues.includes("integration_not_active"));
   assert.equal(item?.remediationSteps.some((step) => step.stepId === "enable_agent_bot_binding"), true);
+  assert.match(output, /selected_integration_not_active/);
+  assert.match(output, /select an active Feishu agent bot binding/);
   assert.match(output, /status: disabled/);
   assert.equal(JSON.stringify(report).includes("oc_secret"), false);
+});
+
+test("Feishu evidence report flags workspaces with only inactive agent bot bindings", () => {
+  const report = buildFeishuEvidenceReport({
+    workspaceId: "workspace-1",
+    requiredEvidence: "bot" as const,
+    integrations: [
+      buildIntegrationRecord({
+        id: "disabled-bot",
+        displayName: "Disabled Bot",
+        agentId: "Codex",
+        status: "disabled",
+      }),
+      buildIntegrationRecord({
+        id: "archived-bot",
+        displayName: "Archived Bot",
+        agentId: "HermesAgent",
+        status: "archived",
+      }),
+    ],
+    eventsByIntegrationId: {
+      "disabled-bot": [],
+      "archived-bot": [],
+    },
+    messageMappingsByIntegrationId: {
+      "disabled-bot": [],
+      "archived-bot": [],
+    },
+    channelBindingsByIntegrationId: {
+      "disabled-bot": [],
+      "archived-bot": [],
+    },
+    threadBindingsByIntegrationId: {
+      "disabled-bot": [],
+      "archived-bot": [],
+    },
+    outboxByIntegrationId: {
+      "disabled-bot": [],
+      "archived-bot": [],
+    },
+    dataOperationsByIntegrationId: {
+      "disabled-bot": [],
+      "archived-bot": [],
+    },
+  });
+  const output = formatFeishuEvidenceCommandText(report);
+
+  assert.equal(report.strictSatisfied, false);
+  assert.equal(report.integrationCount, 2);
+  assert.deepEqual(report.issues, ["active_integration_missing"]);
+  assert.equal(report.remediationSteps[0]?.stepId, "bind_feishu_agent_bot");
+  assert.match(output, /active_integration_missing/);
+  assert.match(output, /create or select an active Feishu agent bot binding/);
+  assert.match(output, /status: disabled/);
+  assert.match(output, /status: archived/);
+});
+
+test("Feishu evidence report rejects scoped workspace-level integrations as agent bot evidence", () => {
+  const complete = buildCompleteFeishuEvidenceInput();
+  const report = buildFeishuEvidenceReport({
+    ...complete,
+    integrationId: "integration-evidence",
+    integrations: [
+      buildIntegrationRecord({
+        id: "integration-evidence",
+        displayName: "Workspace Feishu",
+        transportMode: "websocket_worker",
+        lastHealthStatus: "degraded",
+      }),
+    ],
+  });
+  const output = formatFeishuEvidenceCommandText(report);
+
+  assert.equal(report.strictSatisfied, false);
+  assert.deepEqual(report.issues, ["selected_integration_not_agent_bot"]);
+  assert.equal(report.remediationSteps[0]?.stepId, "bind_feishu_agent_bot");
+  assert.equal(report.summary.botSatisfiedCount, 0);
+  assert.equal(report.summary.nativeExperienceSatisfiedCount, 0);
+  assert.equal(report.summary.guestPolicySatisfiedCount, 0);
+  assert.equal(report.summary.dataPlaneSatisfiedCount, 0);
+  assert.equal(report.summary.workerSatisfiedCount, 0);
+  assert.equal(report.summary.failureVisibleCount, 0);
+  const [item] = report.integrations;
+  assert.equal(item?.agentId, undefined);
+  assert.equal(item?.bot.processedInboundEvents, 1);
+  assert.equal(item?.bot.sentOutboxItems, 1);
+  assert.equal(item?.bot.satisfied, false);
+  assert.ok(item?.issues.includes("integration_not_agent_bot"));
+  assert.equal(item?.remediationSteps.some((step) => step.stepId === "bind_feishu_agent_bot"), true);
+  assert.match(output, /selected_integration_not_agent_bot/);
+  assert.match(output, /bind a Feishu bot to a concrete AgentSpace agent/);
+});
+
+test("Feishu evidence report flags active workspaces with no agent bot bindings", () => {
+  const report = buildFeishuEvidenceReport({
+    workspaceId: "workspace-1",
+    requiredEvidence: "bot" as const,
+    integrations: [
+      buildIntegrationRecord({
+        id: "workspace-feishu",
+        displayName: "Workspace Feishu",
+        status: "active",
+      }),
+    ],
+    eventsByIntegrationId: {
+      "workspace-feishu": [],
+    },
+    messageMappingsByIntegrationId: {
+      "workspace-feishu": [],
+    },
+    channelBindingsByIntegrationId: {
+      "workspace-feishu": [],
+    },
+    threadBindingsByIntegrationId: {
+      "workspace-feishu": [],
+    },
+    outboxByIntegrationId: {
+      "workspace-feishu": [],
+    },
+    dataOperationsByIntegrationId: {
+      "workspace-feishu": [],
+    },
+  });
+  const output = formatFeishuEvidenceCommandText(report);
+
+  assert.equal(report.strictSatisfied, false);
+  assert.equal(report.integrationCount, 1);
+  assert.deepEqual(report.issues, ["active_agent_bot_integration_missing"]);
+  assert.equal(report.remediationSteps[0]?.stepId, "bind_feishu_agent_bot");
+  assert.ok(report.integrations[0]?.issues.includes("integration_not_agent_bot"));
+  assert.match(output, /active_agent_bot_integration_missing/);
+  assert.match(output, /create an active Feishu agent bot binding/);
 });
 
 test("Feishu evidence report satisfies final gate from workspace-wide agent bot evidence when scoped", () => {
@@ -2086,6 +2247,7 @@ test("Feishu evidence report requires degraded health for failure visibility smo
       buildIntegrationRecord({
         id: "integration-evidence",
         displayName: "Evidence Feishu",
+        agentId: "Atlas",
         transportMode: "websocket_worker",
         lastHealthStatus: "healthy",
       }),
@@ -5681,6 +5843,7 @@ test("Feishu evidence report blocks strict gates when local proof is incomplete"
       buildIntegrationRecord({
         id: "integration-evidence-missing",
         displayName: "Missing Evidence Feishu",
+        agentId: "Atlas",
       }),
     ],
     eventsByIntegrationId: {

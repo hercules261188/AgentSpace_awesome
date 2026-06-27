@@ -68,8 +68,8 @@ Examples:
   agent-space integrations feishu worker --dry-run --include-webhook --json
   agent-space integrations feishu readiness --workspace-id default --strict --require data-plane --json
   agent-space integrations feishu health-check --workspace-id default --json
-  agent-space integrations feishu evidence --workspace-id default --openapi-evidence runtime-output/feishu-smoke/live.json --bot-added-payload-evidence runtime-output/feishu-smoke/bot-added-payload-evidence.json --strict --require all --json
-  agent-space integrations feishu smoke-plan --workspace-id default --app-url https://agentspace.example.com --json
+  agent-space integrations feishu evidence --workspace-id default --openapi-evidence runtime-output/feishu-smoke/live.json --bot-added-payload-evidence runtime-output/feishu-smoke/bot-added-payload-evidence.json --strict --require all
+  agent-space integrations feishu smoke-plan --workspace-id default --app-url https://agentspace.example.com
   agent-space integrations feishu smoke-env --workspace-id default --integration feishu-1 --app-url https://agentspace.example.com
   agent-space employee create --name Vega --role "发布协调员" --traits 发布窗口,跨组协调
   agent-space employee create --name Nova --role "值守协调员" --channel general
@@ -143,7 +143,7 @@ export function printCommandHelp(command: string): void {
   agent-space integrations feishu smoke-plan [--workspace-id <id>] [--integration <id>] [--app-url <url>] [--strict] [--require bot|data-plane|worker] [--json]
   agent-space integrations feishu smoke-env [--workspace-id <id>] [--integration <id>] [--app-url <url>] [--json]
   agent-space integrations feishu health-check [--workspace-id <id>] [--integration <id>] [--base-url <url>] [--dry-run] [--strict] [--json]
-  agent-space integrations feishu evidence [--workspace-id <id>] [--integration <id>] [--openapi-evidence <path>] [--strict] [--require bot|native|guest-policy|data-plane|worker|failure|all] [--json]
+  agent-space integrations feishu evidence [--workspace-id <id>] [--integration <id>] [--openapi-evidence <path>] [--bot-added-payload-evidence <path>] [--strict] [--require bot|native|guest-policy|data-plane|worker|failure|all] [--json]
   agent-space integrations feishu data-operation --workspace-id <id> --integration <id> --operation read-doc|read-sheet|query-base|plan-sheet-write|plan-base-update --resource <url-or-token> [--range <sheet-range>] [--json]
   agent-space integrations feishu agent-channel-access --workspace-id <id> (--agent <agent-id-or-name>|--integration <agent-bot-id>) --access enabled|disabled [--json]
   agent-space integrations feishu bind-channel --workspace-id <id> --integration <id> --channel <name> --chat-id <oc_xxx> [--json]
@@ -154,11 +154,11 @@ Examples:
   agent-space integrations feishu worker --dry-run --include-webhook --json
   agent-space integrations feishu worker --workspace-id default --integration feishu-1 --once --json
   agent-space integrations feishu readiness --workspace-id default --strict --require data-plane --json
-  agent-space integrations feishu smoke-plan --workspace-id default --app-url https://agentspace.example.com --json
+  agent-space integrations feishu smoke-plan --workspace-id default --app-url https://agentspace.example.com
   agent-space integrations feishu smoke-env --workspace-id default --integration feishu-1 --app-url https://agentspace.example.com
   agent-space integrations feishu health-check --workspace-id default --json
   agent-space integrations feishu agent-channel-access --workspace-id default --agent Codex --access disabled --json
-  agent-space integrations feishu evidence --workspace-id default --openapi-evidence runtime-output/feishu-smoke/live.json --bot-added-payload-evidence runtime-output/feishu-smoke/bot-added-payload-evidence.json --strict --require all --json
+  agent-space integrations feishu evidence --workspace-id default --openapi-evidence runtime-output/feishu-smoke/live.json --bot-added-payload-evidence runtime-output/feishu-smoke/bot-added-payload-evidence.json --strict --require all
   agent-space integrations feishu bind-channel --workspace-id default --integration feishu-1 --channel general --chat-id oc_xxx --json`);
     return;
   }

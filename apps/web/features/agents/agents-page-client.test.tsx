@@ -593,8 +593,8 @@ function buildAgentFeishuBot(
         strictLiveSmoke: "npm run smoke:feishu -- --env-file scripts/feishu/.env --live --strict-live --evidence runtime-output/feishu-smoke/live.json --json --require-todo120-native",
         verifyOpenApiEvidence: "npm run smoke:feishu -- --verify-evidence runtime-output/feishu-smoke/live.json --json",
         verifyBotAddedPayload: "npm run smoke:feishu -- --verify-bot-added-payload runtime-output/feishu-smoke/bot-added-callback.json --bot-added-payload-evidence runtime-output/feishu-smoke/bot-added-payload-evidence.json --json",
-        smokePlan: "agent-space integrations feishu smoke-plan --workspace-id workspace-1 --integration feishu-agent-bot-planner --app-url https://agent.test --json",
-        evidence: "agent-space integrations feishu evidence --workspace-id workspace-1 --integration feishu-agent-bot-planner --openapi-evidence runtime-output/feishu-smoke/live.json --bot-added-payload-evidence runtime-output/feishu-smoke/bot-added-payload-evidence.json --strict --require all --json",
+        smokePlan: "agent-space integrations feishu smoke-plan --workspace-id workspace-1 --integration feishu-agent-bot-planner --app-url https://agent.test",
+        evidence: "agent-space integrations feishu evidence --workspace-id workspace-1 --integration feishu-agent-bot-planner --openapi-evidence runtime-output/feishu-smoke/live.json --bot-added-payload-evidence runtime-output/feishu-smoke/bot-added-payload-evidence.json --strict --require all",
       },
     },
     ...overrides,
@@ -831,7 +831,8 @@ describe("AgentsPageClient", () => {
     expect(screen.getByText("agent-space integrations feishu agent-channel-access --workspace-id workspace-1 --agent planner --access enabled --json")).toBeInTheDocument();
     expect(screen.getByText("npm run smoke:feishu -- --env-file scripts/feishu/.env --check-env --json --require-todo120-native")).toBeInTheDocument();
     expect(screen.getByText("npm run smoke:feishu -- --env-file scripts/feishu/.env --live --strict-live --evidence runtime-output/feishu-smoke/live.json --json --require-todo120-native")).toBeInTheDocument();
-    expect(screen.getByText("agent-space integrations feishu evidence --workspace-id workspace-1 --integration feishu-agent-bot-planner --openapi-evidence runtime-output/feishu-smoke/live.json --bot-added-payload-evidence runtime-output/feishu-smoke/bot-added-payload-evidence.json --strict --require all --json")).toBeInTheDocument();
+    expect(screen.getByText("agent-space integrations feishu smoke-plan --workspace-id workspace-1 --integration feishu-agent-bot-planner --app-url https://agent.test")).toBeInTheDocument();
+    expect(screen.getByText("agent-space integrations feishu evidence --workspace-id workspace-1 --integration feishu-agent-bot-planner --openapi-evidence runtime-output/feishu-smoke/live.json --bot-added-payload-evidence runtime-output/feishu-smoke/bot-added-payload-evidence.json --strict --require all")).toBeInTheDocument();
     expect(screen.getByText("im.chat.member.bot.added_v1")).toBeInTheDocument();
     expect(screen.getByText("im:message")).toBeInTheDocument();
     expect(screen.getByText("调整治理策略")).toBeInTheDocument();
@@ -851,8 +852,13 @@ describe("AgentsPageClient", () => {
     });
 
     await user.click(screen.getByRole("button", { name: "设置" }));
-    expect(screen.getByText("im.chat.member.bot.added_v1")).toBeInTheDocument();
-    expect(screen.getByText("sheets:spreadsheet")).toBeInTheDocument();
+    expect(screen.getByLabelText("App ID")).toBeVisible();
+    expect(screen.getByLabelText("App Secret")).toBeVisible();
+    expect(screen.getByText("自定义高级功能").closest("details")).not.toHaveAttribute("open");
+    expect(screen.getByLabelText("连接方式")).not.toBeVisible();
+    expect(screen.getByLabelText("Tenant Key")).not.toBeVisible();
+    expect(screen.getByText("im.chat.member.bot.added_v1")).not.toBeVisible();
+    expect(screen.getByText("sheets:spreadsheet")).not.toBeVisible();
     await user.type(screen.getByLabelText("App ID"), "cli_planner");
     await user.type(screen.getByLabelText("App Secret"), "secret_planner");
     await user.click(screen.getByRole("button", { name: "绑定 Bot" }));

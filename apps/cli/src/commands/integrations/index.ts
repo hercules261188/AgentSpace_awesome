@@ -59,10 +59,10 @@ Examples:
   agent-space integrations feishu worker --dry-run --include-webhook --json
   agent-space integrations feishu worker --workspace-id default --integration feishu-1 --once --json
   agent-space integrations feishu readiness --workspace-id default --strict --require data-plane --json
-  agent-space integrations feishu smoke-plan --workspace-id default --app-url https://agentspace.example.com --json
+  agent-space integrations feishu smoke-plan --workspace-id default --app-url https://agentspace.example.com
   agent-space integrations feishu smoke-env --workspace-id default --integration feishu-1 --app-url https://agentspace.example.com
   agent-space integrations feishu health-check --workspace-id default --agent Codex --json
-  agent-space integrations feishu evidence --workspace-id default --openapi-evidence runtime-output/feishu-smoke/live.json --bot-added-payload-evidence runtime-output/feishu-smoke/bot-added-payload-evidence.json --strict --require all --json
+  agent-space integrations feishu evidence --workspace-id default --openapi-evidence runtime-output/feishu-smoke/live.json --bot-added-payload-evidence runtime-output/feishu-smoke/bot-added-payload-evidence.json --strict --require all
   agent-space integrations feishu data-operation --workspace-id default --integration feishu-1 --operation plan-doc-append --resource CHANGE_ME_FEISHU_DOC_URL_OR_TOKEN --parent-block-id CHANGE_ME_DOC_BLOCK_ID --blocks-json '[{"block_type":2,"text":{"elements":[]}}]' --approval-agent Atlas --approval-channel general --json
   agent-space integrations feishu review-data-operation --workspace-id default --approval-id CHANGE_ME_FEISHU_APPROVAL_ID --decision approved --json
   agent-space integrations feishu channel-bindings --workspace-id default --json

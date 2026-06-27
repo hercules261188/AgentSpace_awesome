@@ -629,6 +629,7 @@ export interface FeishuEvidenceReport {
 export interface FeishuIntegrationEvidence {
   id: string;
   displayName: string;
+  agentId?: string;
   status: string;
   transportMode: string;
   localEvidenceFreshness: FeishuLocalEvidenceFreshnessSummary;
@@ -4682,6 +4683,20 @@ function buildFeishuEvidenceReportIssues(input: {
   if (input.scopedIntegrationId && input.evidenceItems.length === 0) {
     return ["selected_integration_missing"];
   }
+  if (input.scopedIntegrationId && input.evidenceItems.some((item) => item.status !== "active")) {
+    return ["selected_integration_not_active"];
+  }
+  if (input.scopedIntegrationId && input.evidenceItems.some((item) => !hasNonEmptyString(item.agentId))) {
+    return ["selected_integration_not_agent_bot"];
+  }
+  if (!input.scopedIntegrationId && input.evidenceItems.length > 0 && input.evidenceItems.every((item) => item.status !== "active")) {
+    return ["active_integration_missing"];
+  }
+  if (!input.scopedIntegrationId && input.evidenceItems.length > 0 && !input.evidenceItems.some((item) =>
+    item.status === "active" && hasNonEmptyString(item.agentId)
+  )) {
+    return ["active_agent_bot_integration_missing"];
+  }
   return [];
 }
 
@@ -4712,6 +4727,54 @@ function buildFeishuEvidenceReportRemediationSteps(input: {
           detail: "The requested --integration id did not match any Feishu integration in this workspace. Rerun smoke-plan without --integration to find active bindings, or bind a fresh agent-specific Feishu bot before final evidence.",
           issues: [issue],
           command: `agent-space integrations feishu smoke-plan --workspace-id ${input.workspaceId}`,
+        });
+        break;
+      case "selected_integration_not_active":
+        steps.push({
+          stepId: "select_active_agent_bot_binding",
+          title: "Live smoke: select an active Feishu agent bot binding",
+          detail: "The requested --integration id matched a disabled or archived Feishu binding. Final evidence only counts active agent bot bindings, so choose an active binding or bind a fresh agent-specific Feishu bot before rerunning smoke.",
+          issues: [issue],
+          command: [
+            `agent-space integrations feishu smoke-plan --workspace-id ${input.workspaceId} --integration ${input.integrationId ?? FEISHU_CLI_PLACEHOLDERS.integrationId}`,
+            `agent-space integrations feishu bind-agent-bot --workspace-id ${input.workspaceId} --agent ${FEISHU_CLI_PLACEHOLDERS.agentName} --env-file scripts/feishu/.env --app-id-env FEISHU_APP_ID --app-secret-env FEISHU_APP_SECRET --json`,
+          ].join("\n"),
+        });
+        break;
+      case "selected_integration_not_agent_bot":
+        steps.push({
+          stepId: "bind_feishu_agent_bot",
+          title: "Live smoke: bind a Feishu bot to a concrete AgentSpace agent",
+          detail: "The requested --integration id is a workspace-level Feishu integration, not an agent-scoped bot binding. TODO120 final evidence requires each Feishu bot identity to be bound to a concrete AgentSpace agent.",
+          issues: [issue],
+          command: [
+            `agent-space integrations feishu smoke-plan --workspace-id ${input.workspaceId}`,
+            `agent-space integrations feishu bind-agent-bot --workspace-id ${input.workspaceId} --agent ${FEISHU_CLI_PLACEHOLDERS.agentName} --env-file scripts/feishu/.env --app-id-env FEISHU_APP_ID --app-secret-env FEISHU_APP_SECRET --json`,
+          ].join("\n"),
+        });
+        break;
+      case "active_integration_missing":
+        steps.push({
+          stepId: "bind_feishu_agent_bot",
+          title: "Live smoke: create or select an active Feishu agent bot binding",
+          detail: "Feishu integration records exist, but none are active. Final evidence requires an active AgentSpace Feishu agent bot binding with fresh local smoke evidence.",
+          issues: [issue],
+          command: [
+            `agent-space integrations feishu smoke-plan --workspace-id ${input.workspaceId}`,
+            `agent-space integrations feishu bind-agent-bot --workspace-id ${input.workspaceId} --agent ${FEISHU_CLI_PLACEHOLDERS.agentName} --env-file scripts/feishu/.env --app-id-env FEISHU_APP_ID --app-secret-env FEISHU_APP_SECRET --json`,
+          ].join("\n"),
+        });
+        break;
+      case "active_agent_bot_integration_missing":
+        steps.push({
+          stepId: "bind_feishu_agent_bot",
+          title: "Live smoke: create an active Feishu agent bot binding",
+          detail: "Feishu integration records exist, but none are active agent-scoped bot bindings. Bind a Feishu custom app to a concrete AgentSpace agent before collecting TODO120 native smoke evidence.",
+          issues: [issue],
+          command: [
+            `agent-space integrations feishu smoke-plan --workspace-id ${input.workspaceId}`,
+            `agent-space integrations feishu bind-agent-bot --workspace-id ${input.workspaceId} --agent ${FEISHU_CLI_PLACEHOLDERS.agentName} --env-file scripts/feishu/.env --app-id-env FEISHU_APP_ID --app-secret-env FEISHU_APP_SECRET --json`,
+          ].join("\n"),
         });
         break;
     }
@@ -6055,13 +6118,15 @@ function buildFeishuIntegrationEvidence(input: {
   const failedDataOperationAgentBotEvidence = countFeishuFailedDataOperationAgentBotEvidence(input.dataOperations);
   const agentBotFailureEvidence = failedOutboxAgentBotEvidence + failedDataOperationAgentBotEvidence;
   const integrationActive = input.integration.status === "active";
-  const botSatisfied = integrationActive &&
+  const integrationAgentScoped = hasNonEmptyString(input.integration.agentId);
+  const integrationReadyForAgentBotEvidence = integrationActive && integrationAgentScoped;
+  const botSatisfied = integrationReadyForAgentBotEvidence &&
     processedInboundEvents > 0 &&
     sentOutboxItems > 0 &&
     inboundMessageMappings > 0 &&
     outboundMessageMappings > 0 &&
     correlatedReplyMappings > 0;
-  const nativeExperienceSatisfied = integrationActive &&
+  const nativeExperienceSatisfied = integrationReadyForAgentBotEvidence &&
     agentBotRouteEvidence > 0 &&
     nativeBotReplyEvidence > 0 &&
     boundUserMentionEvidence > 0 &&
@@ -6076,14 +6141,14 @@ function buildFeishuIntegrationEvidence(input: {
     threadContinuationEvidence > 0 &&
     threadCollaborationEvidence > 0 &&
     threadCollaborationCardEvidence > 0;
-  const guestPolicySatisfied = integrationActive &&
+  const guestPolicySatisfied = integrationReadyForAgentBotEvidence &&
     externalGuestAllowedEvidence > 0 &&
     externalGuestReplyAllEvidence > 0 &&
     externalGuestRequireIdentityEvidence > 0 &&
     externalGuestIdentityBindingNoticeEvidence > 0 &&
     externalGuestIgnoreEvidence > 0 &&
     externalGuestMentionRequiredEvidence > 0;
-  const dataPlaneSatisfied = integrationActive &&
+  const dataPlaneSatisfied = integrationReadyForAgentBotEvidence &&
     docReadSucceeded > 0 &&
     agentDocReadSucceeded > 0 &&
     docApprovedWritesSucceeded > 0 &&
@@ -6099,13 +6164,13 @@ function buildFeishuIntegrationEvidence(input: {
   const workerRestartRecoverySatisfied = correlatedReplyMappings >= requiredWorkerCorrelatedReplies;
   const workerApprovalCardActionSatisfied = input.integration.transportMode !== "websocket_worker" ||
     processedApprovalCardActions > 0;
-  const workerSatisfied = integrationActive &&
+  const workerSatisfied = integrationReadyForAgentBotEvidence &&
     input.integration.transportMode === "websocket_worker" &&
     botSatisfied &&
     workerRestartRecoverySatisfied &&
     workerApprovalCardActionSatisfied;
   const providerFailureVisible = failedOutboxItems > 0 || failedDataOperations > 0;
-  const failureSatisfied = integrationActive &&
+  const failureSatisfied = integrationReadyForAgentBotEvidence &&
     providerFailureVisible &&
     healthFailureVisible &&
     agentBotFailureEvidence > 0;
@@ -6190,6 +6255,7 @@ function buildFeishuIntegrationEvidence(input: {
   return {
     id: input.integration.id,
     displayName: input.integration.displayName,
+    ...(input.integration.agentId ? { agentId: input.integration.agentId } : {}),
     status: input.integration.status,
     transportMode: input.integration.transportMode,
     localEvidenceFreshness,
@@ -6849,6 +6915,9 @@ function buildFeishuEvidenceIssues(input: {
   if (input.integration.status !== "active") {
     issues.push("integration_not_active");
   }
+  if (!hasNonEmptyString(input.integration.agentId)) {
+    issues.push("integration_not_agent_bot");
+  }
   if (input.localEvidenceFreshness.totalRows > 0 && input.localEvidenceFreshness.freshRows === 0) {
     issues.push("stale_local_evidence_rows_ignored");
   }
@@ -7067,6 +7136,13 @@ function mapFeishuEvidenceIssueToRemediationSpec(input: {
         stepId: "enable_agent_bot_binding",
         title: "Live smoke: use an active Feishu agent bot binding",
         detail: "Final evidence must be captured through an active AgentSpace Feishu agent bot binding. Re-enable the intended binding or create a fresh active agent bot binding before rerunning smoke-plan, live smoke, and the final evidence gate.",
+      };
+    case "integration_not_agent_bot":
+      return {
+        stepId: "bind_feishu_agent_bot",
+        title: "Live smoke: bind Feishu to a concrete AgentSpace agent",
+        detail: "Final evidence cannot use a workspace-level Feishu integration as the bot identity. Bind a Feishu custom app to the concrete AgentSpace agent that users will mention in Feishu.",
+        command: `agent-space integrations feishu bind-agent-bot --workspace-id ${input.workspaceId} --agent ${input.integration.agentId ?? FEISHU_CLI_PLACEHOLDERS.agentName} --env-file scripts/feishu/.env --app-id-env FEISHU_APP_ID --app-secret-env FEISHU_APP_SECRET --json`,
       };
     case "stale_local_evidence_rows_ignored":
       return {
