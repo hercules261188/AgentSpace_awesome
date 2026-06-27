@@ -4838,6 +4838,33 @@ function reconcileFeishuArtifactAnchorConsistency(input: {
   };
 }
 
+function buildFeishuSmokeEnvIntegrationIssues(input: {
+  scopedIntegrationId?: string;
+  integrations: readonly ExternalIntegrationRecord[];
+  selectedIntegration: ExternalIntegrationRecord | undefined;
+}): string[] {
+  if (input.selectedIntegration) {
+    return [];
+  }
+  if (input.integrations.length === 0) {
+    return ["integration_missing"];
+  }
+  const hasActiveIntegration = input.integrations.some((integration) => integration.status === "active");
+  const hasActiveWorkspaceLevelIntegration = input.integrations.some((integration) =>
+    integration.status === "active" && !hasNonEmptyString(integration.agentId)
+  );
+  if (input.scopedIntegrationId && hasActiveWorkspaceLevelIntegration) {
+    return ["selected_integration_not_agent_bot"];
+  }
+  if (hasActiveWorkspaceLevelIntegration) {
+    return ["active_agent_bot_integration_missing"];
+  }
+  if (input.scopedIntegrationId || !hasActiveIntegration) {
+    return ["selected_integration_not_active"];
+  }
+  return ["integration_missing"];
+}
+
 export function buildFeishuSmokeEnvTemplateReport(
   input: BuildFeishuSmokeEnvTemplateReportInput,
 ): FeishuSmokeEnvTemplateReport {
@@ -4846,7 +4873,9 @@ export function buildFeishuSmokeEnvTemplateReport(
     provider: FEISHU_PROVIDER_ID,
     includeDisabled: true,
   })).filter((integration) => !input.integrationId || integration.id === input.integrationId);
-  const selectedIntegration = integrations.find((integration) => integration.status === "active");
+  const selectedIntegration = integrations.find((integration) =>
+    integration.status === "active" && hasNonEmptyString(integration.agentId)
+  );
   const appUrl = normalizeFeishuCliPublicAppUrl(input.appUrl);
   const callbackUrl = selectedIntegration && appUrl
     ? buildFeishuCliEventCallbackUrl({
@@ -4858,8 +4887,11 @@ export function buildFeishuSmokeEnvTemplateReport(
   const appId = selectedIntegration?.appId?.trim();
   const tenantKey = selectedIntegration?.tenantKey?.trim();
   const issues = [
-    ...(integrations.length === 0 ? ["integration_missing"] : []),
-    ...(integrations.length > 0 && !selectedIntegration ? ["selected_integration_not_active"] : []),
+    ...buildFeishuSmokeEnvIntegrationIssues({
+      scopedIntegrationId: input.integrationId,
+      integrations,
+      selectedIntegration,
+    }),
     ...(selectedIntegration && !appId ? ["app_id_missing"] : []),
     ...(!appUrl ? ["app_url_missing"] : []),
   ];
@@ -5120,6 +5152,7 @@ export function buildFeishuSmokePlanReport(input: BuildFeishuSmokePlanReportInpu
   });
   const readiness = buildFeishuReadinessReport({
     ...input,
+    agentOnly: true,
     integrations: sourceIntegrations,
   });
   const nativeAgentBotReadinessSource = buildFeishuReadinessReport({
@@ -5130,6 +5163,10 @@ export function buildFeishuSmokePlanReport(input: BuildFeishuSmokePlanReportInpu
     requiredReadiness: "bot",
     integrations: sourceIntegrations,
   });
+  const scopedSourceIntegrations = sourceIntegrations.filter((integration) =>
+    !input.integrationId || integration.id === input.integrationId
+  );
+  const hasScopedSourceIntegration = scopedSourceIntegrations.length > 0;
   const hasIntegration = readiness.integrationCount > 0;
   const activeReadinessItems = readiness.integrations.filter((item) => item.status === "active");
   const hasActiveIntegration = activeReadinessItems.length > 0;
@@ -5165,9 +5202,11 @@ export function buildFeishuSmokePlanReport(input: BuildFeishuSmokePlanReportInpu
   const webSocketCandidate = workerCandidate?.transportMode === "websocket_worker"
     ? workerCandidate
     : activeReadinessItems.find((item) => item.transportMode === "websocket_worker");
-  const activeIntegrationIssues = hasActiveIntegration
-    ? []
-    : [hasIntegration ? "integration_not_active" : "integration_missing"];
+  const activeIntegrationIssues = buildFeishuSmokePlanActiveAgentBotIssues({
+    scopedIntegrationId: input.integrationId,
+    scopedSourceIntegrations,
+    hasActiveAgentBotIntegration: hasActiveIntegration,
+  });
   const readyForWorkerSmoke = readiness.readyForWorkerSmokeCount > 0;
   const botIssues = hasActiveIntegration ? botCandidate?.issues ?? [] : activeIntegrationIssues;
   const dataPlaneIssues = hasActiveIntegration ? dataPlaneCandidate?.issues ?? [] : activeIntegrationIssues;
@@ -5186,7 +5225,7 @@ export function buildFeishuSmokePlanReport(input: BuildFeishuSmokePlanReportInpu
     appUrl: input.appUrl,
   });
   const appSetup = buildFeishuOpenPlatformSetupSummary({
-    hasIntegration,
+    hasIntegration: hasActiveIntegration,
     hasAppUrl: Boolean(smokeHarness.appUrl),
     callbackUrl: smokeHarness.callbackUrl,
     requiredCredentialFields: resolveFeishuCliOpenPlatformRequiredCredentialFields(setupCandidate),
@@ -5258,9 +5297,9 @@ export function buildFeishuSmokePlanReport(input: BuildFeishuSmokePlanReportInpu
         title: "Prepare Feishu agent bot env file",
         status: hasActiveIntegration ? "done" : "pending",
         detail: hasActiveIntegration
-          ? "An active Feishu agent bot binding or integration already exists; use smoke-env for workspace-specific live smoke resources."
-          : hasIntegration
-            ? "Existing Feishu records are disabled or archived. Keep the env file ready so you can bind a fresh active AgentSpace agent bot with App ID + App Secret."
+          ? "An active Feishu agent bot binding already exists; use smoke-env for workspace-specific live smoke resources."
+          : hasScopedSourceIntegration
+            ? "Existing Feishu records are not usable as active agent bot bindings. Keep the env file ready so you can bind a fresh active AgentSpace agent bot with App ID + App Secret."
             : "Create scripts/feishu/.env from the checked-in template, then replace the Feishu app credential placeholders before binding an AgentSpace agent to its Feishu bot.",
         command: hasActiveIntegration
           ? undefined
@@ -5283,20 +5322,16 @@ export function buildFeishuSmokePlanReport(input: BuildFeishuSmokePlanReportInpu
         title: "Bind one AgentSpace agent to its Feishu bot",
         status: hasActiveIntegration ? "done" : credentialEncryptionReady ? "pending" : "blocked",
         detail: hasActiveIntegration
-          ? `Found ${activeReadinessItems.length} active Feishu integration/bot binding record(s) in this workspace.`
-          : hasIntegration
-            ? "Feishu integration/bot binding records exist, but none are active. Re-enable the intended agent bot binding or bind a fresh active bot before live smoke."
+          ? `Found ${activeReadinessItems.length} active Feishu agent bot binding record(s) in this workspace.`
+          : hasScopedSourceIntegration
+            ? "Feishu records exist, but none are usable active agent bot bindings. Bind a concrete AgentSpace agent to its Feishu bot before live smoke."
           : "Create a Feishu custom app for a specific AgentSpace agent, then bind it with App ID + App Secret. WebSocket worker is the default quick start; EventCallback verification token/encrypt key stay in advanced setup.",
-        command: hasIntegration
-          ? hasActiveIntegration
-            ? undefined
-            : `agent-space integrations feishu bind-agent-bot --workspace-id ${readiness.workspaceId} --agent ${FEISHU_CLI_PLACEHOLDERS.agentName} --env-file scripts/feishu/.env --app-id-env FEISHU_APP_ID --app-secret-env FEISHU_APP_SECRET --json`
+        command: hasActiveIntegration
+          ? undefined
           : `agent-space integrations feishu bind-agent-bot --workspace-id ${readiness.workspaceId} --agent ${FEISHU_CLI_PLACEHOLDERS.agentName} --env-file scripts/feishu/.env --app-id-env FEISHU_APP_ID --app-secret-env FEISHU_APP_SECRET --json`,
         issues: hasActiveIntegration
           ? []
-          : hasIntegration
-            ? uniqueStrings(["integration_not_active", ...credentialEncryptionIssues])
-            : credentialEncryptionIssues,
+          : uniqueStrings([...activeIntegrationIssues, ...credentialEncryptionIssues]),
       },
       {
         id: "configure_app_credentials",
@@ -5845,6 +5880,43 @@ function buildFeishuSmokePlanBlockers(steps: readonly FeishuSmokePlanStep[]): Fe
   );
 }
 
+function buildFeishuSmokePlanActiveAgentBotIssues(input: {
+  scopedIntegrationId?: string;
+  scopedSourceIntegrations: readonly ExternalIntegrationRecord[];
+  hasActiveAgentBotIntegration: boolean;
+}): string[] {
+  if (input.hasActiveAgentBotIntegration) {
+    return [];
+  }
+  if (input.scopedIntegrationId && input.scopedSourceIntegrations.length === 0) {
+    return ["selected_integration_missing"];
+  }
+  if (
+    input.scopedIntegrationId &&
+    input.scopedSourceIntegrations.some((integration) => integration.status !== "active")
+  ) {
+    return ["selected_integration_not_active"];
+  }
+  if (
+    input.scopedIntegrationId &&
+    input.scopedSourceIntegrations.some((integration) => !hasNonEmptyString(integration.agentId))
+  ) {
+    return ["selected_integration_not_agent_bot"];
+  }
+  if (input.scopedSourceIntegrations.length === 0) {
+    return ["integration_missing"];
+  }
+  if (!input.scopedSourceIntegrations.some((integration) => integration.status === "active")) {
+    return ["integration_not_active"];
+  }
+  if (!input.scopedSourceIntegrations.some((integration) =>
+    integration.status === "active" && hasNonEmptyString(integration.agentId)
+  )) {
+    return ["active_agent_bot_integration_missing"];
+  }
+  return ["integration_missing"];
+}
+
 function describeFeishuSmokePlanIssueNextAction(issue: string): string {
   if (issue.startsWith("missing_scope:")) {
     const scope = issue.slice("missing_scope:".length);
@@ -5859,8 +5931,14 @@ function describeFeishuSmokePlanIssueNextAction(issue: string): string {
       return "Create or bind an active Feishu agent bot integration in AgentSpace with App ID and App Secret.";
     case "integration_not_active":
       return "Re-enable the intended Feishu agent bot binding or create a fresh active binding before live smoke.";
+    case "active_agent_bot_integration_missing":
+      return "Bind a Feishu custom app to a concrete AgentSpace agent; active workspace-level Feishu records cannot be used as TODO120 agent bot evidence.";
+    case "selected_integration_missing":
+      return "Rerun smoke-plan without --integration or pass an existing Feishu agent bot binding id.";
     case "selected_integration_not_active":
       return "Select an active Feishu integration or re-enable the selected binding before generating smoke env values.";
+    case "selected_integration_not_agent_bot":
+      return "Select an active agent-scoped Feishu bot binding or bind this Feishu app to a concrete AgentSpace agent before live smoke.";
     case "app_url_missing":
       return "Pass --app-url with the public AgentSpace HTTPS URL so callback URLs can be generated.";
     case "app_id_missing":

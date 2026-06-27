@@ -6077,6 +6077,7 @@ test("Feishu smoke-env template prepares callback smoke without leaking saved se
       buildIntegrationRecord({
         id: "integration-smoke-env",
         displayName: "Smoke Env Feishu",
+        agentId: "Codex",
         appId: "cli_smoke_env",
         tenantKey: "tenant_smoke_env",
         encryptedCredentialsJson: JSON.stringify({
@@ -6141,6 +6142,7 @@ test("Feishu smoke-env template reports missing public app URL without exposing 
       buildIntegrationRecord({
         id: "integration-smoke-env-missing-url",
         displayName: "Smoke Env Missing Url",
+        agentId: "Codex",
         appId: undefined,
       }),
     ],
@@ -6196,6 +6198,75 @@ test("Feishu smoke-env template ignores disabled integrations as env sources", (
   assert.equal(serialized.includes("integration-smoke-env-disabled"), false);
 });
 
+test("Feishu smoke-env template rejects workspace-level integrations as env sources", () => {
+  const report = buildFeishuSmokeEnvTemplateReport({
+    workspaceId: "workspace-1",
+    appUrl: "https://agentspace.test",
+    integrations: [
+      buildIntegrationRecord({
+        id: "integration-smoke-env-workspace",
+        displayName: "Workspace Smoke Env Feishu",
+        appId: "cli_workspace_smoke_env",
+        tenantKey: "tenant_workspace_smoke_env",
+        status: "active",
+      }),
+    ],
+  });
+
+  assert.equal(report.integrationCount, 1);
+  assert.equal(report.selectedIntegrationId, undefined);
+  assert.deepEqual(report.issues, ["active_agent_bot_integration_missing"]);
+  assert.equal(readSmokeEnvEntry(report, "FEISHU_APP_ID")?.value, "CHANGE_ME_FEISHU_APP_ID");
+  assert.equal(readSmokeEnvEntry(report, "FEISHU_APP_ID")?.source, "placeholder");
+  assert.equal(readSmokeEnvEntry(report, "FEISHU_TENANT_KEY"), undefined);
+  assert.equal(
+    readSmokeEnvEntry(report, "FEISHU_SMOKE_CALLBACK_URL")?.value,
+    "CHANGE_ME_AGENTSPACE_CALLBACK_URL",
+  );
+  assert.equal(readSmokeEnvEntry(report, "FEISHU_SMOKE_CALLBACK_URL")?.source, "placeholder");
+  assert.equal(getFeishuSmokeEnvExitCode(report), 1);
+
+  const output = formatFeishuSmokeEnvCommandText(report);
+  assert.equal(output.stdout, undefined);
+  assert.match(output.stderr ?? "", /active_agent_bot_integration_missing/);
+  const serialized = JSON.stringify(report) + (output.stderr ?? "");
+  assert.equal(serialized.includes("cli_workspace_smoke_env"), false);
+  assert.equal(serialized.includes("tenant_workspace_smoke_env"), false);
+  assert.equal(serialized.includes("integration-smoke-env-workspace"), false);
+});
+
+test("Feishu smoke-env template rejects selected workspace-level integrations as env sources", () => {
+  const report = buildFeishuSmokeEnvTemplateReport({
+    workspaceId: "workspace-1",
+    integrationId: "integration-smoke-env-workspace",
+    appUrl: "https://agentspace.test",
+    integrations: [
+      buildIntegrationRecord({
+        id: "integration-smoke-env-workspace",
+        displayName: "Workspace Smoke Env Feishu",
+        appId: "cli_workspace_smoke_env",
+        tenantKey: "tenant_workspace_smoke_env",
+        status: "active",
+      }),
+    ],
+  });
+
+  assert.equal(report.integrationCount, 1);
+  assert.equal(report.selectedIntegrationId, undefined);
+  assert.deepEqual(report.issues, ["selected_integration_not_agent_bot"]);
+  assert.equal(readSmokeEnvEntry(report, "FEISHU_APP_ID")?.value, "CHANGE_ME_FEISHU_APP_ID");
+  assert.equal(readSmokeEnvEntry(report, "FEISHU_TENANT_KEY"), undefined);
+  assert.equal(getFeishuSmokeEnvExitCode(report), 1);
+
+  const output = formatFeishuSmokeEnvCommandText(report);
+  assert.equal(output.stdout, undefined);
+  assert.match(output.stderr ?? "", /selected_integration_not_agent_bot/);
+  const serialized = JSON.stringify(report) + (output.stderr ?? "");
+  assert.equal(serialized.includes("cli_workspace_smoke_env"), false);
+  assert.equal(serialized.includes("tenant_workspace_smoke_env"), false);
+  assert.equal(serialized.includes("integration-smoke-env-workspace"), false);
+});
+
 test("Feishu smoke-env template treats generated public URL placeholders as missing", () => {
   const report = buildFeishuSmokeEnvTemplateReport({
     workspaceId: "workspace-1",
@@ -6204,6 +6275,7 @@ test("Feishu smoke-env template treats generated public URL placeholders as miss
       buildIntegrationRecord({
         id: "integration-smoke-env-placeholder-url",
         displayName: "Smoke Env Placeholder Url",
+        agentId: "Codex",
         appId: "cli_smoke_env",
       }),
     ],
@@ -8115,6 +8187,7 @@ test("Feishu readiness report blocks strict smoke until health is checked", () =
       buildIntegrationRecord({
         id: "integration-unchecked",
         displayName: "Unchecked Feishu",
+        agentId: "Codex",
       }),
     ],
     channelBindingsByIntegrationId: {
@@ -8293,20 +8366,15 @@ test("Feishu smoke plan converts readiness into live smoke checklist without ext
       buildIntegrationRecord({
         id: "integration-ready",
         displayName: "Ready Feishu",
+        agentId: "Codex",
+        appId: "cli_codex_bot",
         lastHealthStatus: "healthy",
         transportMode: "websocket_worker",
       }),
       buildIntegrationRecord({
         id: "integration-unchecked",
         displayName: "Unchecked Feishu",
-      }),
-      buildIntegrationRecord({
-        id: "agent-bot-codex",
-        displayName: "Codex Bot",
         agentId: "Codex",
-        appId: "cli_codex_bot",
-        lastHealthStatus: "healthy",
-        transportMode: "websocket_worker",
       }),
       buildIntegrationRecord({
         id: "agent-bot-hermes",
@@ -8320,13 +8388,11 @@ test("Feishu smoke plan converts readiness into live smoke checklist without ext
     channelBindingsByIntegrationId: {
       "integration-ready": [buildChannelBinding("integration-ready")],
       "integration-unchecked": [buildChannelBinding("integration-unchecked")],
-      "agent-bot-codex": [],
       "agent-bot-hermes": [],
     },
     userBindingsByIntegrationId: {
       "integration-ready": [buildUserBinding("integration-ready")],
       "integration-unchecked": [buildUserBinding("integration-unchecked")],
-      "agent-bot-codex": [],
       "agent-bot-hermes": [],
     },
     resourceBindingsByIntegrationId: {
@@ -8336,19 +8402,16 @@ test("Feishu smoke plan converts readiness into live smoke checklist without ext
         buildResourceBinding("integration-ready", "base_table", "tbl_secret"),
       ],
       "integration-unchecked": [],
-      "agent-bot-codex": [],
       "agent-bot-hermes": [],
     },
     failedOutboxByIntegrationId: {
       "integration-ready": [],
       "integration-unchecked": [],
-      "agent-bot-codex": [],
       "agent-bot-hermes": [],
     },
     pendingOutboxByIntegrationId: {
       "integration-ready": [],
       "integration-unchecked": [],
-      "agent-bot-codex": [],
       "agent-bot-hermes": [],
     },
   });
@@ -8370,7 +8433,6 @@ test("Feishu smoke plan converts readiness into live smoke checklist without ext
   assert.deepEqual(report.appSetup.requiredCredentialFields, [
     "app_id",
     "app_secret",
-    "verification_token",
   ]);
   assert.deepEqual(report.appSetup.requiredEvents, ["im.message.receive_v1", "im.chat.member.bot.added_v1", "card.action.trigger"]);
   assert.deepEqual(report.appSetup.botScopes, [
@@ -8531,7 +8593,7 @@ test("Feishu smoke plan converts readiness into live smoke checklist without ext
   assert.deepEqual(createDisposableApps?.issues, []);
   assert.match(createDisposableApps?.detail ?? "", /two Phase 6-ready active AgentSpace agent bot bindings/);
   assert.equal(bindAgentBot?.status, "done");
-  assert.match(bindAgentBot?.detail ?? "", /Feishu integration\/bot binding/);
+  assert.match(bindAgentBot?.detail ?? "", /Feishu agent bot binding/);
   assert.equal(env?.status, "pending");
   assert.match(env?.command ?? "", /integrations feishu smoke-env --workspace-id workspace-1 --integration integration-ready/);
   assert.match(env?.command ?? "", /--app-url https:\/\/agentspace\.test\/root/);
@@ -8589,7 +8651,7 @@ test("Feishu smoke plan converts readiness into live smoke checklist without ext
   assert.match(liveGuestMention?.detail ?? "", /task\/message dispatch/);
   assert.match(liveGuestMention?.detail ?? "", /safe audit references/);
   assert.match(liveGuestMention?.detail ?? "", /no real workspace member/);
-  assert.match(liveGuestMention?.command ?? "", /auto-provision-policy --workspace-id workspace-1 --integration integration-ready/);
+  assert.match(liveGuestMention?.command ?? "", /auto-provision-policy --workspace-id workspace-1 --agent Codex/);
   assert.match(liveGuestMention?.command ?? "", /--unbound-user-mode reply_on_mention/);
   assert.match(liveGuestMention?.command ?? "", /--guest-permission-profile channel_context_only/);
   assert.match(liveGuestMention?.command ?? "", /--require-identity-for writes,approvals,private_resources,runtime_sensitive_tools/);
@@ -8812,12 +8874,6 @@ test("Feishu smoke plan checks native multi-agent bot readiness across workspace
       buildIntegrationRecord({
         id: "integration-ready",
         displayName: "Ready Feishu",
-        lastHealthStatus: "healthy",
-        transportMode: "websocket_worker",
-      }),
-      buildIntegrationRecord({
-        id: "agent-bot-codex",
-        displayName: "Codex Bot",
         agentId: "Codex",
         appId: "cli_codex_bot",
         lastHealthStatus: "healthy",
@@ -8834,12 +8890,10 @@ test("Feishu smoke plan checks native multi-agent bot readiness across workspace
     ],
     channelBindingsByIntegrationId: {
       "integration-ready": [buildChannelBinding("integration-ready")],
-      "agent-bot-codex": [],
       "agent-bot-hermes": [],
     },
     userBindingsByIntegrationId: {
       "integration-ready": [buildUserBinding("integration-ready")],
-      "agent-bot-codex": [],
       "agent-bot-hermes": [],
     },
     resourceBindingsByIntegrationId: {
@@ -8848,17 +8902,14 @@ test("Feishu smoke plan checks native multi-agent bot readiness across workspace
         buildResourceBinding("integration-ready", "sheet", "shtcn_secret"),
         buildResourceBinding("integration-ready", "base_table", "tbl_secret"),
       ],
-      "agent-bot-codex": [],
       "agent-bot-hermes": [],
     },
     failedOutboxByIntegrationId: {
       "integration-ready": [],
-      "agent-bot-codex": [],
       "agent-bot-hermes": [],
     },
     pendingOutboxByIntegrationId: {
       "integration-ready": [],
-      "agent-bot-codex": [],
       "agent-bot-hermes": [],
     },
   });
@@ -8896,6 +8947,7 @@ test("Feishu smoke plan blocks live smoke steps when local prerequisites are mis
       buildIntegrationRecord({
         id: "integration-unchecked",
         displayName: "Unchecked Feishu",
+        agentId: "Codex",
       }),
     ],
     channelBindingsByIntegrationId: {
@@ -9080,7 +9132,7 @@ test("Feishu smoke plan treats disabled integrations as unavailable for live smo
   assert.equal(prepareCreateEnv?.status, "pending");
   assert.deepEqual(prepareCreateEnv?.issues, ["integration_not_active"]);
   assert.match(prepareCreateEnv?.command ?? "", /cp scripts\/feishu\/env\.example scripts\/feishu\/\.env/);
-  assert.match(prepareCreateEnv?.detail ?? "", /disabled or archived/);
+  assert.match(prepareCreateEnv?.detail ?? "", /not usable as active agent bot bindings/);
   assert.equal(bindAgentBot?.status, "pending");
   assert.match(bindAgentBot?.detail ?? "", /none are active|records exist/i);
   assert.ok(bindAgentBot?.issues?.includes("integration_not_active"));
@@ -9124,6 +9176,147 @@ test("Feishu smoke plan treats disabled integrations as unavailable for live smo
   assert.match(finalEvidence?.command ?? "", /--integration CHANGE_ME_FEISHU_INTEGRATION_ID/);
   assert.doesNotMatch(finalEvidence?.command ?? "", /agent-bot-disabled/);
   assert.equal(JSON.stringify(report).includes("cli_disabled_bot"), false);
+});
+
+test("Feishu smoke plan rejects active workspace-level integrations as agent bot anchors", () => {
+  const report = buildFeishuSmokePlanReport({
+    workspaceId: "workspace-1",
+    requiredReadiness: "data-plane",
+    appUrl: "https://agentspace.test",
+    runtimeEnv: {
+      AGENT_SPACE_FEISHU_CREDENTIAL_ENCRYPTION_KEY: FEISHU_TEST_CREDENTIAL_ENCRYPTION_KEY,
+    },
+    integrations: [
+      buildIntegrationRecord({
+        id: "workspace-feishu",
+        displayName: "Workspace Feishu",
+        appId: "cli_workspace_bot",
+        lastHealthStatus: "healthy",
+        transportMode: "websocket_worker",
+      }),
+    ],
+    channelBindingsByIntegrationId: {
+      "workspace-feishu": [buildChannelBinding("workspace-feishu")],
+    },
+    userBindingsByIntegrationId: {
+      "workspace-feishu": [buildUserBinding("workspace-feishu")],
+    },
+    resourceBindingsByIntegrationId: {
+      "workspace-feishu": [
+        buildResourceBinding("workspace-feishu", "doc", "doccn_secret"),
+        buildResourceBinding("workspace-feishu", "sheet", "shtcn_secret"),
+        buildResourceBinding("workspace-feishu", "base_table", "tbl_secret"),
+      ],
+    },
+    failedOutboxByIntegrationId: {
+      "workspace-feishu": [],
+    },
+    pendingOutboxByIntegrationId: {
+      "workspace-feishu": [],
+    },
+  });
+
+  const prepareCreateEnv = report.steps.find((step) => step.id === "prepare_feishu_create_env");
+  const bindAgentBot = report.steps.find((step) => step.id === "bind_feishu_agent_bot");
+  const botGate = report.steps.find((step) => step.id === "run_bot_readiness_gate");
+  const prepareEnv = report.steps.find((step) => step.id === "prepare_live_smoke_env");
+  const bindChat = report.steps.find((step) => step.id === "bind_feishu_chat");
+  const bindResources = report.steps.find((step) => step.id === "bind_feishu_doc_sheet_base");
+  const finalEvidence = report.steps.find((step) => step.id === "verify_agentspace_live_evidence");
+
+  assert.equal(report.integrationCount, 0);
+  assert.equal(report.strictSatisfied, false);
+  assert.equal(report.selectedBotIntegrationId, undefined);
+  assert.equal(report.selectedDataPlaneIntegrationId, undefined);
+  assert.equal(report.selectedWorkerIntegrationId, undefined);
+  assert.deepEqual(report.readinessSummary, {
+    readyForBotSmokeCount: 0,
+    readyForDataPlaneSmokeCount: 0,
+    readyForWorkerSmokeCount: 0,
+  });
+  assert.equal(report.appSetup.callbackUrlStatus, "integration_missing");
+  assert.deepEqual(report.appSetup.requiredCredentialFields, ["app_id", "app_secret"]);
+  assert.ok(report.blockers.find((blocker) =>
+    blocker.issue === "active_agent_bot_integration_missing" &&
+    blocker.nextAction.includes("workspace-level Feishu records cannot be used")
+  ));
+  assert.equal(prepareCreateEnv?.status, "pending");
+  assert.deepEqual(prepareCreateEnv?.issues, ["active_agent_bot_integration_missing"]);
+  assert.equal(bindAgentBot?.status, "pending");
+  assert.deepEqual(bindAgentBot?.issues, ["active_agent_bot_integration_missing"]);
+  assert.match(bindAgentBot?.command ?? "", /bind-agent-bot --workspace-id workspace-1/);
+  assert.equal(botGate?.status, "blocked");
+  assert.deepEqual(botGate?.issues, ["active_agent_bot_integration_missing"]);
+  assert.equal(prepareEnv?.status, "blocked");
+  assert.deepEqual(prepareEnv?.issues, ["active_agent_bot_integration_missing"]);
+  assert.doesNotMatch(prepareEnv?.command ?? "", /workspace-feishu/);
+  assert.equal(bindChat?.status, "blocked");
+  assert.match(bindChat?.command ?? "", /--integration CHANGE_ME_FEISHU_INTEGRATION_ID/);
+  assert.doesNotMatch(bindChat?.command ?? "", /workspace-feishu/);
+  assert.equal(bindResources?.status, "blocked");
+  assert.deepEqual(bindResources?.issues, ["active_agent_bot_integration_missing"]);
+  assert.equal(finalEvidence?.status, "blocked");
+  assert.ok(finalEvidence?.issues?.includes("active_agent_bot_integration_missing"));
+  assert.match(finalEvidence?.command ?? "", /--integration CHANGE_ME_FEISHU_INTEGRATION_ID/);
+  assert.doesNotMatch(finalEvidence?.command ?? "", /workspace-feishu/);
+  assert.equal(JSON.stringify(report).includes("cli_workspace_bot"), false);
+});
+
+test("Feishu smoke plan rejects selected workspace-level integrations as agent bot anchors", () => {
+  const report = buildFeishuSmokePlanReport({
+    workspaceId: "workspace-1",
+    integrationId: "workspace-feishu",
+    appUrl: "https://agentspace.test",
+    runtimeEnv: {
+      AGENT_SPACE_FEISHU_CREDENTIAL_ENCRYPTION_KEY: FEISHU_TEST_CREDENTIAL_ENCRYPTION_KEY,
+    },
+    integrations: [
+      buildIntegrationRecord({
+        id: "workspace-feishu",
+        displayName: "Workspace Feishu",
+        appId: "cli_workspace_bot",
+        lastHealthStatus: "healthy",
+        transportMode: "websocket_worker",
+      }),
+    ],
+    channelBindingsByIntegrationId: {
+      "workspace-feishu": [buildChannelBinding("workspace-feishu")],
+    },
+    userBindingsByIntegrationId: {
+      "workspace-feishu": [buildUserBinding("workspace-feishu")],
+    },
+    resourceBindingsByIntegrationId: {
+      "workspace-feishu": [],
+    },
+    failedOutboxByIntegrationId: {
+      "workspace-feishu": [],
+    },
+    pendingOutboxByIntegrationId: {
+      "workspace-feishu": [],
+    },
+  });
+
+  const bindAgentBot = report.steps.find((step) => step.id === "bind_feishu_agent_bot");
+  const checkEnv = report.steps.find((step) => step.id === "check_live_smoke_env");
+  const finalEvidence = report.steps.find((step) => step.id === "verify_agentspace_live_evidence");
+
+  assert.equal(report.integrationCount, 0);
+  assert.equal(report.selectedBotIntegrationId, undefined);
+  assert.ok(report.blockers.find((blocker) =>
+    blocker.issue === "selected_integration_not_agent_bot" &&
+    blocker.nextAction.includes("active agent-scoped Feishu bot binding")
+  ));
+  assert.equal(bindAgentBot?.status, "pending");
+  assert.deepEqual(bindAgentBot?.issues, ["selected_integration_not_agent_bot"]);
+  assert.match(bindAgentBot?.command ?? "", /--agent CHANGE_ME_AGENT_NAME/);
+  assert.equal(checkEnv?.status, "blocked");
+  assert.deepEqual(checkEnv?.issues, ["selected_integration_not_agent_bot"]);
+  assert.doesNotMatch(checkEnv?.command ?? "", /workspace-feishu/);
+  assert.equal(finalEvidence?.status, "blocked");
+  assert.ok(finalEvidence?.issues?.includes("selected_integration_not_agent_bot"));
+  assert.match(finalEvidence?.command ?? "", /--integration CHANGE_ME_FEISHU_INTEGRATION_ID/);
+  assert.doesNotMatch(finalEvidence?.command ?? "", /workspace-feishu/);
+  assert.equal(JSON.stringify(report).includes("cli_workspace_bot"), false);
 });
 
 test("Feishu smoke plan includes CLI agent bot bind command when no integration exists", () => {
