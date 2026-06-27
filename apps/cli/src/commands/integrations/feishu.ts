@@ -5710,6 +5710,7 @@ function hasFeishuApprovedWriteEvidence(operation: ExternalDataOperationRunRecor
     result.approvalId.trim().length > 0 &&
     hasFeishuPayloadHashEvidence(result.payloadHash) &&
     hasNonEmptyString(operation.resourceBindingId) &&
+    hasFeishuSafeDataOperationResultSummary(operation) &&
     hasFeishuAgentBotGovernedWriteContext(operation);
 }
 
@@ -5753,6 +5754,9 @@ function hasBoundFeishuGovernedReadContext(operation: ExternalDataOperationRunRe
     return false;
   }
   if (!hasFeishuAgentBotDataOperationContext(operation, governanceContext)) {
+    return false;
+  }
+  if (!hasFeishuSafeDataOperationResultSummary(operation)) {
     return false;
   }
   const actorType = readFeishuGovernanceActorType(operation);
@@ -5811,7 +5815,8 @@ function countFeishuExternalGuestWriteDeniedEvidence(
     operation.status === "failed" &&
     operation.errorCode === "feishu.data_operation_external_guest_requires_identity" &&
     writeOperations.has(operation.operationType) &&
-    hasNonEmptyString(operation.resourceBindingId)
+    hasNonEmptyString(operation.resourceBindingId) &&
+    hasFeishuSafeDataOperationResultSummary(operation)
   ).length;
 }
 
@@ -5823,7 +5828,7 @@ function countFeishuExternalGuestReadEvidence(
     const governanceContext = readFeishuGovernanceContext(operation);
     return operation.status === "succeeded" &&
       readOperations.has(operation.operationType) &&
-      hasNonEmptyString(operation.resourceBindingId) &&
+      hasBoundFeishuGovernedReadContext(operation) &&
       countFeishuGovernanceActorEvidence([operation], "external_guest") === 1 &&
       governanceContext?.externalGuestPermissionProfile === "channel_context_only" &&
       governanceContext?.externalGuestResourceAccess === "guest_readable_current_channel" &&
@@ -5853,6 +5858,17 @@ function readFeishuGovernanceContext(operation: ExternalDataOperationRunRecord):
     : isRecord(request?.feishuGovernance)
       ? request.feishuGovernance
       : undefined;
+}
+
+function hasFeishuSafeDataOperationResultSummary(operation: ExternalDataOperationRunRecord): boolean {
+  const result = readJsonRecord(operation.resultJson);
+  if (!result) {
+    return false;
+  }
+  const serialized = JSON.stringify(result);
+  return hasNoFeishuRawDataOperationResourceContext(result) &&
+    !containsFeishuSecretLikeEvidence(serialized) &&
+    !containsRawFeishuOpenApiEvidenceIdentifier(serialized);
 }
 
 function hasNonEmptyString(value: unknown): value is string {
@@ -5889,8 +5905,19 @@ function hasNoFeishuUserIdentity(metadata: Record<string, unknown>): boolean {
 }
 
 function hasFeishuSafeInboundMessageContext(metadata: Record<string, unknown> | undefined): metadata is Record<string, unknown> {
-  return hasNonEmptyString(metadata?.externalChatReference) &&
-    hasNonEmptyString(metadata?.externalThreadReference);
+  return metadata !== undefined &&
+    hasNonEmptyString(metadata.externalChatReference) &&
+    hasNonEmptyString(metadata.externalThreadReference) &&
+    hasNoFeishuRawExternalLocationContext(metadata) &&
+    hasNoFeishuRawProviderIdentityContext(metadata);
+}
+
+function hasFeishuMessageMappingAgentBotContext(
+  mapping: ExternalMessageMappingRecord,
+  metadata: Record<string, unknown> | undefined,
+): metadata is Record<string, unknown> {
+  return hasNonEmptyString(metadata?.agentId) &&
+    readStringMetadata(metadata?.botBindingId) === mapping.integrationId;
 }
 
 function countFeishuSentAgentBotReplyOutboxEvidence(outbox: readonly ExternalMessageOutboxRecord[]): number {
@@ -5917,10 +5944,8 @@ function countFeishuSentAgentBotReplyOutboxEvidence(outbox: readonly ExternalMes
     ) {
       return false;
     }
-    return !hasNonEmptyString(metadata.externalChatId) &&
-      !hasNonEmptyString(metadata.externalThreadId) &&
-      !hasNonEmptyString(metadata.targetExternalChatId) &&
-      !hasNonEmptyString(metadata.targetExternalThreadId);
+    return hasNoFeishuRawExternalLocationContext(metadata) &&
+      hasNoFeishuRawProviderIdentityContext(metadata);
   }).length;
 }
 
@@ -6594,7 +6619,9 @@ function countFeishuNativeBotReplyEvidence(
     const action = isRecord(policyInput?.action) ? policyInput.action : undefined;
     return hasNonEmptyString(action?.resourceReference) &&
       action?.resourceIdRedacted === true &&
-      !hasNonEmptyString(action?.resourceId);
+      !hasNonEmptyString(action?.resourceId) &&
+      hasNoFeishuRawExternalLocationContext(outboundMetadata) &&
+      hasNoFeishuRawProviderIdentityContext(outboundMetadata);
   }).length;
 }
 
@@ -6621,13 +6648,22 @@ function hasMatchingFeishuBotReplyMetadata(
   const outboundMetadata = readJsonRecord(outbound.metadataJson);
   return inboundMetadata?.provider === FEISHU_PROVIDER_ID &&
     outboundMetadata?.provider === FEISHU_PROVIDER_ID &&
-    hasNonEmptyString(inboundMetadata.agentId) &&
-    hasNonEmptyString(inboundMetadata.botBindingId) &&
-    hasNonEmptyString(inboundMetadata.externalChatReference) &&
+    hasFeishuMessageMappingAgentBotContext(inbound, inboundMetadata) &&
+    hasFeishuMessageMappingAgentBotContext(outbound, outboundMetadata) &&
+    hasFeishuSafeBotReplyMappingContext(inboundMetadata) &&
     outboundMetadata.agentId === inboundMetadata.agentId &&
     outboundMetadata.botBindingId === inboundMetadata.botBindingId &&
-    hasNonEmptyString(outboundMetadata.externalChatReference) &&
-    hasNonEmptyString(outboundMetadata.externalThreadReference);
+    hasFeishuSafeBotReplyMappingContext(outboundMetadata);
+}
+
+function hasFeishuSafeBotReplyMappingContext(
+  metadata: Record<string, unknown> | undefined,
+): metadata is Record<string, unknown> {
+  return metadata !== undefined &&
+    hasNonEmptyString(metadata.externalChatReference) &&
+    hasNonEmptyString(metadata.externalThreadReference) &&
+    hasNoFeishuRawExternalLocationContext(metadata) &&
+    hasNoFeishuRawProviderIdentityContext(metadata);
 }
 
 function countFeishuAgentBotRouteEvidence(
@@ -6642,10 +6678,7 @@ function countFeishuAgentBotRouteEvidence(
       metadata.dispatchStatus === "sent" &&
       hasFeishuSafeInboundMessageContext(metadata) &&
       metadata.agentBotMentioned === true &&
-      typeof metadata.agentId === "string" &&
-      metadata.agentId.trim().length > 0 &&
-      typeof metadata.botBindingId === "string" &&
-      metadata.botBindingId.trim().length > 0;
+      hasFeishuMessageMappingAgentBotContext(mapping, metadata);
   }).length;
 }
 
@@ -6664,10 +6697,7 @@ function countFeishuNativeActorMentionEvidence(
       !hasFeishuSafeInboundMessageContext(metadata) ||
       metadata.agentBotMentioned !== true ||
       metadata.actorType !== actorType ||
-      typeof metadata.agentId !== "string" ||
-      metadata.agentId.trim().length === 0 ||
-      typeof metadata.botBindingId !== "string" ||
-      metadata.botBindingId.trim().length === 0
+      !hasFeishuMessageMappingAgentBotContext(mapping, metadata)
     ) {
       return false;
     }
@@ -6701,10 +6731,7 @@ function countFeishuAgentChannelPolicyDeniedEvidence(
     const reasonCode = typeof metadata?.reasonCode === "string" ? metadata.reasonCode : undefined;
     return metadata?.provider === FEISHU_PROVIDER_ID &&
       metadata.dispatchStatus === "ignored" &&
-      typeof metadata.agentId === "string" &&
-      metadata.agentId.trim().length > 0 &&
-      typeof metadata.botBindingId === "string" &&
-      metadata.botBindingId.trim().length > 0 &&
+      hasFeishuMessageMappingAgentBotContext(mapping, metadata) &&
       hasFeishuSafeInboundMessageContext(metadata) &&
       hasNoFeishuRawExternalLocationContext(metadata) &&
       hasNoFeishuRawProviderIdentityContext(metadata) &&
@@ -6746,10 +6773,7 @@ function countFeishuBotSenderLoopGuardEvidence(
       metadata.dispatchStatus === "ignored" &&
       metadata.reasonCode === "feishu_bot_sender_ignored" &&
       metadata.agentBotMentioned === false &&
-      typeof metadata.agentId === "string" &&
-      metadata.agentId.trim().length > 0 &&
-      typeof metadata.botBindingId === "string" &&
-      metadata.botBindingId.trim().length > 0 &&
+      hasFeishuMessageMappingAgentBotContext(mapping, metadata) &&
       hasFeishuSafeInboundMessageContext(metadata) &&
       hasNoFeishuRawExternalLocationContext(metadata) &&
       hasNoFeishuRawProviderIdentityContext(metadata) &&
@@ -6787,10 +6811,7 @@ function countFeishuExternalGuestPolicyEvidence(
       typeof metadata.externalGuestPermissionProfile !== "string" ||
       metadata.externalGuestPermissionProfile.trim().length === 0 ||
       !hasNoFeishuUserIdentity(metadata) ||
-      typeof metadata.agentId !== "string" ||
-      metadata.agentId.trim().length === 0 ||
-      typeof metadata.botBindingId !== "string" ||
-      metadata.botBindingId.trim().length === 0
+      !hasFeishuMessageMappingAgentBotContext(mapping, metadata)
     ) {
       return false;
     }
@@ -6839,10 +6860,7 @@ function countFeishuExternalGuestReplyAllEvidence(
       metadata.externalGuestReference.trim().length > 0 &&
       metadata.externalGuestPermissionProfile === "channel_context_only" &&
       hasNoFeishuUserIdentity(metadata) &&
-      typeof metadata.agentId === "string" &&
-      metadata.agentId.trim().length > 0 &&
-      typeof metadata.botBindingId === "string" &&
-      metadata.botBindingId.trim().length > 0;
+      hasFeishuMessageMappingAgentBotContext(mapping, metadata);
   }).length;
 }
 
@@ -6864,8 +6882,7 @@ function countFeishuIdentityBindingNoticeEvidence(
       metadata.externalGuestUnboundUserMode !== "require_identity" ||
       metadata.agentBotMentioned !== true ||
       !hasNoFeishuUserIdentity(metadata) ||
-      !hasNonEmptyString(metadata.agentId) ||
-      !hasNonEmptyString(metadata.botBindingId) ||
+      !hasFeishuMessageMappingAgentBotContext(mapping, metadata) ||
       !hasFeishuSafeInboundMessageContext(metadata)
     ) {
       return false;
@@ -6903,10 +6920,7 @@ function hasMatchingFeishuIdentityBindingNotice(
     metadata.externalChatReference === inboundMetadata.externalChatReference &&
     metadata.externalThreadReference === replyTargetReference &&
     hasNoFeishuUserIdentity(metadata) &&
-    !hasNonEmptyString(metadata.externalChatId) &&
-    !hasNonEmptyString(metadata.externalThreadId) &&
-    !hasNonEmptyString(metadata.targetExternalChatId) &&
-    !hasNonEmptyString(metadata.targetExternalThreadId);
+    hasNoFeishuRawExternalLocationContext(metadata);
 }
 
 function countFeishuAutoProvisionedChannelBindings(
@@ -6923,11 +6937,7 @@ function countFeishuAutoProvisionedChannelBindings(
       return false;
     }
     return metadata?.provider === FEISHU_PROVIDER_ID &&
-      hasFeishuAutoProvisionedChannelIdentity(binding, metadata) &&
-      typeof metadata.agentId === "string" &&
-      metadata.agentId.trim().length > 0 &&
-      typeof metadata.botBindingId === "string" &&
-      metadata.botBindingId.trim().length > 0;
+      hasFeishuAutoProvisionedChannelIdentity(binding, metadata);
   }).length;
 }
 
@@ -6955,7 +6965,7 @@ function countFeishuReusedProviderChannelBindings(
       metadata.linkedFromBindingId.trim().length > 0 &&
       metadata.linkedFromBindingId.trim() !== bindingId &&
       agentId.length > 0 &&
-      botBindingId.length > 0 &&
+      botBindingId === binding.integrationId &&
       linkedFromAgentId.length > 0 &&
       linkedFromAgentId !== agentId &&
       linkedFromBotBindingId.length > 0 &&
@@ -6973,8 +6983,26 @@ function hasFeishuAutoProvisionedChannelIdentity(
     hasNonEmptyString(binding.integrationId) &&
     hasNonEmptyString(binding.channelName) &&
     hasNonEmptyString(binding.externalChatId) &&
-    hasNonEmptyString(metadata?.externalChatReference) &&
-    isFeishuAutoProvisionReviewStatus(metadata?.reviewStatus);
+    hasFeishuSafeAutoProvisionMetadata(metadata) &&
+    hasFeishuAutoProvisionedAgentBotContext(binding, metadata);
+}
+
+function hasFeishuSafeAutoProvisionMetadata(
+  metadata: Record<string, unknown> | undefined,
+): metadata is Record<string, unknown> {
+  return metadata !== undefined &&
+    hasNonEmptyString(metadata.externalChatReference) &&
+    isFeishuAutoProvisionReviewStatus(metadata.reviewStatus) &&
+    hasNoFeishuRawExternalLocationContext(metadata) &&
+    hasNoFeishuRawProviderIdentityContext(metadata);
+}
+
+function hasFeishuAutoProvisionedAgentBotContext(
+  binding: ExternalChannelBindingRecord,
+  metadata: Record<string, unknown> | undefined,
+): boolean {
+  return hasNonEmptyString(metadata?.agentId) &&
+    readStringMetadata(metadata?.botBindingId) === binding.integrationId;
 }
 
 function isFeishuAutoProvisionReviewStatus(value: unknown): boolean {
@@ -7001,10 +7029,7 @@ function countFeishuThreadTaskBindingEvidence(
       binding.agentId.trim() === agentId &&
       botBindingId.length > 0 &&
       botBindingId === binding.integrationId &&
-      typeof metadata.externalChatReference === "string" &&
-      metadata.externalChatReference.trim().length > 0 &&
-      typeof metadata.externalThreadReference === "string" &&
-      metadata.externalThreadReference.trim().length > 0;
+      hasFeishuSafeThreadEvidenceContext(metadata);
   }).length;
 }
 
@@ -7028,8 +7053,7 @@ function countFeishuThreadContinuationEvidence(
       metadata.agentId.trim().length === 0 ||
       typeof metadata.botBindingId !== "string" ||
       metadata.botBindingId.trim().length === 0 ||
-      typeof metadata.externalChatReference !== "string" ||
-      metadata.externalChatReference.trim().length === 0
+      !hasFeishuSafeThreadEvidenceContext(metadata)
     ) {
       return false;
     }
@@ -7069,10 +7093,7 @@ function hasMatchingFeishuThreadContinuationBinding(
     return metadata?.provider === FEISHU_PROVIDER_ID &&
       metadata.agentId === expected.agentId &&
       metadata.botBindingId === expected.botBindingId &&
-      typeof metadata.externalChatReference === "string" &&
-      metadata.externalChatReference.trim().length > 0 &&
-      typeof metadata.externalThreadReference === "string" &&
-      metadata.externalThreadReference.trim().length > 0;
+      hasFeishuSafeThreadEvidenceContext(metadata);
   });
 }
 
@@ -7097,10 +7118,7 @@ function countFeishuThreadCollaborationEvidence(
       botBindingId === binding.integrationId &&
       hasDifferentFeishuCollaboratingId(metadata.collaboratingAgentIds, agentId) &&
       hasDifferentFeishuCollaboratingId(metadata.collaboratingBotBindingIds, botBindingId) &&
-      typeof metadata.externalChatReference === "string" &&
-      metadata.externalChatReference.trim().length > 0 &&
-      typeof metadata.externalThreadReference === "string" &&
-      metadata.externalThreadReference.trim().length > 0;
+      hasFeishuSafeThreadEvidenceContext(metadata);
   }).length;
 }
 
@@ -7127,10 +7145,8 @@ function countFeishuThreadCollaborationCardEvidence(
       hasDifferentFeishuCollaboratingId(metadata.collaboratingBotBindingIds, botBindingId) &&
       externalChatReference !== undefined &&
       externalThreadReference !== undefined &&
-      !hasNonEmptyString(metadata.externalChatId) &&
-      !hasNonEmptyString(metadata.externalThreadId) &&
-      !hasNonEmptyString(metadata.targetExternalChatId) &&
-      !hasNonEmptyString(metadata.targetExternalThreadId) &&
+      hasNoFeishuRawExternalLocationContext(metadata) &&
+      hasNoFeishuRawProviderIdentityContext(metadata) &&
       hasMatchingFeishuThreadCollaborationBindingForCard(bindings, {
         integrationId: item.integrationId,
         agentId,
@@ -7185,7 +7201,8 @@ function hasMatchingFeishuThreadCollaborationBindingForCard(
       botBindingId !== expected.botBindingId ||
       botBindingId !== binding.integrationId ||
       metadata.externalChatReference !== expected.externalChatReference ||
-      metadata.externalThreadReference !== expected.externalThreadReference
+      metadata.externalThreadReference !== expected.externalThreadReference ||
+      !hasFeishuSafeThreadEvidenceContext(metadata)
     ) {
       return false;
     }
@@ -7193,6 +7210,16 @@ function hasMatchingFeishuThreadCollaborationBindingForCard(
     return hasFeishuCollaboratingIdIntersection(metadata.collaboratingAgentIds, expectedCollaboratingAgentIds) &&
       hasFeishuCollaboratingIdIntersection(metadata.collaboratingBotBindingIds, expectedCollaboratingBotBindingIds);
   });
+}
+
+function hasFeishuSafeThreadEvidenceContext(
+  metadata: Record<string, unknown> | undefined,
+): metadata is Record<string, unknown> {
+  return metadata !== undefined &&
+    hasNonEmptyString(metadata.externalChatReference) &&
+    hasNonEmptyString(metadata.externalThreadReference) &&
+    hasNoFeishuRawExternalLocationContext(metadata) &&
+    hasNoFeishuRawProviderIdentityContext(metadata);
 }
 
 function hasFeishuCollaboratingIdIntersection(value: unknown, expectedIds: readonly string[]): boolean {
