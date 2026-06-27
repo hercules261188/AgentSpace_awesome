@@ -520,6 +520,10 @@ function buildFeishuEvidenceGates(transportMode: string): FeishuIntegrationSetup
       required: FEISHU_FINAL_EVIDENCE_GATE_REQUIREMENTS.failureVisibility,
     },
     {
+      key: "agentspace_local_evidence",
+      required: "fresh_24h_agentspace_local_evidence_rows",
+    },
+    {
       key: "openapi_artifact",
       required: `fresh_24h_strict_live_artifact:${FEISHU_SMOKE_EVIDENCE_PATH}`,
     },

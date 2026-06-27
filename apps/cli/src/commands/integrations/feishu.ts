@@ -220,6 +220,7 @@ export type FeishuSmokePlanEvidenceGateKey =
   | "worker_card_action"
   | "data_plane"
   | "failure_visibility"
+  | "agentspace_local_evidence"
   | "openapi_artifact"
   | "bot_added_payload_artifact";
 
@@ -613,6 +614,11 @@ export interface FeishuEvidenceReport {
     workspaceFailureVisible: boolean;
     workspaceAllSatisfied: boolean;
     scopedAllSatisfied: boolean;
+    localEvidenceFreshRows: number;
+    localEvidenceStaleRows: number;
+    workspaceLocalEvidenceFreshRows: number;
+    workspaceLocalEvidenceStaleRows: number;
+    localEvidenceMaxAgeHours: number;
   };
   integrations: FeishuIntegrationEvidence[];
 }
@@ -621,6 +627,7 @@ export interface FeishuIntegrationEvidence {
   id: string;
   displayName: string;
   transportMode: string;
+  localEvidenceFreshness: FeishuLocalEvidenceFreshnessSummary;
   bot: {
     processedInboundEvents: number;
     inboundMessageMappings: number;
@@ -694,6 +701,13 @@ export interface FeishuIntegrationEvidence {
   };
   issues: string[];
   remediationSteps: FeishuEvidenceRemediationStep[];
+}
+
+export interface FeishuLocalEvidenceFreshnessSummary {
+  totalRows: number;
+  freshRows: number;
+  staleRows: number;
+  maxAgeHours: number;
 }
 
 export interface FeishuOpenApiSmokeEvidenceVerification {
@@ -823,6 +837,7 @@ interface FeishuIntegrationEvidenceSource {
   channelBindings: ExternalChannelBindingRecord[];
   threadBindings: ExternalThreadBindingRecord[];
   dataOperations: ExternalDataOperationRunRecord[];
+  localEvidenceFreshness?: FeishuLocalEvidenceFreshnessSummary;
 }
 
 interface FeishuExpectedCallbackRouteProof {
@@ -4296,9 +4311,10 @@ export function buildFeishuEvidenceReport(input: BuildFeishuEvidenceReportInput)
       dataOperations,
     };
   });
-  const allEvidenceItems = evidenceSources.map((source) => buildFeishuIntegrationEvidence(source));
+  const freshEvidenceSources = evidenceSources.map((source) => filterFreshFeishuIntegrationEvidenceSource(source));
+  const allEvidenceItems = freshEvidenceSources.map((source) => buildFeishuIntegrationEvidence(source));
   const evidenceItems = allEvidenceItems.filter((item) => !input.integrationId || item.id === input.integrationId);
-  const workspaceEvidence = buildFeishuWorkspaceEvidenceSatisfaction(allEvidenceItems, evidenceSources, {
+  const workspaceEvidence = buildFeishuWorkspaceEvidenceSatisfaction(allEvidenceItems, freshEvidenceSources, {
     requiredNativeIntegrationId: input.integrationId,
   });
   const agentSpaceStrictSatisfied = isFeishuEvidenceReportStrictSatisfied({
@@ -4311,7 +4327,7 @@ export function buildFeishuEvidenceReport(input: BuildFeishuEvidenceReportInput)
     requiredEvidence,
     scopedIntegrationId: input.integrationId,
     evidenceItems: allEvidenceItems,
-    evidenceSources,
+    evidenceSources: freshEvidenceSources,
   });
   const expectedCallbackRouteProofs = buildFeishuExpectedEvidenceCallbackRouteProofs({
     workspaceId: input.workspaceId,
@@ -4329,13 +4345,13 @@ export function buildFeishuEvidenceReport(input: BuildFeishuEvidenceReportInput)
   const expectedBotAddedPayloadChatReferences = buildFeishuExpectedBotAddedPayloadChatReferences({
     requiredEvidence,
     scopedIntegrationId: input.integrationId,
-    evidenceSources,
+    evidenceSources: freshEvidenceSources,
     anchorIntegrationIds: expectedArtifactIdentityIntegrationIds,
   });
   const expectedTodo120NativeSecondAgentAppProofs = buildFeishuExpectedTodo120NativeSecondAgentAppProofs({
     requiredEvidence,
     scopedIntegrationId: input.integrationId,
-    evidenceSources,
+    evidenceSources: freshEvidenceSources,
     anchorIntegrationIds: expectedArtifactIdentityIntegrationIds,
   });
   const openApiEvidence = requiredEvidence === "all" || input.openApiEvidencePath || input.openApiEvidence !== undefined
@@ -4375,6 +4391,22 @@ export function buildFeishuEvidenceReport(input: BuildFeishuEvidenceReportInput)
   });
   const finalOpenApiEvidence = artifactAnchorConsistency.openApiEvidence;
   const botAddedPayloadEvidence = artifactAnchorConsistency.botAddedPayloadEvidence;
+  const localEvidenceFreshRows = sumFeishuEvidenceCounts(
+    evidenceItems,
+    (item) => item.localEvidenceFreshness.freshRows,
+  );
+  const localEvidenceStaleRows = sumFeishuEvidenceCounts(
+    evidenceItems,
+    (item) => item.localEvidenceFreshness.staleRows,
+  );
+  const workspaceLocalEvidenceFreshRows = sumFeishuEvidenceCounts(
+    allEvidenceItems,
+    (item) => item.localEvidenceFreshness.freshRows,
+  );
+  const workspaceLocalEvidenceStaleRows = sumFeishuEvidenceCounts(
+    allEvidenceItems,
+    (item) => item.localEvidenceFreshness.staleRows,
+  );
 
   return {
     workspaceId: input.workspaceId,
@@ -4404,8 +4436,73 @@ export function buildFeishuEvidenceReport(input: BuildFeishuEvidenceReportInput)
         workspaceEvidence,
         scopedIntegrationId: input.integrationId,
       }),
+      localEvidenceFreshRows,
+      localEvidenceStaleRows,
+      workspaceLocalEvidenceFreshRows,
+      workspaceLocalEvidenceStaleRows,
+      localEvidenceMaxAgeHours: FEISHU_SMOKE_EVIDENCE_MAX_AGE_MS / (60 * 60 * 1000),
     },
     integrations: evidenceItems,
+  };
+}
+
+function filterFreshFeishuIntegrationEvidenceSource(
+  source: FeishuIntegrationEvidenceSource,
+): FeishuIntegrationEvidenceSource {
+  const localEvidenceFreshness = buildFeishuLocalEvidenceFreshnessSummary(source);
+  return {
+    ...source,
+    localEvidenceFreshness,
+    events: source.events.filter(hasFreshFeishuIntegrationEventEvidence),
+    messageMappings: source.messageMappings.filter((mapping) =>
+      hasFreshFeishuEvidenceTimestamp(mapping.createdAt)
+    ),
+    outbox: source.outbox.filter((item) =>
+      hasFreshFeishuEvidenceTimestamp(item.sentAt, item.updatedAt, item.createdAt)
+    ),
+    channelBindings: source.channelBindings.filter((binding) =>
+      hasFreshFeishuEvidenceTimestamp(binding.updatedAt, binding.createdAt)
+    ),
+    threadBindings: source.threadBindings.filter((binding) =>
+      hasFreshFeishuEvidenceTimestamp(binding.lastMessageAt, binding.updatedAt, binding.createdAt)
+    ),
+    dataOperations: source.dataOperations.filter((operation) =>
+      hasFreshFeishuEvidenceTimestamp(
+        operation.finishedAt,
+        operation.updatedAt,
+        operation.startedAt,
+        operation.createdAt,
+      )
+    ),
+  };
+}
+
+function buildFeishuLocalEvidenceFreshnessSummary(
+  source: FeishuIntegrationEvidenceSource,
+): FeishuLocalEvidenceFreshnessSummary {
+  const freshness = [
+    ...source.events.map(hasFreshFeishuIntegrationEventEvidence),
+    ...source.messageMappings.map((mapping) => hasFreshFeishuEvidenceTimestamp(mapping.createdAt)),
+    ...source.outbox.map((item) => hasFreshFeishuEvidenceTimestamp(item.sentAt, item.updatedAt, item.createdAt)),
+    ...source.channelBindings.map((binding) => hasFreshFeishuEvidenceTimestamp(binding.updatedAt, binding.createdAt)),
+    ...source.threadBindings.map((binding) =>
+      hasFreshFeishuEvidenceTimestamp(binding.lastMessageAt, binding.updatedAt, binding.createdAt)
+    ),
+    ...source.dataOperations.map((operation) =>
+      hasFreshFeishuEvidenceTimestamp(
+        operation.finishedAt,
+        operation.updatedAt,
+        operation.startedAt,
+        operation.createdAt,
+      )
+    ),
+  ];
+  const freshRows = freshness.filter(Boolean).length;
+  return {
+    totalRows: freshness.length,
+    freshRows,
+    staleRows: freshness.length - freshRows,
+    maxAgeHours: FEISHU_SMOKE_EVIDENCE_MAX_AGE_MS / (60 * 60 * 1000),
   };
 }
 
@@ -4424,6 +4521,7 @@ export function formatFeishuEvidenceCommandText(report: FeishuEvidenceReport): s
     `- data plane: ${formatFeishuCliYesNo(report.summary.workspaceDataPlaneSatisfied)} (${report.summary.dataPlaneSatisfiedCount})`,
     `- worker: ${formatFeishuCliYesNo(report.summary.workspaceWorkerSatisfied)} (${report.summary.workerSatisfiedCount})`,
     `- failure visibility: ${formatFeishuCliYesNo(report.summary.workspaceFailureVisible)} (${report.summary.failureVisibleCount})`,
+    `- local evidence freshness: scoped fresh=${report.summary.localEvidenceFreshRows}, staleIgnored=${report.summary.localEvidenceStaleRows}; workspace fresh=${report.summary.workspaceLocalEvidenceFreshRows}, staleIgnored=${report.summary.workspaceLocalEvidenceStaleRows}; maxAgeHours=${report.summary.localEvidenceMaxAgeHours}`,
     `- scoped all: ${formatFeishuCliYesNo(report.summary.scopedAllSatisfied)}`,
     `- workspace all: ${formatFeishuCliYesNo(report.summary.workspaceAllSatisfied)}`,
     "",
@@ -4441,6 +4539,7 @@ export function formatFeishuEvidenceCommandText(report: FeishuEvidenceReport): s
       lines.push(
         `- ${item.displayName} (${item.id}, ${item.transportMode})`,
         `  gates: bot=${formatFeishuCliYesNo(item.bot.satisfied)}, native=${formatFeishuCliYesNo(item.nativeExperience.satisfied)}, guest=${formatFeishuCliYesNo(item.guestPolicy.satisfied)}, data=${formatFeishuCliYesNo(item.dataPlane.satisfied)}, worker=${formatFeishuCliYesNo(item.worker.satisfied)}, failure=${formatFeishuCliYesNo(item.failureVisibility.satisfied)}`,
+        `  local evidence freshness: fresh=${item.localEvidenceFreshness.freshRows}, staleIgnored=${item.localEvidenceFreshness.staleRows}, maxAgeHours=${item.localEvidenceFreshness.maxAgeHours}`,
       );
       if (item.issues.length > 0) {
         lines.push(`  issues: ${item.issues.slice(0, 12).join(", ")}${item.issues.length > 12 ? ", ..." : ""}`);
@@ -5448,7 +5547,7 @@ export function buildFeishuSmokePlanReport(input: BuildFeishuSmokePlanReportInpu
         area: "failure",
         title: "Verify AgentSpace-side Feishu live smoke evidence",
         status: finalEvidenceReady ? "pending" : "blocked",
-        detail: "After live native agent bot, guest-policy, data-plane, worker when using websocket_worker, and failure smoke, verify local AgentSpace DB evidence without exposing external ids or resource tokens. Native evidence requires two Phase 6-ready agent bot bindings, agent-specific bot routing, auto-provisioning, multi-agent channel reuse, thread/task binding, thread continuation, thread collaboration with sent card proof, bot sender loop guard, and disabled-policy no-reply proof; guest evidence requires allow, reply_all, require_identity, sent identity-binding notice, ignore, and mention-required decisions. OpenAPI and bot-added artifacts must both be generated within 24 hours.",
+        detail: "After live native agent bot, guest-policy, data-plane, worker when using websocket_worker, and failure smoke, verify local AgentSpace DB evidence without exposing external ids or resource tokens. Native evidence requires two Phase 6-ready agent bot bindings, agent-specific bot routing, auto-provisioning, multi-agent channel reuse, thread/task binding, thread continuation, thread collaboration with sent card proof, bot sender loop guard, and disabled-policy no-reply proof; guest evidence requires allow, reply_all, require_identity, sent identity-binding notice, ignore, and mention-required decisions. Local AgentSpace evidence rows plus OpenAPI and bot-added artifacts must all be generated within 24 hours.",
         command: `agent-space integrations feishu evidence --workspace-id ${readiness.workspaceId} --integration ${setupIntegrationFlag} --openapi-evidence ${smokeHarness.evidencePath} --bot-added-payload-evidence ${smokeHarness.botAddedPayloadEvidencePath} --strict --require all`,
         issues: finalEvidenceIssues,
       },
@@ -5687,6 +5786,10 @@ function buildFeishuSmokePlanEvidenceGates(input: {
       required: FEISHU_FINAL_EVIDENCE_GATE_REQUIREMENTS.failureVisibility,
     },
     {
+      key: "agentspace_local_evidence",
+      required: "fresh_24h_agentspace_local_evidence_rows",
+    },
+    {
       key: "openapi_artifact",
       required: `fresh_24h_strict_live_artifact:${input.openApiEvidencePath}`,
     },
@@ -5744,6 +5847,7 @@ function buildFeishuIntegrationEvidence(input: {
   channelBindings: ExternalChannelBindingRecord[];
   threadBindings: ExternalThreadBindingRecord[];
   dataOperations: ExternalDataOperationRunRecord[];
+  localEvidenceFreshness?: FeishuLocalEvidenceFreshnessSummary;
 }): FeishuIntegrationEvidence {
   const processedInboundEvents = countFeishuProcessedInboundMessageEvents(input.events);
   const processedApprovalCardActions = countFeishuProcessedApprovalCardActionEvents(input.events);
@@ -5912,8 +6016,25 @@ function buildFeishuIntegrationEvidence(input: {
     providerFailureVisible &&
     healthFailureVisible &&
     agentBotFailureEvidence > 0;
+  const localEvidenceFreshness = input.localEvidenceFreshness ?? {
+    totalRows: input.events.length +
+      input.messageMappings.length +
+      input.outbox.length +
+      input.channelBindings.length +
+      input.threadBindings.length +
+      input.dataOperations.length,
+    freshRows: input.events.length +
+      input.messageMappings.length +
+      input.outbox.length +
+      input.channelBindings.length +
+      input.threadBindings.length +
+      input.dataOperations.length,
+    staleRows: 0,
+    maxAgeHours: FEISHU_SMOKE_EVIDENCE_MAX_AGE_MS / (60 * 60 * 1000),
+  };
   const issues = buildFeishuEvidenceIssues({
     integration: input.integration,
+    localEvidenceFreshness,
     botSatisfied,
     nativeExperienceSatisfied,
     guestPolicySatisfied,
@@ -5977,6 +6098,7 @@ function buildFeishuIntegrationEvidence(input: {
     id: input.integration.id,
     displayName: input.integration.displayName,
     transportMode: input.integration.transportMode,
+    localEvidenceFreshness,
     bot: {
       processedInboundEvents,
       inboundMessageMappings,
@@ -6575,6 +6697,7 @@ function buildFeishuShortHash(value: string): string {
 
 function buildFeishuEvidenceIssues(input: {
   integration: ExternalIntegrationRecord;
+  localEvidenceFreshness: FeishuLocalEvidenceFreshnessSummary;
   botSatisfied: boolean;
   nativeExperienceSatisfied: boolean;
   guestPolicySatisfied: boolean;
@@ -6631,6 +6754,9 @@ function buildFeishuEvidenceIssues(input: {
   const issues: string[] = [];
   if (input.integration.status !== "active") {
     issues.push("integration_not_active");
+  }
+  if (input.localEvidenceFreshness.totalRows > 0 && input.localEvidenceFreshness.freshRows === 0) {
+    issues.push("stale_local_evidence_rows_ignored");
   }
   if (!input.botSatisfied) {
     if (input.processedInboundEvents === 0) {
@@ -6847,6 +6973,13 @@ function mapFeishuEvidenceIssueToRemediationSpec(input: {
         stepId: "enable_agent_bot_binding",
         title: "Live smoke: use an active Feishu agent bot binding",
         detail: "Final evidence must be captured through an active AgentSpace Feishu agent bot binding. Re-enable the intended binding or create a fresh active agent bot binding before rerunning smoke-plan, live smoke, and the final evidence gate.",
+      };
+    case "stale_local_evidence_rows_ignored":
+      return {
+        stepId: "rerun_fresh_agentspace_live_smoke",
+        title: "Live smoke: rerun stale AgentSpace evidence steps",
+        detail: "The final evidence gate only counts local AgentSpace DB evidence rows from the last 24 hours. Rerun the native bot, guest-policy, data-plane, worker when using websocket_worker, and failure smoke steps, then rerun the final evidence gate.",
+        command: `agent-space integrations feishu smoke-plan --workspace-id ${input.workspaceId} --integration ${input.integration.id}`,
       };
     case "processed_inbound_event_missing":
     case "inbound_message_mapping_missing":
@@ -8771,6 +8904,17 @@ function readFeishuSmokeEvidenceGeneratedAtState(value: unknown): {
     valid: true,
     fresh: now - generatedAtMs <= FEISHU_SMOKE_EVIDENCE_MAX_AGE_MS,
   };
+}
+
+function hasFreshFeishuEvidenceTimestamp(...values: readonly unknown[]): boolean {
+  return values.some((value) => {
+    const state = readFeishuSmokeEvidenceGeneratedAtState(value);
+    return state.valid && state.fresh;
+  });
+}
+
+function hasFreshFeishuIntegrationEventEvidence(event: ExternalIntegrationEventRecord): boolean {
+  return hasFreshFeishuEvidenceTimestamp(event.processedAt, event.receivedAt);
 }
 
 interface FeishuWorkspaceEvidenceSatisfaction {

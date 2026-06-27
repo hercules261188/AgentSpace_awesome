@@ -274,6 +274,7 @@ export type FeishuIntegrationEvidenceGateKey =
   | "worker_card_action"
   | "data_plane"
   | "failure_visibility"
+  | "agentspace_local_evidence"
   | "openapi_artifact"
   | "bot_added_payload_artifact";
 

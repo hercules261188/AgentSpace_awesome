@@ -480,6 +480,10 @@ describe("Feishu settings data", () => {
           required: "provider_failure_row + degraded_or_error_health + agent_bot_failure_with_safe_context",
         },
         {
+          key: "agentspace_local_evidence",
+          required: "fresh_24h_agentspace_local_evidence_rows",
+        },
+        {
           key: "openapi_artifact",
           required: "fresh_24h_strict_live_artifact:runtime-output/feishu-smoke/live.json",
         },

@@ -1165,7 +1165,9 @@ describe("SettingsPageClient", () => {
     expect(within(evidenceGates).getByText("原生 Agent Bot 证据")).toBeInTheDocument();
     expect(within(evidenceGates).getByText("数据面证据")).toBeInTheDocument();
     expect(within(evidenceGates).getByText("失败可见证据")).toBeInTheDocument();
-    expect(within(evidenceGates).getByText("OpenAPI 证据")).toBeInTheDocument();
+    expect(within(evidenceGates).getByText("24 小时 AgentSpace 本地证据")).toBeInTheDocument();
+    expect(within(evidenceGates).getByText("24 小时 OpenAPI 证据")).toBeInTheDocument();
+    expect(within(evidenceGates).getByText("24 小时 Bot 进群 Payload 证据")).toBeInTheDocument();
     expect(within(evidenceGates).getByText("processed_inbound_with_safe_summary + sent_agent_bot_reply_outbox_with_safe_context + same_agent_bot_correlated_reply_mapping")).toBeInTheDocument();
     expect(within(evidenceGates).getByText(
       "bound_governed_doc_read + agent_runtime_doc_read_from_lark_cli_manifest + bound_approved_doc_write + bound_governed_sheet_read + bound_approved_sheet_write_with_agentspace_sync + bound_governed_base_read + bound_approved_base_mutation_with_agentspace_sync + user_actor + external_guest_actor + external_guest_read_guest_readable_current_channel + external_guest_bound_write_denied",
@@ -1173,6 +1175,7 @@ describe("SettingsPageClient", () => {
     expect(within(evidenceGates).getByText(
       "provider_failure_row + degraded_or_error_health + agent_bot_failure_with_safe_context",
     )).toBeInTheDocument();
+    expect(within(evidenceGates).getByText("fresh_24h_agentspace_local_evidence_rows")).toBeInTheDocument();
     const checklist = screen.getByLabelText("飞书联调清单");
     expect(within(checklist).getByText("回调路径")).toBeInTheDocument();
     expect(within(checklist).getByText("/api/integrations/feishu/events")).toBeInTheDocument();
@@ -1207,7 +1210,7 @@ describe("SettingsPageClient", () => {
     expect(screen.getByText(
       "npm run smoke:feishu -- --env-file scripts/feishu/.env --live --strict-live --evidence runtime-output/feishu-smoke/live.json --json --require-todo120-native",
     )).toBeInTheDocument();
-    expect(screen.getByText("校验 OpenAPI 证据")).toBeInTheDocument();
+    expect(screen.getByText("校验 24 小时 OpenAPI 证据")).toBeInTheDocument();
     expect(screen.getByText(
       "npm run smoke:feishu -- --verify-evidence runtime-output/feishu-smoke/live.json --json",
     )).toBeInTheDocument();
@@ -2027,8 +2030,16 @@ function buildFeishuSetupGuide(options: { agentBot?: boolean } = {}): NonNullabl
         required: "provider_failure_row + degraded_or_error_health + agent_bot_failure_with_safe_context",
       },
       {
+        key: "agentspace_local_evidence",
+        required: "fresh_24h_agentspace_local_evidence_rows",
+      },
+      {
         key: "openapi_artifact",
-        required: "strict_live_artifact:runtime-output/feishu-smoke/live.json",
+        required: "fresh_24h_strict_live_artifact:runtime-output/feishu-smoke/live.json",
+      },
+      {
+        key: "bot_added_payload_artifact",
+        required: "fresh_24h_bot_added_payload_artifact:runtime-output/feishu-smoke/bot-added-payload-evidence.json",
       },
     ],
     commands: {

@@ -55,6 +55,11 @@ const FEISHU_TEST_CREDENTIAL_ENCRYPTION_KEY = Buffer.alloc(32, 7).toString("base
 const FEISHU_TEST_LARK_CLI_RESULT_MANIFEST_RELATIVE_PATH = "runtime-output/feishu-data-operation-result.json";
 const FEISHU_TEST_CHAT_REFERENCE = "chat 1234567890abcdef";
 const FEISHU_OTHER_TEST_CHAT_REFERENCE = "chat fedcba0987654321";
+const STALE_FEISHU_EVIDENCE_TIMESTAMP = "2000-01-01T00:00:00.000Z";
+
+function freshFeishuEvidenceTimestamp(ageMs = 0): string {
+  return new Date(Date.now() - ageMs).toISOString();
+}
 
 test("integrations help documents Feishu worker deployment controls", async () => {
   const logs = await captureConsoleLog(async () => {
@@ -1333,6 +1338,11 @@ test("Feishu evidence report summarizes AgentSpace-side live smoke proof without
   assert.equal(report.summary.workspaceFailureVisible, true);
   assert.equal(report.summary.workspaceAllSatisfied, true);
   assert.equal(report.summary.scopedAllSatisfied, true);
+  assert.ok(report.summary.localEvidenceFreshRows > 0);
+  assert.equal(report.summary.localEvidenceStaleRows, 0);
+  assert.ok(report.summary.workspaceLocalEvidenceFreshRows >= report.summary.localEvidenceFreshRows);
+  assert.equal(report.summary.workspaceLocalEvidenceStaleRows, 0);
+  assert.equal(report.summary.localEvidenceMaxAgeHours, 24);
   const [item] = report.integrations;
   assert.equal(item?.bot.satisfied, true);
   assert.equal(item?.bot.inboundMessageMappings, 9);
@@ -5525,6 +5535,70 @@ test("Feishu evidence report rejects bot-added artifacts without Feishu event ti
   assert.ok(report.botAddedPayloadEvidence?.issues.includes("bot_added_payload_event_create_time_missing"));
 });
 
+test("Feishu evidence report ignores stale local AgentSpace proof rows", () => {
+  const staleInput = withStaleFeishuLocalEvidenceTimestamps(
+    withSecondActiveFeishuAgentBotEvidence(buildCompleteFeishuEvidenceInput()),
+  );
+  const report = buildFeishuEvidenceReport({
+    ...staleInput,
+    openApiEvidence: buildOpenApiEvidenceFixture(),
+    botAddedPayloadEvidence: buildBotAddedPayloadEvidenceFixture(),
+  });
+
+  assert.equal(report.strictSatisfied, false);
+  assert.equal(report.summary.workspaceBotSatisfied, false);
+  assert.equal(report.summary.workspaceNativeExperienceSatisfied, false);
+  assert.equal(report.summary.workspaceGuestPolicySatisfied, false);
+  assert.equal(report.summary.workspaceDataPlaneSatisfied, false);
+  assert.equal(report.summary.workspaceWorkerSatisfied, false);
+  assert.equal(report.summary.workspaceFailureVisible, false);
+  assert.equal(report.summary.localEvidenceFreshRows, 0);
+  assert.ok(report.summary.localEvidenceStaleRows > 0);
+  assert.equal(report.summary.workspaceLocalEvidenceFreshRows, 0);
+  assert.ok(report.summary.workspaceLocalEvidenceStaleRows >= report.summary.localEvidenceStaleRows);
+  assert.equal(report.summary.localEvidenceMaxAgeHours, 24);
+  const [item] = report.integrations;
+  assert.equal(item?.bot.processedInboundEvents, 0);
+  assert.equal(item?.bot.sentOutboxItems, 0);
+  assert.equal(item?.nativeExperience.autoProvisionedChannelBindings, 0);
+  assert.equal(item?.nativeExperience.threadTaskBindings, 0);
+  assert.equal(item?.dataPlane.docReadSucceeded, 0);
+  assert.equal(item?.localEvidenceFreshness.freshRows, 0);
+  assert.ok((item?.localEvidenceFreshness.staleRows ?? 0) > 0);
+  assert.ok(item?.issues.includes("stale_local_evidence_rows_ignored"));
+  assert.ok(item?.issues.includes("processed_inbound_event_missing"));
+  assert.ok(item?.issues.includes("sent_outbox_missing"));
+  assert.ok(item?.issues.includes("channel_auto_provision_evidence_missing"));
+  const output = formatFeishuEvidenceCommandText(report);
+  assert.match(output, /local evidence freshness: scoped fresh=0, staleIgnored=\d+; workspace fresh=0, staleIgnored=\d+; maxAgeHours=24/);
+  assert.match(output, /local evidence freshness: fresh=0, staleIgnored=\d+, maxAgeHours=24/);
+  assert.match(output, /rerun stale AgentSpace evidence steps/);
+});
+
+test("Feishu evidence report passes fresh local proof while summarizing ignored stale rows", () => {
+  const report = buildFeishuEvidenceReport({
+    ...withAdditionalStaleFeishuLocalEvidenceRows(
+      withSecondActiveFeishuAgentBotEvidence(buildCompleteFeishuEvidenceInput()),
+    ),
+    openApiEvidence: buildOpenApiEvidenceFixture(),
+    botAddedPayloadEvidence: buildBotAddedPayloadEvidenceFixture(),
+  });
+
+  assert.equal(report.strictSatisfied, true);
+  assert.equal(report.summary.workspaceAllSatisfied, true);
+  assert.equal(report.summary.scopedAllSatisfied, true);
+  assert.ok(report.summary.localEvidenceFreshRows > 0);
+  assert.ok(report.summary.localEvidenceStaleRows > 0);
+  assert.ok(report.summary.workspaceLocalEvidenceFreshRows >= report.summary.localEvidenceFreshRows);
+  assert.ok(report.summary.workspaceLocalEvidenceStaleRows >= report.summary.localEvidenceStaleRows);
+  const [item] = report.integrations;
+  assert.equal(item?.bot.satisfied, true);
+  assert.ok((item?.localEvidenceFreshness.freshRows ?? 0) > 0);
+  assert.ok((item?.localEvidenceFreshness.staleRows ?? 0) > 0);
+  const output = formatFeishuEvidenceCommandText(report);
+  assert.match(output, /local evidence freshness: scoped fresh=\d+, staleIgnored=[1-9]\d*; workspace fresh=\d+, staleIgnored=[1-9]\d*; maxAgeHours=24/);
+});
+
 test("Feishu evidence report blocks strict gates when local proof is incomplete", () => {
   const report = buildFeishuEvidenceReport({
     workspaceId: "workspace-1",
@@ -8159,6 +8233,10 @@ test("Feishu smoke plan converts readiness into live smoke checklist without ext
       required: "provider_failure_row + degraded_or_error_health + agent_bot_failure_with_safe_context",
     },
     {
+      key: "agentspace_local_evidence",
+      required: "fresh_24h_agentspace_local_evidence_rows",
+    },
+    {
       key: "openapi_artifact",
       required: "fresh_24h_strict_live_artifact:runtime-output/feishu-smoke/live.json",
     },
@@ -8637,6 +8715,7 @@ test("Feishu smoke plan blocks live smoke steps when local prerequisites are mis
     "guest_policy",
     "data_plane",
     "failure_visibility",
+    "agentspace_local_evidence",
     "openapi_artifact",
     "bot_added_payload_artifact",
   ]);
@@ -8757,6 +8836,7 @@ test("Feishu smoke plan treats disabled integrations as unavailable for live smo
     "guest_policy",
     "data_plane",
     "failure_visibility",
+    "agentspace_local_evidence",
     "openapi_artifact",
     "bot_added_payload_artifact",
   ]);
@@ -9244,6 +9324,109 @@ function mergeFeishuEvidenceInputs(
   } as ReturnType<typeof buildCompleteFeishuEvidenceInput>;
 }
 
+function withStaleFeishuLocalEvidenceTimestamps(
+  input: ReturnType<typeof buildCompleteFeishuEvidenceInput>,
+) {
+  const clone = JSON.parse(JSON.stringify(input)) as ReturnType<typeof buildCompleteFeishuEvidenceInput>;
+  for (const events of Object.values(clone.eventsByIntegrationId)) {
+    for (const event of events as Array<Record<string, unknown>>) {
+      event.receivedAt = STALE_FEISHU_EVIDENCE_TIMESTAMP;
+      if (typeof event.processedAt === "string") {
+        event.processedAt = STALE_FEISHU_EVIDENCE_TIMESTAMP;
+      }
+    }
+  }
+  for (const mappings of Object.values(clone.messageMappingsByIntegrationId)) {
+    for (const mapping of mappings as Array<Record<string, unknown>>) {
+      mapping.createdAt = STALE_FEISHU_EVIDENCE_TIMESTAMP;
+    }
+  }
+  for (const outbox of Object.values(clone.outboxByIntegrationId)) {
+    for (const item of outbox as Array<Record<string, unknown>>) {
+      item.createdAt = STALE_FEISHU_EVIDENCE_TIMESTAMP;
+      item.updatedAt = STALE_FEISHU_EVIDENCE_TIMESTAMP;
+      if (typeof item.sentAt === "string") {
+        item.sentAt = STALE_FEISHU_EVIDENCE_TIMESTAMP;
+      }
+    }
+  }
+  for (const channelBindings of Object.values(clone.channelBindingsByIntegrationId)) {
+    for (const binding of channelBindings as Array<Record<string, unknown>>) {
+      binding.createdAt = STALE_FEISHU_EVIDENCE_TIMESTAMP;
+      binding.updatedAt = STALE_FEISHU_EVIDENCE_TIMESTAMP;
+    }
+  }
+  for (const threadBindings of Object.values(clone.threadBindingsByIntegrationId)) {
+    for (const binding of threadBindings as Array<Record<string, unknown>>) {
+      binding.lastMessageAt = STALE_FEISHU_EVIDENCE_TIMESTAMP;
+      binding.createdAt = STALE_FEISHU_EVIDENCE_TIMESTAMP;
+      binding.updatedAt = STALE_FEISHU_EVIDENCE_TIMESTAMP;
+    }
+  }
+  for (const operations of Object.values(clone.dataOperationsByIntegrationId)) {
+    for (const operation of operations as Array<Record<string, unknown>>) {
+      operation.startedAt = STALE_FEISHU_EVIDENCE_TIMESTAMP;
+      if (typeof operation.finishedAt === "string") {
+        operation.finishedAt = STALE_FEISHU_EVIDENCE_TIMESTAMP;
+      }
+      operation.createdAt = STALE_FEISHU_EVIDENCE_TIMESTAMP;
+      operation.updatedAt = STALE_FEISHU_EVIDENCE_TIMESTAMP;
+    }
+  }
+  return clone;
+}
+
+function withAdditionalStaleFeishuLocalEvidenceRows(
+  input: ReturnType<typeof buildCompleteFeishuEvidenceInput>,
+) {
+  const clone = JSON.parse(JSON.stringify(input)) as ReturnType<typeof buildCompleteFeishuEvidenceInput>;
+  const stale = withStaleFeishuLocalEvidenceTimestamps(input);
+  const appendStaleRows = (
+    target: Record<string, never[]>,
+    source: Record<string, never[]>,
+    integrationId: string,
+  ) => {
+    target[integrationId] = [
+      ...(target[integrationId] ?? []),
+      ...(source[integrationId] ?? []),
+    ];
+  };
+  for (const integration of clone.integrations as Array<{ id: string }>) {
+    const integrationId = integration.id;
+    appendStaleRows(
+      clone.eventsByIntegrationId as Record<string, never[]>,
+      stale.eventsByIntegrationId as Record<string, never[]>,
+      integrationId,
+    );
+    appendStaleRows(
+      clone.messageMappingsByIntegrationId as Record<string, never[]>,
+      stale.messageMappingsByIntegrationId as Record<string, never[]>,
+      integrationId,
+    );
+    appendStaleRows(
+      clone.outboxByIntegrationId as Record<string, never[]>,
+      stale.outboxByIntegrationId as Record<string, never[]>,
+      integrationId,
+    );
+    appendStaleRows(
+      clone.channelBindingsByIntegrationId as Record<string, never[]>,
+      stale.channelBindingsByIntegrationId as Record<string, never[]>,
+      integrationId,
+    );
+    appendStaleRows(
+      clone.threadBindingsByIntegrationId as Record<string, never[]>,
+      stale.threadBindingsByIntegrationId as Record<string, never[]>,
+      integrationId,
+    );
+    appendStaleRows(
+      clone.dataOperationsByIntegrationId as Record<string, never[]>,
+      stale.dataOperationsByIntegrationId as Record<string, never[]>,
+      integrationId,
+    );
+  }
+  return clone;
+}
+
 function withSecondActiveFeishuAgentBotEvidence(
   input: ReturnType<typeof buildCompleteFeishuEvidenceInput>,
   options: {
@@ -9354,8 +9537,8 @@ function buildMessageMapping(
     taskQueueId: direction === "inbound" ? "task-1" : undefined,
     routerSessionId: direction === "inbound" ? "router-1" : undefined,
     createdAt: direction === "outbound"
-      ? "2026-06-24T00:00:02.000Z"
-      : "2026-06-24T00:00:01.000Z",
+      ? freshFeishuEvidenceTimestamp(2000)
+      : freshFeishuEvidenceTimestamp(1000),
     ...(direction === "inbound"
       ? {
         metadataJson: JSON.stringify({
@@ -9529,7 +9712,7 @@ function buildExternalGuestReplyAllMapping(integrationId: string) {
       agentBotMentioned: false,
       threadBindingId: `thread-${integrationId}`,
     }),
-    createdAt: "2026-06-24T00:00:01.000Z",
+    createdAt: freshFeishuEvidenceTimestamp(1000),
   } as never;
 }
 
@@ -9561,7 +9744,7 @@ function buildThreadContinuationMapping(integrationId: string) {
       threadBindingId: `thread-${integrationId}`,
       threadContinuation: true,
     }),
-    createdAt: "2026-06-24T00:00:03.000Z",
+    createdAt: freshFeishuEvidenceTimestamp(3000),
   } as never;
 }
 
@@ -9594,7 +9777,7 @@ function buildAgentChannelPolicyDeniedMapping(integrationId: string) {
       botBindingId: integrationId,
       agentBotMentioned: true,
     }),
-    createdAt: "2026-06-24T00:00:01.000Z",
+    createdAt: freshFeishuEvidenceTimestamp(1000),
   } as never;
 }
 
@@ -9620,7 +9803,7 @@ function buildBotSenderLoopGuardMapping(integrationId: string) {
       botBindingId: integrationId,
       agentBotMentioned: false,
     }),
-    createdAt: "2026-06-24T00:00:01.000Z",
+    createdAt: freshFeishuEvidenceTimestamp(1000),
   } as never;
 }
 
@@ -9661,7 +9844,7 @@ function buildPolicyBlockedMessageMapping(
       botBindingId: integrationId,
       agentBotMentioned: input.reasonCode !== "feishu_external_guest_bot_mention_required",
     }),
-    createdAt: "2026-06-24T00:00:01.000Z",
+    createdAt: freshFeishuEvidenceTimestamp(1000),
   } as never;
 }
 
@@ -9745,9 +9928,9 @@ function buildThreadBinding(
           }
         : {}),
     }),
-    lastMessageAt: "2026-06-24T00:00:01.000Z",
-    createdAt: "2026-06-24T00:00:00.000Z",
-    updatedAt: "2026-06-24T00:00:00.000Z",
+    lastMessageAt: freshFeishuEvidenceTimestamp(1000),
+    createdAt: freshFeishuEvidenceTimestamp(),
+    updatedAt: freshFeishuEvidenceTimestamp(),
   } as never;
 }
 
@@ -9948,8 +10131,8 @@ function buildIntegrationRecord(overrides: Record<string, unknown> = {}) {
     configJson: "{}",
     capabilitiesJson: "{}",
     scopesJson: JSON.stringify(FEISHU_TEST_SCOPES),
-    createdAt: "2026-06-24T00:00:00.000Z",
-    updatedAt: "2026-06-24T00:00:00.000Z",
+    createdAt: freshFeishuEvidenceTimestamp(),
+    updatedAt: freshFeishuEvidenceTimestamp(),
     ...overrides,
   } as never;
 }
@@ -9964,8 +10147,8 @@ function buildChannelBinding(integrationId: string, overrides: Record<string, un
     status: "active",
     syncMode: "mirror",
     metadataJson: "{}",
-    createdAt: "2026-06-24T00:00:00.000Z",
-    updatedAt: "2026-06-24T00:00:00.000Z",
+    createdAt: freshFeishuEvidenceTimestamp(),
+    updatedAt: freshFeishuEvidenceTimestamp(),
     ...overrides,
   } as never;
 }
@@ -9979,8 +10162,8 @@ function buildUserBinding(integrationId: string) {
     externalUserId: "ou_secret",
     status: "active",
     metadataJson: "{}",
-    createdAt: "2026-06-24T00:00:00.000Z",
-    updatedAt: "2026-06-24T00:00:00.000Z",
+    createdAt: freshFeishuEvidenceTimestamp(),
+    updatedAt: freshFeishuEvidenceTimestamp(),
   } as never;
 }
 
@@ -9996,8 +10179,8 @@ function buildResourceBinding(integrationId: string, providerResourceType: strin
     status: "active",
     permissionsJson: JSON.stringify({ canRead: true, canWrite: true }),
     metadataJson: defaultFeishuResourceBindingMetadataJson(providerResourceType, providerResourceToken),
-    createdAt: "2026-06-24T00:00:00.000Z",
-    updatedAt: "2026-06-24T00:00:00.000Z",
+    createdAt: freshFeishuEvidenceTimestamp(),
+    updatedAt: freshFeishuEvidenceTimestamp(),
   } as never;
 }
 
@@ -10072,9 +10255,9 @@ function buildOutboxItem(
     status,
     attempts: 1,
     lastError: status === "sent" ? undefined : "provider error",
-    createdAt: "2026-06-24T00:00:00.000Z",
-    updatedAt: "2026-06-24T00:00:00.000Z",
-    sentAt: status === "sent" ? "2026-06-24T00:00:01.000Z" : undefined,
+    createdAt: freshFeishuEvidenceTimestamp(),
+    updatedAt: freshFeishuEvidenceTimestamp(),
+    sentAt: status === "sent" ? freshFeishuEvidenceTimestamp(1000) : undefined,
   } as never;
 }
 
@@ -10155,9 +10338,9 @@ function buildIntegrationEvent(
     status,
     payloadJson: JSON.stringify(payload),
     errorMessage: status === "failed" ? "provider error" : undefined,
-    receivedAt: "2026-06-24T00:00:00.000Z",
+    receivedAt: freshFeishuEvidenceTimestamp(),
     processedAt: status === "processed" || status === "failed" || status === "ignored"
-      ? "2026-06-24T00:00:01.000Z"
+      ? freshFeishuEvidenceTimestamp(1000)
       : undefined,
   } as never;
 }
@@ -10412,12 +10595,12 @@ function buildDataOperationRun(
       : {}),
     errorCode: status === "failed" ? options.errorCode ?? "provider_error" : undefined,
     errorMessage: status === "failed" ? options.errorMessage ?? "provider error for doccn_secret" : undefined,
-    startedAt: "2026-06-24T00:00:00.000Z",
+    startedAt: freshFeishuEvidenceTimestamp(),
     finishedAt: status === "succeeded" || status === "failed" || status === "cancelled"
-      ? "2026-06-24T00:00:01.000Z"
+      ? freshFeishuEvidenceTimestamp(1000)
       : undefined,
-    createdAt: "2026-06-24T00:00:00.000Z",
-    updatedAt: "2026-06-24T00:00:00.000Z",
+    createdAt: freshFeishuEvidenceTimestamp(),
+    updatedAt: freshFeishuEvidenceTimestamp(),
   } as never;
 }
 
