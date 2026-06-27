@@ -4614,28 +4614,30 @@ export function buildFeishuSmokePlanReport(input: BuildFeishuSmokePlanReportInpu
     requiredReadiness: "bot",
     integrations: sourceIntegrations,
   });
-  const botCandidate = selectFeishuReadinessCandidate(readiness.integrations, "bot");
-  const dataPlaneCandidate = selectFeishuReadinessCandidate(readiness.integrations, "data-plane");
-  const workerCandidate = selectFeishuReadinessCandidate(readiness.integrations, "worker");
-  const setupCandidate = botCandidate ?? dataPlaneCandidate ?? readiness.integrations[0];
   const hasIntegration = readiness.integrationCount > 0;
-  const hasConfiguredAppCredentials = readiness.integrations.some((item) =>
+  const activeReadinessItems = readiness.integrations.filter((item) => item.status === "active");
+  const hasActiveIntegration = activeReadinessItems.length > 0;
+  const botCandidate = selectFeishuReadinessCandidate(activeReadinessItems, "bot");
+  const dataPlaneCandidate = selectFeishuReadinessCandidate(activeReadinessItems, "data-plane");
+  const workerCandidate = selectFeishuReadinessCandidate(activeReadinessItems, "worker");
+  const setupCandidate = botCandidate ?? dataPlaneCandidate ?? activeReadinessItems[0];
+  const hasConfiguredAppCredentials = activeReadinessItems.some((item) =>
     item.appConfigured && item.credentialsConfigured
   );
-  const hasHealthChecked = readiness.integrations.some((item) => item.healthStatus !== "unknown");
-  const hasBotAndDataPlaneScopes = readiness.integrations.some((item) =>
+  const hasHealthChecked = activeReadinessItems.some((item) => item.healthStatus !== "unknown");
+  const hasBotAndDataPlaneScopes = activeReadinessItems.some((item) =>
     item.scopes.missingForBotSmoke.length === 0 &&
     item.scopes.missingForDataPlaneSmoke.length === 0
   );
-  const hasChannelBinding = readiness.integrations.some((item) => item.channelBindings.active > 0);
-  const hasUserBinding = readiness.integrations.some((item) => item.userBindings.active > 0);
-  const hasAnyDocBinding = readiness.integrations.some((item) => item.resourceBindings.doc > 0);
-  const hasDocBinding = readiness.integrations.some((item) => item.resourceBindings.docWritable > 0);
-  const hasAnySheetBinding = readiness.integrations.some((item) => item.resourceBindings.sheet > 0);
-  const hasSheetBinding = readiness.integrations.some((item) => item.resourceBindings.sheetWritable > 0);
-  const hasAnyBaseBinding = readiness.integrations.some((item) => item.resourceBindings.base > 0);
-  const hasBaseReadyBinding = readiness.integrations.some((item) => item.resourceBindings.baseReady > 0);
-  const hasBaseBinding = readiness.integrations.some((item) => item.resourceBindings.baseWritable > 0);
+  const hasChannelBinding = activeReadinessItems.some((item) => item.channelBindings.active > 0);
+  const hasUserBinding = activeReadinessItems.some((item) => item.userBindings.active > 0);
+  const hasAnyDocBinding = activeReadinessItems.some((item) => item.resourceBindings.doc > 0);
+  const hasDocBinding = activeReadinessItems.some((item) => item.resourceBindings.docWritable > 0);
+  const hasAnySheetBinding = activeReadinessItems.some((item) => item.resourceBindings.sheet > 0);
+  const hasSheetBinding = activeReadinessItems.some((item) => item.resourceBindings.sheetWritable > 0);
+  const hasAnyBaseBinding = activeReadinessItems.some((item) => item.resourceBindings.base > 0);
+  const hasBaseReadyBinding = activeReadinessItems.some((item) => item.resourceBindings.baseReady > 0);
+  const hasBaseBinding = activeReadinessItems.some((item) => item.resourceBindings.baseWritable > 0);
   const readyForBot = readiness.readyForBotSmokeCount > 0;
   const readyForDataPlane = readiness.readyForDataPlaneSmokeCount > 0;
   const nativeAgentBotReadiness = buildFeishuNativeAgentBotSmokeReadiness({
@@ -4646,15 +4648,15 @@ export function buildFeishuSmokePlanReport(input: BuildFeishuSmokePlanReportInpu
   const hasSecondAgentBot = nativeAgentBotReadiness.ready;
   const webSocketCandidate = workerCandidate?.transportMode === "websocket_worker"
     ? workerCandidate
-    : readiness.integrations.find((item) => item.transportMode === "websocket_worker");
+    : activeReadinessItems.find((item) => item.transportMode === "websocket_worker");
   const readyForWorkerSmoke = readiness.readyForWorkerSmokeCount > 0;
   const botIssues = botCandidate?.issues ?? [];
   const dataPlaneIssues = dataPlaneCandidate?.issues ?? [];
   const workerIssues = readyForWorkerSmoke
     ? []
     : buildFeishuWorkerSmokeIssues(webSocketCandidate, botIssues);
-  const missingBotScopes = uniqueStrings(readiness.integrations.flatMap((item) => item.scopes.missingForBotSmoke));
-  const missingDataPlaneScopes = uniqueStrings(readiness.integrations.flatMap((item) =>
+  const missingBotScopes = uniqueStrings(activeReadinessItems.flatMap((item) => item.scopes.missingForBotSmoke));
+  const missingDataPlaneScopes = uniqueStrings(activeReadinessItems.flatMap((item) =>
     item.scopes.missingForDataPlaneSmoke
   ));
   const smokeHarness = buildFeishuSmokeHarnessSummary({
@@ -4678,8 +4680,11 @@ export function buildFeishuSmokePlanReport(input: BuildFeishuSmokePlanReportInpu
   const credentialEncryptionIssues = credentialEncryptionReady
     ? []
     : [runtimeSetup.credentialEncryption.issue ?? `credential_encryption_${runtimeSetup.credentialEncryption.status}`];
+  const activeIntegrationIssues = hasActiveIntegration
+    ? []
+    : [hasIntegration ? "integration_not_active" : "integration_missing"];
   const evidenceGates = buildFeishuSmokePlanEvidenceGates({
-    hasWebSocketIntegration: readiness.integrations.some((item) => item.transportMode === "websocket_worker"),
+    hasWebSocketIntegration: activeReadinessItems.some((item) => item.transportMode === "websocket_worker"),
     openApiEvidencePath: smokeHarness.evidencePath,
     botAddedPayloadEvidencePath: smokeHarness.botAddedPayloadEvidencePath,
   });
@@ -4689,10 +4694,13 @@ export function buildFeishuSmokePlanReport(input: BuildFeishuSmokePlanReportInpu
     integrationId: dataPlaneIntegrationFlag,
   });
   const sourceIntegrationsById = new Map(sourceIntegrations.map((integration) => [integration.id, integration]));
-  const agentChannelAccessCandidate = nativeAgentBotReadinessSource.integrations.find((item) =>
+  const activeNativeAgentBotReadinessItems = nativeAgentBotReadinessSource.integrations.filter((item) =>
+    item.status === "active"
+  );
+  const agentChannelAccessCandidate = activeNativeAgentBotReadinessItems.find((item) =>
     hasNonEmptyString(item.agentId) &&
     isFeishuNativeAgentBotSmokeReady(item, sourceIntegrationsById.get(item.id))
-  ) ?? nativeAgentBotReadinessSource.integrations.find((item) => hasNonEmptyString(item.agentId));
+  ) ?? activeNativeAgentBotReadinessItems.find((item) => hasNonEmptyString(item.agentId));
   const externalGuestPolicyCommands = buildFeishuExternalGuestPolicySmokeCommands({
     workspaceId: readiness.workspaceId,
     integrationId: botCandidate?.id ?? setupIntegrationFlag,
@@ -4761,79 +4769,91 @@ export function buildFeishuSmokePlanReport(input: BuildFeishuSmokePlanReportInpu
         id: "bind_feishu_agent_bot",
         area: "setup",
         title: "Bind one AgentSpace agent to its Feishu bot",
-        status: hasIntegration ? "done" : credentialEncryptionReady ? "pending" : "blocked",
-        detail: hasIntegration
-          ? `Found ${readiness.integrationCount} Feishu integration/bot binding record(s) in this workspace.`
+        status: hasActiveIntegration ? "done" : credentialEncryptionReady ? "pending" : "blocked",
+        detail: hasActiveIntegration
+          ? `Found ${activeReadinessItems.length} active Feishu integration/bot binding record(s) in this workspace.`
+          : hasIntegration
+            ? "Feishu integration/bot binding records exist, but none are active. Re-enable the intended agent bot binding or bind a fresh active bot before live smoke."
           : "Create a Feishu custom app for a specific AgentSpace agent, then bind it with App ID + App Secret. WebSocket worker is the default quick start; EventCallback verification token/encrypt key stay in advanced setup.",
         command: hasIntegration
-          ? undefined
+          ? hasActiveIntegration
+            ? undefined
+            : `agent-space integrations feishu bind-agent-bot --workspace-id ${readiness.workspaceId} --agent ${FEISHU_CLI_PLACEHOLDERS.agentName} --env-file scripts/feishu/.env --app-id-env FEISHU_APP_ID --app-secret-env FEISHU_APP_SECRET --json`
           : `agent-space integrations feishu bind-agent-bot --workspace-id ${readiness.workspaceId} --agent ${FEISHU_CLI_PLACEHOLDERS.agentName} --env-file scripts/feishu/.env --app-id-env FEISHU_APP_ID --app-secret-env FEISHU_APP_SECRET --json`,
-        issues: hasIntegration ? [] : credentialEncryptionIssues,
+        issues: hasActiveIntegration
+          ? []
+          : hasIntegration
+            ? uniqueStrings(["integration_not_active", ...credentialEncryptionIssues])
+            : credentialEncryptionIssues,
       },
       {
         id: "configure_app_credentials",
         area: "setup",
         title: "Configure agent bot app credentials",
-        status: prereqStatus(hasIntegration, hasConfiguredAppCredentials),
+        status: prereqStatus(hasActiveIntegration, hasConfiguredAppCredentials),
         detail: hasConfiguredAppCredentials
           ? "AgentSpace has a Feishu app id plus required secret configuration for at least one agent bot binding."
           : "For quick start, save only App ID and App Secret on the agent bot binding. Add verification token and encrypt key only when using EventCallback.",
-        issues: collectSetupIssues(setupCandidate, ["app_id_missing", "credentials_incomplete"]),
+        issues: hasActiveIntegration
+          ? collectSetupIssues(setupCandidate, ["app_id_missing", "credentials_incomplete"])
+          : activeIntegrationIssues,
       },
       {
         id: "configure_bot_events_and_scopes",
         area: "setup",
         title: "Configure bot events and required scopes",
-        status: prereqStatus(hasIntegration, hasBotAndDataPlaneScopes),
+        status: prereqStatus(hasActiveIntegration, hasBotAndDataPlaneScopes),
         detail: "Enable im.message.receive_v1, im.chat.member.bot.added_v1, bot permissions, and Docs/Sheets/Base scopes in Feishu Open Platform.",
-        issues: hasIntegration
+        issues: hasActiveIntegration
           ? [...missingBotScopes, ...missingDataPlaneScopes].map((scope) => `missing_scope:${scope}`)
-          : ["integration_missing"],
+          : activeIntegrationIssues,
       },
       {
         id: "check_connection_health",
         area: "setup",
         title: "Run AgentSpace health check",
-        status: prereqStatus(hasIntegration, hasHealthChecked),
+        status: prereqStatus(hasActiveIntegration, hasHealthChecked),
         detail: "Run Test connection in settings or the readiness CLI so manual smoke is not attempted against unknown health.",
         command: `agent-space integrations feishu readiness --workspace-id ${readiness.workspaceId} --json`,
-        issues: collectSetupIssues(setupCandidate, ["health_not_checked", "health_error", "health_degraded"]),
+        issues: hasActiveIntegration
+          ? collectSetupIssues(setupCandidate, ["health_not_checked", "health_error", "health_degraded"])
+          : activeIntegrationIssues,
       },
       {
         id: "prepare_live_smoke_env",
         area: "setup",
         title: "Prepare isolated Feishu smoke env file",
-        status: hasIntegration ? "pending" : "blocked",
+        status: hasActiveIntegration ? "pending" : "blocked",
         detail: "Copy the checked-in template, fill it with disposable Feishu smoke resources, and keep the resulting env file out of git.",
         command: smokeHarness.prepareEnvCommand,
-        issues: hasIntegration ? [] : ["integration_missing"],
+        issues: activeIntegrationIssues,
       },
       {
         id: "check_live_smoke_env",
         area: "setup",
         title: "Check isolated Feishu smoke env file",
-        status: hasIntegration ? "pending" : "blocked",
+        status: hasActiveIntegration ? "pending" : "blocked",
         detail: "Validate that the live smoke env has real app, callback, IM, Docs, Sheets, and Base values before calling Feishu.",
         command: smokeHarness.checkEnvCommand,
-        issues: hasIntegration ? [] : ["integration_missing"],
+        issues: activeIntegrationIssues,
       },
       {
         id: "bind_feishu_chat",
         area: "bot",
         title: "Manual fallback: bind Feishu group to an AgentSpace channel",
-        status: prereqStatus(hasIntegration, hasChannelBinding),
+        status: prereqStatus(hasActiveIntegration, hasChannelBinding),
         detail: "TODO120's primary path is automatic: adding the agent bot to a Feishu group should create or reuse the AgentSpace channel. Use this manual binding only as a fallback when auto-provisioning is disabled or under admin review.",
         command: `agent-space integrations feishu bind-channel --workspace-id ${readiness.workspaceId} --integration ${setupIntegrationFlag} --channel ${FEISHU_CLI_PLACEHOLDERS.agentSpaceChannel} --chat-id ${FEISHU_CLI_PLACEHOLDERS.feishuChatId} --json`,
-        issues: collectSetupIssues(botCandidate, ["channel_binding_missing"]),
+        issues: hasActiveIntegration ? collectSetupIssues(botCandidate, ["channel_binding_missing"]) : activeIntegrationIssues,
       },
       {
         id: "bind_feishu_user",
         area: "bot",
         title: "Bind Feishu user to an AgentSpace user",
-        status: prereqStatus(hasIntegration, hasUserBinding),
+        status: prereqStatus(hasActiveIntegration, hasUserBinding),
         detail: "Bind the Feishu sender to a workspace member so inbound messages remain governed by AgentSpace permissions.",
         command: `agent-space integrations feishu bind-user --workspace-id ${readiness.workspaceId} --integration ${setupIntegrationFlag} --user-id ${FEISHU_CLI_PLACEHOLDERS.agentSpaceUserId} --open-id ${FEISHU_CLI_PLACEHOLDERS.feishuOpenId} --json`,
-        issues: collectSetupIssues(botCandidate, ["user_binding_missing"]),
+        issues: hasActiveIntegration ? collectSetupIssues(botCandidate, ["user_binding_missing"]) : activeIntegrationIssues,
       },
       {
         id: "run_bot_readiness_gate",
@@ -4866,26 +4886,26 @@ export function buildFeishuSmokePlanReport(input: BuildFeishuSmokePlanReportInpu
         id: "live_agent_bot_channel_auto_provision",
         area: "bot",
         title: "Live smoke: agent bot auto-provisions channel",
-        status: hasIntegration ? "pending" : "blocked",
+        status: hasActiveIntegration ? "pending" : "blocked",
         detail: "Add the agent's Feishu bot to a new Feishu group and verify AgentSpace creates or binds the channel automatically with provisionSource=bot_added, safe chat reference metadata, agent membership, and a confirmation card.",
-        issues: hasIntegration ? [] : ["integration_missing"],
+        issues: activeIntegrationIssues,
       },
       {
         id: "verify_real_bot_added_payload_sample",
         area: "bot",
         title: "Verify real Feishu bot-added callback payload shape",
-        status: hasIntegration ? "pending" : "blocked",
+        status: hasActiveIntegration ? "pending" : "blocked",
         detail: "Save one raw bot-added callback JSON from the disposable Feishu tenant/app under runtime-output, then run the offline verifier. It must recognize the event as bot-added, resolve the chat descriptor, and print only safe field sources, hashes, references, lengths, and booleans without raw Feishu ids or group names.",
         command: smokeHarness.verifyBotAddedPayloadCommand,
-        issues: hasIntegration ? [] : ["integration_missing"],
+        issues: activeIntegrationIssues,
       },
       {
         id: "live_agent_bot_first_message_auto_provision",
         area: "bot",
         title: "Live smoke: first mentioned message provisions channel",
-        status: hasIntegration ? "pending" : "blocked",
+        status: hasActiveIntegration ? "pending" : "blocked",
         detail: "In a Feishu group that has no AgentSpace channel binding yet, send the first message mentioning the concrete agent bot. Verify AgentSpace records provisionSource=first_message, creates or binds the channel according to policy, and does not require a /agent command.",
-        issues: hasIntegration ? [] : ["integration_missing"],
+        issues: activeIntegrationIssues,
       },
       {
         id: "bind_second_feishu_agent_bot",
@@ -5159,10 +5179,10 @@ export function buildFeishuSmokePlanReport(input: BuildFeishuSmokePlanReportInpu
         id: "live_failure_visibility",
         area: "failure",
         title: "Live smoke: verify visible provider failure",
-        status: hasIntegration ? "pending" : "blocked",
+        status: hasActiveIntegration ? "pending" : "blocked",
         detail: "Temporarily revoke a Feishu scope, use a wrong secret, or stop Feishu API access, then refresh health and verify a failed outbox/data-operation row plus degraded/error health are visible with agent/bot and safe chat/resource context, without leaking secrets.",
         command: `agent-space integrations feishu health-check --workspace-id ${readiness.workspaceId} --integration ${setupIntegrationFlag} --json`,
-        issues: hasIntegration ? [] : ["integration_missing"],
+        issues: activeIntegrationIssues,
       },
       {
         id: "verify_agentspace_live_evidence",
@@ -5386,12 +5406,15 @@ function buildFeishuIntegrationEvidence(input: {
   const failedDataOperations = input.dataOperations.filter((operation) => operation.status === "failed").length;
   const failedDataOperationAgentBotEvidence = countFeishuFailedDataOperationAgentBotEvidence(input.dataOperations);
   const agentBotFailureEvidence = failedOutboxAgentBotEvidence + failedDataOperationAgentBotEvidence;
-  const botSatisfied = processedInboundEvents > 0 &&
+  const integrationActive = input.integration.status === "active";
+  const botSatisfied = integrationActive &&
+    processedInboundEvents > 0 &&
     sentOutboxItems > 0 &&
     inboundMessageMappings > 0 &&
     outboundMessageMappings > 0 &&
     correlatedReplyMappings > 0;
-  const nativeExperienceSatisfied = agentBotRouteEvidence > 0 &&
+  const nativeExperienceSatisfied = integrationActive &&
+    agentBotRouteEvidence > 0 &&
     nativeBotReplyEvidence > 0 &&
     boundUserMentionEvidence > 0 &&
     externalGuestMentionEvidence > 0 &&
@@ -5405,13 +5428,15 @@ function buildFeishuIntegrationEvidence(input: {
     threadContinuationEvidence > 0 &&
     threadCollaborationEvidence > 0 &&
     threadCollaborationCardEvidence > 0;
-  const guestPolicySatisfied = externalGuestAllowedEvidence > 0 &&
+  const guestPolicySatisfied = integrationActive &&
+    externalGuestAllowedEvidence > 0 &&
     externalGuestReplyAllEvidence > 0 &&
     externalGuestRequireIdentityEvidence > 0 &&
     externalGuestIdentityBindingNoticeEvidence > 0 &&
     externalGuestIgnoreEvidence > 0 &&
     externalGuestMentionRequiredEvidence > 0;
-  const dataPlaneSatisfied = docReadSucceeded > 0 &&
+  const dataPlaneSatisfied = integrationActive &&
+    docReadSucceeded > 0 &&
     agentDocReadSucceeded > 0 &&
     docApprovedWritesSucceeded > 0 &&
     sheetReadSucceeded > 0 &&
@@ -5426,12 +5451,16 @@ function buildFeishuIntegrationEvidence(input: {
   const workerRestartRecoverySatisfied = correlatedReplyMappings >= requiredWorkerCorrelatedReplies;
   const workerApprovalCardActionSatisfied = input.integration.transportMode !== "websocket_worker" ||
     processedApprovalCardActions > 0;
-  const workerSatisfied = input.integration.transportMode === "websocket_worker" &&
+  const workerSatisfied = integrationActive &&
+    input.integration.transportMode === "websocket_worker" &&
     botSatisfied &&
     workerRestartRecoverySatisfied &&
     workerApprovalCardActionSatisfied;
   const providerFailureVisible = failedOutboxItems > 0 || failedDataOperations > 0;
-  const failureSatisfied = providerFailureVisible && healthFailureVisible && agentBotFailureEvidence > 0;
+  const failureSatisfied = integrationActive &&
+    providerFailureVisible &&
+    healthFailureVisible &&
+    agentBotFailureEvidence > 0;
   const issues = buildFeishuEvidenceIssues({
     integration: input.integration,
     botSatisfied,
@@ -5993,6 +6022,9 @@ function buildFeishuEvidenceIssues(input: {
   agentBotFailureEvidence: number;
 }): string[] {
   const issues: string[] = [];
+  if (input.integration.status !== "active") {
+    issues.push("integration_not_active");
+  }
   if (!input.botSatisfied) {
     if (input.processedInboundEvents === 0) {
       issues.push("processed_inbound_event_missing");
@@ -6203,6 +6235,12 @@ function mapFeishuEvidenceIssueToRemediationSpec(input: {
   });
 
   switch (input.issue) {
+    case "integration_not_active":
+      return {
+        stepId: "enable_agent_bot_binding",
+        title: "Live smoke: use an active Feishu agent bot binding",
+        detail: "Final evidence must be captured through an active AgentSpace Feishu agent bot binding. Re-enable the intended binding or create a fresh active agent bot binding before rerunning smoke-plan, live smoke, and the final evidence gate.",
+      };
     case "processed_inbound_event_missing":
     case "inbound_message_mapping_missing":
     case "sent_outbox_missing":
@@ -7204,6 +7242,8 @@ function verifyFeishuOpenApiSmokeEvidence(input: {
     issues.push("openapi_app_identity_missing");
   } else if (!hasFeishuSha256HashEvidence(appIdentity.appIdHash)) {
     issues.push("openapi_app_identity_app_id_hash_missing");
+  } else if (input.expectedIdentityProofs && input.expectedIdentityProofs.length === 0) {
+    issues.push("openapi_app_identity_active_integration_missing");
   } else if ((input.expectedIdentityProofs?.length ?? 0) > 0) {
     matchedIdentityProof = input.expectedIdentityProofs?.find((proof) => proof.appIdHash === appIdentity.appIdHash);
     if (!matchedIdentityProof) {
@@ -7215,6 +7255,11 @@ function verifyFeishuOpenApiSmokeEvidence(input: {
       appIdentity.tenantKeyHash !== matchedIdentityProof.tenantKeyHash
     ) {
       issues.push("openapi_app_identity_tenant_key_mismatch");
+    } else if (
+      !matchedIdentityProof.tenantKeyHash &&
+      (appIdentity.tenantKeyPresent === true || hasFeishuSha256HashEvidence(appIdentity.tenantKeyHash))
+    ) {
+      issues.push("openapi_app_identity_tenant_key_unexpected");
     }
   }
   if (!todo120NativeSmoke) {
@@ -7341,7 +7386,9 @@ function verifyFeishuOpenApiSmokeEvidence(input: {
       tenantKeyHashPresent: hasFeishuSha256HashEvidence(appIdentity?.tenantKeyHash),
       tenantKeyMatched: Boolean(
         matchedIdentityProof &&
-          (!matchedIdentityProof.tenantKeyHash || appIdentity?.tenantKeyHash === matchedIdentityProof.tenantKeyHash),
+          (matchedIdentityProof.tenantKeyHash
+            ? appIdentity?.tenantKeyHash === matchedIdentityProof.tenantKeyHash
+            : appIdentity?.tenantKeyPresent !== true && !hasFeishuSha256HashEvidence(appIdentity?.tenantKeyHash)),
       ),
       todo120NativeSmokeReady: todo120NativeSmoke?.ready === true,
       todo120NativeSmokeRequiredForCommand: todo120NativeSmoke?.requiredForCommand === true,
@@ -7459,6 +7506,8 @@ function verifyFeishuBotAddedPayloadEvidence(input: {
     }
     if (!hasFeishuSha256HashEvidence(summary.appIdHash)) {
       issues.push("bot_added_payload_app_id_hash_missing");
+    } else if (input.expectedIdentityProofs && input.expectedIdentityProofs.length === 0) {
+      issues.push("bot_added_payload_active_integration_missing");
     } else if ((input.expectedIdentityProofs?.length ?? 0) > 0) {
       matchedIdentityProof = input.expectedIdentityProofs?.find((proof) => proof.appIdHash === summary.appIdHash);
       if (!matchedIdentityProof) {
@@ -7470,6 +7519,11 @@ function verifyFeishuBotAddedPayloadEvidence(input: {
         summary.tenantKeyHash !== matchedIdentityProof.tenantKeyHash
       ) {
         issues.push("bot_added_payload_tenant_key_mismatch");
+      } else if (
+        !matchedIdentityProof.tenantKeyHash &&
+        (summary.tenantKeyPresent === true || hasFeishuSha256HashEvidence(summary.tenantKeyHash))
+      ) {
+        issues.push("bot_added_payload_tenant_key_unexpected");
       }
     }
     if (summary.rawPayloadStored !== false) {
@@ -7509,7 +7563,9 @@ function verifyFeishuBotAddedPayloadEvidence(input: {
           tenantKeyHashPresent: hasFeishuSha256HashEvidence(summary.tenantKeyHash),
           tenantKeyMatched: Boolean(
             matchedIdentityProof &&
-              (!matchedIdentityProof.tenantKeyHash || summary.tenantKeyHash === matchedIdentityProof.tenantKeyHash),
+              (matchedIdentityProof.tenantKeyHash
+                ? summary.tenantKeyHash === matchedIdentityProof.tenantKeyHash
+                : summary.tenantKeyPresent !== true && !hasFeishuSha256HashEvidence(summary.tenantKeyHash)),
           ),
           chatDescriptorPresent: summary.chatDescriptorPresent === true,
           ...(hasNonEmptyString(summary.chatIdSource) ? { chatIdSource: summary.chatIdSource } : {}),
@@ -7646,6 +7702,9 @@ function buildFeishuExpectedBotAddedPayloadIdentityProofs(
     if (input.integrationId && integration.id !== input.integrationId) {
       continue;
     }
+    if (integration.status !== "active") {
+      continue;
+    }
     if (!hasNonEmptyString(integration.appId)) {
       continue;
     }
@@ -7709,39 +7768,43 @@ function buildFeishuWorkspaceEvidenceSatisfaction(
     requiredNativeIntegrationId?: string;
   } = {},
 ): FeishuWorkspaceEvidenceSatisfaction {
-  const botSatisfied = items.some((item) => item.bot.satisfied);
-  const nativeExperienceSatisfied = hasFeishuWorkspaceNativeExperienceEvidence(sources, {
+  const activeSources = sources.filter((source) => source.integration.status === "active");
+  const activeIntegrationIds = new Set(activeSources.map((source) => source.integration.id));
+  const activeItems = items.filter((item) => activeIntegrationIds.has(item.id));
+  const botSatisfied = activeItems.some((item) => item.bot.satisfied);
+  const nativeExperienceSatisfied = hasFeishuWorkspaceNativeExperienceEvidence(activeSources, {
     requiredIntegrationId: options.requiredNativeIntegrationId,
   });
-  const guestPolicySatisfied = sumFeishuEvidenceCounts(items, (item) =>
+  const guestPolicySatisfied = sumFeishuEvidenceCounts(activeItems, (item) =>
     item.guestPolicy.externalGuestAllowedEvidence
   ) > 0 &&
-    sumFeishuEvidenceCounts(items, (item) => item.guestPolicy.externalGuestReplyAllEvidence) > 0 &&
-    sumFeishuEvidenceCounts(items, (item) => item.guestPolicy.externalGuestRequireIdentityEvidence) > 0 &&
-    sumFeishuEvidenceCounts(items, (item) =>
+    sumFeishuEvidenceCounts(activeItems, (item) => item.guestPolicy.externalGuestReplyAllEvidence) > 0 &&
+    sumFeishuEvidenceCounts(activeItems, (item) => item.guestPolicy.externalGuestRequireIdentityEvidence) > 0 &&
+    sumFeishuEvidenceCounts(activeItems, (item) =>
       item.guestPolicy.externalGuestIdentityBindingNoticeEvidence
     ) > 0 &&
-    sumFeishuEvidenceCounts(items, (item) => item.guestPolicy.externalGuestIgnoreEvidence) > 0 &&
-    sumFeishuEvidenceCounts(items, (item) => item.guestPolicy.externalGuestMentionRequiredEvidence) > 0;
-  const dataPlaneSatisfied = sumFeishuEvidenceCounts(items, (item) => item.dataPlane.docReadSucceeded) > 0 &&
-    sumFeishuEvidenceCounts(items, (item) => item.dataPlane.agentDocReadSucceeded) > 0 &&
-    sumFeishuEvidenceCounts(items, (item) => item.dataPlane.docApprovedWritesSucceeded) > 0 &&
-    sumFeishuEvidenceCounts(items, (item) => item.dataPlane.sheetReadSucceeded) > 0 &&
-    sumFeishuEvidenceCounts(items, (item) => item.dataPlane.sheetApprovedWriteSyncSucceeded) > 0 &&
-    sumFeishuEvidenceCounts(items, (item) => item.dataPlane.baseReadSucceeded) > 0 &&
-    sumFeishuEvidenceCounts(items, (item) => item.dataPlane.baseApprovedMutationSyncSucceeded) > 0 &&
-    sumFeishuEvidenceCounts(items, (item) => item.dataPlane.userActorEvidence) > 0 &&
-    sumFeishuEvidenceCounts(items, (item) => item.dataPlane.externalGuestActorEvidence) > 0 &&
-    sumFeishuEvidenceCounts(items, (item) => item.dataPlane.externalGuestReadSucceeded) > 0 &&
-    sumFeishuEvidenceCounts(items, (item) => item.dataPlane.externalGuestWriteDeniedEvidence) > 0;
-  const hasWebSocketWorkerIntegration = items.some((item) => item.transportMode === "websocket_worker");
-  const workerSatisfied = hasWebSocketWorkerIntegration
-    ? items.some((item) => item.worker.satisfied)
-    : true;
-  const failureVisibilitySatisfied = items.some((item) => item.failureVisibility.satisfied);
-  const allSatisfied = items.some((item) =>
+    sumFeishuEvidenceCounts(activeItems, (item) => item.guestPolicy.externalGuestIgnoreEvidence) > 0 &&
+    sumFeishuEvidenceCounts(activeItems, (item) => item.guestPolicy.externalGuestMentionRequiredEvidence) > 0;
+  const dataPlaneSatisfied = sumFeishuEvidenceCounts(activeItems, (item) => item.dataPlane.docReadSucceeded) > 0 &&
+    sumFeishuEvidenceCounts(activeItems, (item) => item.dataPlane.agentDocReadSucceeded) > 0 &&
+    sumFeishuEvidenceCounts(activeItems, (item) => item.dataPlane.docApprovedWritesSucceeded) > 0 &&
+    sumFeishuEvidenceCounts(activeItems, (item) => item.dataPlane.sheetReadSucceeded) > 0 &&
+    sumFeishuEvidenceCounts(activeItems, (item) => item.dataPlane.sheetApprovedWriteSyncSucceeded) > 0 &&
+    sumFeishuEvidenceCounts(activeItems, (item) => item.dataPlane.baseReadSucceeded) > 0 &&
+    sumFeishuEvidenceCounts(activeItems, (item) => item.dataPlane.baseApprovedMutationSyncSucceeded) > 0 &&
+    sumFeishuEvidenceCounts(activeItems, (item) => item.dataPlane.userActorEvidence) > 0 &&
+    sumFeishuEvidenceCounts(activeItems, (item) => item.dataPlane.externalGuestActorEvidence) > 0 &&
+    sumFeishuEvidenceCounts(activeItems, (item) => item.dataPlane.externalGuestReadSucceeded) > 0 &&
+    sumFeishuEvidenceCounts(activeItems, (item) => item.dataPlane.externalGuestWriteDeniedEvidence) > 0;
+  const hasWebSocketWorkerIntegration = activeItems.some((item) => item.transportMode === "websocket_worker");
+  const workerSatisfied = activeItems.length > 0 &&
+    (hasWebSocketWorkerIntegration
+      ? activeItems.some((item) => item.worker.satisfied)
+      : true);
+  const failureVisibilitySatisfied = activeItems.some((item) => item.failureVisibility.satisfied);
+  const allSatisfied = activeItems.some((item) =>
     isFeishuEvidenceSatisfiedExceptNative(item) &&
-    hasFeishuWorkspaceNativeExperienceEvidence(sources, {
+    hasFeishuWorkspaceNativeExperienceEvidence(activeSources, {
       requiredIntegrationId: item.id,
     })
   );

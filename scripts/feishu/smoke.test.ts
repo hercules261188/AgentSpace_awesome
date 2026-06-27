@@ -973,6 +973,7 @@ test("check-env accepts a complete strict live smoke env without printing resour
   writeFileSync(envPath, [
     "FEISHU_APP_ID=cli_ready_secret",
     "FEISHU_APP_SECRET=app_secret_ready",
+    "FEISHU_TENANT_KEY=tenant_ready",
     "FEISHU_VERIFICATION_TOKEN=verify_secret_ready",
     "FEISHU_SMOKE_CALLBACK_URL=https://agent.test/api/integrations/feishu/events?workspaceId=workspace-1&integrationId=feishu-1",
     "FEISHU_SMOKE_CHAT_ID=oc_secret_ready",
@@ -1000,6 +1001,7 @@ test("check-env accepts a complete strict live smoke env without printing resour
         ready: number;
         missing: number;
         invalid: number;
+        optionalConfigured: number;
       };
       todo120NativeSmoke: {
         ready: boolean;
@@ -1010,12 +1012,25 @@ test("check-env accepts a complete strict live smoke env without printing resour
       };
       missingRequired: string[];
       invalidRequired: unknown[];
+      items: Array<{
+        key: string;
+        required: boolean;
+        status: string;
+      }>;
     };
     assert.equal(output.ready, true);
     assert.equal(output.summary.required, 15);
     assert.equal(output.summary.ready, 15);
     assert.equal(output.summary.missing, 0);
     assert.equal(output.summary.invalid, 0);
+    assert.equal(output.summary.optionalConfigured, 1);
+    assert.deepEqual(output.items.find((item) => item.key === "FEISHU_TENANT_KEY"), {
+      group: "optional",
+      key: "FEISHU_TENANT_KEY",
+      required: false,
+      status: "ready",
+      note: "Optional tenant key saved on the AgentSpace integration; strict-live evidence stores only its hash.",
+    });
     assert.equal(output.todo120NativeSmoke.ready, false);
     assert.equal(output.todo120NativeSmoke.required, 2);
     assert.equal(output.todo120NativeSmoke.configured, 0);
@@ -1026,6 +1041,7 @@ test("check-env accepts a complete strict live smoke env without printing resour
     assert.deepEqual(output.missingRequired, []);
     assert.deepEqual(output.invalidRequired, []);
     assert.equal(result.stdout.includes("cli_ready_secret"), false);
+    assert.equal(result.stdout.includes("tenant_ready"), false);
     assert.equal(result.stdout.includes("verify_secret_ready"), false);
     assert.equal(result.stdout.includes("oc_secret_ready"), false);
     assert.equal(result.stdout.includes("doccn_secret_ready"), false);
@@ -1323,6 +1339,11 @@ test("check-env rejects checked-in placeholder smoke env values", () => {
       key: string;
       reason: string;
     }>;
+    items: Array<{
+      key: string;
+      status: string;
+      reason?: string;
+    }>;
   };
   assert.equal(output.ready, false);
   assert.ok(output.invalidRequired.some((item) =>
@@ -1331,6 +1352,7 @@ test("check-env rejects checked-in placeholder smoke env values", () => {
   assert.ok(output.invalidRequired.some((item) =>
     item.key === "FEISHU_SMOKE_CHAT_ID" && item.reason === "placeholder_value"
   ));
+  assert.equal(output.items.find((item) => item.key === "FEISHU_TENANT_KEY")?.status, "optional");
   assert.equal(result.stdout.includes("cli_xxx"), false);
   assert.equal(result.stdout.includes("oc_xxx"), false);
   assert.equal(result.stdout.includes("doccn_xxx"), false);
@@ -1343,6 +1365,7 @@ test("check-env rejects smoke-env generated CHANGE_ME placeholders while accepti
   writeFileSync(envPath, [
     "FEISHU_APP_ID=CHANGE_ME_FEISHU_APP_ID",
     "FEISHU_APP_SECRET=CHANGE_ME_FEISHU_APP_SECRET",
+    "FEISHU_TENANT_KEY=tenant_xxx",
     "FEISHU_VERIFICATION_TOKEN=CHANGE_ME_FEISHU_VERIFICATION_TOKEN",
     `FEISHU_SMOKE_CALLBACK_URL=${callbackUrl}`,
     "FEISHU_SMOKE_CHAT_ID=CHANGE_ME_FEISHU_CHAT_ID",
@@ -1480,6 +1503,7 @@ test("strict live smoke rejects placeholder env before network calls without exp
   writeFileSync(envPath, [
     "FEISHU_APP_ID=CHANGE_ME_FEISHU_APP_ID",
     "FEISHU_APP_SECRET=CHANGE_ME_FEISHU_APP_SECRET",
+    "FEISHU_TENANT_KEY=tenant_xxx",
     "FEISHU_VERIFICATION_TOKEN=CHANGE_ME_FEISHU_VERIFICATION_TOKEN",
     `FEISHU_SMOKE_CALLBACK_URL=${callbackUrl}`,
     "FEISHU_SMOKE_CHAT_ID=CHANGE_ME_FEISHU_CHAT_ID",
@@ -1511,12 +1535,59 @@ test("strict live smoke rejects placeholder env before network calls without exp
     assert.equal(output.errorCode, "feishu.smoke.live_env_not_ready");
     assert.equal(output.reason, "invalid_env");
     assert.ok(output.envNames.includes("FEISHU_APP_SECRET"));
+    assert.ok(output.envNames.includes("FEISHU_TENANT_KEY"));
     assert.ok(output.envNames.includes("FEISHU_SMOKE_BASE_RECORD_ID"));
     assert.ok(!output.envNames.includes("FEISHU_SMOKE_CALLBACK_URL"));
     assert.match(output.errorMessage, /Run --check-env/);
     assert.equal(result.stdout.includes("CHANGE_ME_FEISHU_APP_SECRET"), false);
+    assert.equal(result.stdout.includes("tenant_xxx"), false);
     assert.equal(result.stdout.includes("CHANGE_ME_BASE_RECORD_ID"), false);
     assert.equal(result.stdout.includes(callbackUrl), false);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("strict live smoke rejects placeholder tenant key before network calls", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "agentspace-feishu-live-placeholder-tenant-"));
+  const envPath = join(directory, ".env");
+  const callbackUrl = "https://agent.test/api/integrations/feishu/events?workspaceId=workspace-1&integrationId=feishu-1";
+  writeFileSync(envPath, [
+    "FEISHU_APP_ID=cli_ready_secret",
+    "FEISHU_APP_SECRET=app_secret_ready",
+    "FEISHU_TENANT_KEY=tenant_xxx",
+    "FEISHU_VERIFICATION_TOKEN=verify_secret_ready",
+    `FEISHU_SMOKE_CALLBACK_URL=${callbackUrl}`,
+    "FEISHU_SMOKE_CHAT_ID=oc_secret_ready",
+    "FEISHU_SMOKE_DOC_TOKEN=doccn_secret_ready",
+    "FEISHU_SMOKE_DOC_PARENT_BLOCK_ID=blk_secret_ready",
+    "FEISHU_SMOKE_DOC_APPEND_BLOCKS_JSON=[{\"block_type\":2,\"text\":{\"elements\":[{\"text_run\":{\"content\":\"AgentSpace smoke\"}}]}}]",
+    "FEISHU_SMOKE_SHEET_TOKEN=shtcn_secret_ready",
+    "FEISHU_SMOKE_SHEET_WRITE_RANGE=Sheet1!A1:B1",
+    "FEISHU_SMOKE_SHEET_WRITE_VALUES_JSON=[[\"AgentSpace smoke\"]]",
+    "FEISHU_SMOKE_BASE_APP_TOKEN=app_secret_ready",
+    "FEISHU_SMOKE_BASE_TABLE_ID=tbl_secret_ready",
+    "FEISHU_SMOKE_BASE_RECORD_ID=rec_secret_ready",
+    "FEISHU_SMOKE_BASE_UPDATE_FIELDS_JSON={\"Smoke\":\"AgentSpace\"}",
+    "",
+  ].join("\n"), "utf8");
+
+  try {
+    const result = await runSmokeLiveWithEnvFile(envPath, ["--strict-live"]);
+
+    assert.equal(result.status, 1);
+    const output = JSON.parse(result.stdout) as {
+      ok: boolean;
+      errorCode: string;
+      envNames: string[];
+      reason: string;
+    };
+    assert.equal(output.ok, false);
+    assert.equal(output.errorCode, "feishu.smoke.live_env_not_ready");
+    assert.equal(output.reason, "invalid_env");
+    assert.deepEqual(output.envNames, ["FEISHU_TENANT_KEY"]);
+    assert.equal(result.stdout.includes("tenant_xxx"), false);
+    assert.equal(result.stdout.includes("cli_ready_secret"), false);
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }

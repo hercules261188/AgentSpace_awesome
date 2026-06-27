@@ -1220,6 +1220,12 @@ const LIVE_SMOKE_ENV_CHECKS: Array<{
     note: "Feishu app secret used to fetch a tenant access token.",
   },
   {
+    group: "optional",
+    key: "FEISHU_TENANT_KEY",
+    required: false,
+    note: "Optional tenant key saved on the AgentSpace integration; strict-live evidence stores only its hash.",
+  },
+  {
     group: "callback",
     key: "FEISHU_VERIFICATION_TOKEN",
     required: true,
@@ -1468,7 +1474,12 @@ function assertLiveSmokeEnvReadyForNetwork(
   });
   const invalidEnvNames = report.items
     .filter((item) => item.status === "invalid")
-    .filter((item) => item.required || item.key === "FEISHU_API_BASE_URL" || item.key === "FEISHU_SMOKE_SHEET_RANGE")
+    .filter((item) =>
+      item.required ||
+      item.key === "FEISHU_API_BASE_URL" ||
+      item.key === "FEISHU_SMOKE_SHEET_RANGE" ||
+      item.key === "FEISHU_TENANT_KEY"
+    )
     .map((item) => item.key)
     .sort();
   if (invalidEnvNames.length > 0) {
