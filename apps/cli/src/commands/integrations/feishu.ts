@@ -700,12 +700,14 @@ export interface FeishuOpenApiSmokeEvidenceVerification {
     appIdentityPresent: boolean;
     appIdHashPresent: boolean;
     appIdentityMatched: boolean;
+    matchedIntegrationId?: string;
     tenantKeyHashPresent: boolean;
     tenantKeyMatched: boolean;
     todo120NativeSmokeReady: boolean;
     todo120NativeSmokeRequiredForCommand: boolean;
     todo120NativeSmokeRequired: number;
     todo120NativeSmokeConfigured: number;
+    todo120NativeSmokeSecondAgentAppIdHashPresent: boolean;
   };
 }
 
@@ -721,6 +723,7 @@ export interface FeishuBotAddedPayloadEvidenceVerification {
     appIdPresent: boolean;
     appIdHashPresent: boolean;
     appIdentityMatched: boolean;
+    matchedIntegrationId?: string;
     tenantKeyPresent: boolean;
     tenantKeyHashPresent: boolean;
     tenantKeyMatched: boolean;
@@ -802,6 +805,7 @@ interface FeishuIntegrationEvidenceSource {
 }
 
 interface FeishuExpectedCallbackRouteProof {
+  integrationId: string;
   callbackRoute: string;
   callbackRouteFingerprint: string;
 }
@@ -810,6 +814,17 @@ interface FeishuExpectedBotAddedPayloadIdentityProof {
   integrationId: string;
   appIdHash: string;
   tenantKeyHash?: string;
+}
+
+interface FeishuExpectedBotAddedPayloadChatReferenceProof {
+  integrationId: string;
+  chatReference: string;
+}
+
+interface FeishuExpectedTodo120NativeSecondAgentAppProof {
+  anchorIntegrationId: string;
+  secondIntegrationId: string;
+  appIdHash: string;
 }
 
 interface BuildFeishuSmokeEnvTemplateReportInput {
@@ -4263,17 +4278,17 @@ export function buildFeishuEvidenceReport(input: BuildFeishuEvidenceReportInput)
     workspaceEvidence,
     scopedIntegrationId: input.integrationId,
   });
-  const expectedCallbackRouteProof = input.integrationId
-    ? buildFeishuExpectedCallbackRouteProof({
-      workspaceId: input.workspaceId,
-      integrationId: input.integrationId,
-    })
-    : undefined;
   const expectedArtifactIdentityIntegrationIds = buildFeishuExpectedEvidenceArtifactIntegrationIds({
     requiredEvidence,
     scopedIntegrationId: input.integrationId,
     evidenceItems: allEvidenceItems,
     evidenceSources,
+  });
+  const expectedCallbackRouteProofs = buildFeishuExpectedEvidenceCallbackRouteProofs({
+    workspaceId: input.workspaceId,
+    requiredEvidence,
+    scopedIntegrationId: input.integrationId,
+    anchorIntegrationIds: expectedArtifactIdentityIntegrationIds,
   });
   const expectedBotAddedPayloadIdentityProofs = buildFeishuExpectedBotAddedPayloadIdentityProofs(
     sourceIntegrations,
@@ -4288,19 +4303,26 @@ export function buildFeishuEvidenceReport(input: BuildFeishuEvidenceReportInput)
     evidenceSources,
     anchorIntegrationIds: expectedArtifactIdentityIntegrationIds,
   });
+  const expectedTodo120NativeSecondAgentAppProofs = buildFeishuExpectedTodo120NativeSecondAgentAppProofs({
+    requiredEvidence,
+    scopedIntegrationId: input.integrationId,
+    evidenceSources,
+    anchorIntegrationIds: expectedArtifactIdentityIntegrationIds,
+  });
   const openApiEvidence = requiredEvidence === "all" || input.openApiEvidencePath || input.openApiEvidence !== undefined
     ? verifyFeishuOpenApiSmokeEvidence({
       evidencePath: input.openApiEvidencePath,
       evidence: input.openApiEvidence,
-      expectedCallbackRouteProof,
+      expectedCallbackRouteProofs,
       expectedIdentityProofs: expectedBotAddedPayloadIdentityProofs,
+      expectedSecondAgentAppProofs: expectedTodo120NativeSecondAgentAppProofs,
       remediationContext: {
         workspaceId: input.workspaceId,
         integrationId: input.integrationId,
       },
     })
     : undefined;
-  const botAddedPayloadEvidence = requiredEvidence === "all" ||
+  const rawBotAddedPayloadEvidence = requiredEvidence === "all" ||
     input.botAddedPayloadEvidencePath ||
     input.botAddedPayloadEvidence !== undefined
     ? verifyFeishuBotAddedPayloadEvidence({
@@ -4314,15 +4336,25 @@ export function buildFeishuEvidenceReport(input: BuildFeishuEvidenceReportInput)
       },
     })
     : undefined;
+  const artifactAnchorConsistency = reconcileFeishuArtifactAnchorConsistency({
+    openApiEvidence,
+    botAddedPayloadEvidence: rawBotAddedPayloadEvidence,
+    remediationContext: {
+      workspaceId: input.workspaceId,
+      integrationId: input.integrationId,
+    },
+  });
+  const finalOpenApiEvidence = artifactAnchorConsistency.openApiEvidence;
+  const botAddedPayloadEvidence = artifactAnchorConsistency.botAddedPayloadEvidence;
 
   return {
     workspaceId: input.workspaceId,
     requiredEvidence,
     integrationCount: evidenceItems.length,
     strictSatisfied: agentSpaceStrictSatisfied &&
-      (!openApiEvidence || openApiEvidence.valid) &&
+      (!finalOpenApiEvidence || finalOpenApiEvidence.valid) &&
       (!botAddedPayloadEvidence || botAddedPayloadEvidence.valid),
-    ...(openApiEvidence ? { openApiEvidence } : {}),
+    ...(finalOpenApiEvidence ? { openApiEvidence: finalOpenApiEvidence } : {}),
     ...(botAddedPayloadEvidence ? { botAddedPayloadEvidence } : {}),
     summary: {
       botSatisfiedCount: evidenceItems.filter((item) => item.bot.satisfied).length,
@@ -4345,6 +4377,62 @@ export function buildFeishuEvidenceReport(input: BuildFeishuEvidenceReportInput)
       }),
     },
     integrations: evidenceItems,
+  };
+}
+
+function reconcileFeishuArtifactAnchorConsistency(input: {
+  openApiEvidence?: FeishuOpenApiSmokeEvidenceVerification;
+  botAddedPayloadEvidence?: FeishuBotAddedPayloadEvidenceVerification;
+  remediationContext?: {
+    workspaceId: string;
+    integrationId?: string;
+  };
+}): {
+  openApiEvidence?: FeishuOpenApiSmokeEvidenceVerification;
+  botAddedPayloadEvidence?: FeishuBotAddedPayloadEvidenceVerification;
+} {
+  const openApiMatchedIntegrationId = input.openApiEvidence?.summary?.matchedIntegrationId;
+  const botAddedMatchedIntegrationId = input.botAddedPayloadEvidence?.summary?.matchedIntegrationId;
+  if (
+    !input.openApiEvidence ||
+    !input.botAddedPayloadEvidence ||
+    !openApiMatchedIntegrationId ||
+    !botAddedMatchedIntegrationId ||
+    openApiMatchedIntegrationId === botAddedMatchedIntegrationId
+  ) {
+    return {
+      openApiEvidence: input.openApiEvidence,
+      botAddedPayloadEvidence: input.botAddedPayloadEvidence,
+    };
+  }
+
+  const openApiIssues = uniqueStrings([
+    ...input.openApiEvidence.issues,
+    "openapi_bot_added_payload_anchor_mismatch",
+  ]);
+  const botAddedIssues = uniqueStrings([
+    ...input.botAddedPayloadEvidence.issues,
+    "bot_added_payload_openapi_anchor_mismatch",
+  ]);
+  return {
+    openApiEvidence: {
+      ...input.openApiEvidence,
+      valid: false,
+      issues: openApiIssues,
+      remediationSteps: buildFeishuOpenApiEvidenceRemediationSteps({
+        issues: openApiIssues,
+        context: input.remediationContext,
+      }),
+    },
+    botAddedPayloadEvidence: {
+      ...input.botAddedPayloadEvidence,
+      valid: false,
+      issues: botAddedIssues,
+      remediationSteps: buildFeishuBotAddedPayloadEvidenceRemediationSteps({
+        issues: botAddedIssues,
+        context: input.remediationContext,
+      }),
+    },
   };
 }
 
@@ -5751,6 +5839,66 @@ function hasFeishuPayloadHashEvidence(value: unknown): boolean {
 
 function hasFeishuSha256HashEvidence(value: unknown): value is string {
   return hasNonEmptyString(value) && /^[a-f0-9]{64}$/i.test(value.trim());
+}
+
+function matchFeishuExpectedIdentityProof(
+  proofs: readonly FeishuExpectedBotAddedPayloadIdentityProof[],
+  evidence: Record<string, unknown>,
+): {
+  appMatchedProof?: FeishuExpectedBotAddedPayloadIdentityProof;
+  fullMatchedProof?: FeishuExpectedBotAddedPayloadIdentityProof;
+  tenantIssue?: "tenant_key_hash_missing" | "tenant_key_mismatch" | "tenant_key_unexpected";
+} {
+  if (!hasFeishuSha256HashEvidence(evidence.appIdHash)) {
+    return {};
+  }
+  const appMatchedProofs = proofs.filter((proof) => proof.appIdHash === evidence.appIdHash);
+  if (appMatchedProofs.length === 0) {
+    return {};
+  }
+  const fullMatchedProof = appMatchedProofs.find((proof) =>
+    readFeishuMatchedIdentityIntegrationId(proof, evidence) === proof.integrationId
+  );
+  if (fullMatchedProof) {
+    return {
+      appMatchedProof: fullMatchedProof,
+      fullMatchedProof,
+    };
+  }
+
+  const evidenceTenantPresent = evidence.tenantKeyPresent === true ||
+    hasFeishuSha256HashEvidence(evidence.tenantKeyHash);
+  if (!evidenceTenantPresent && appMatchedProofs.some((proof) => proof.tenantKeyHash)) {
+    return {
+      appMatchedProof: appMatchedProofs[0],
+      tenantIssue: "tenant_key_hash_missing",
+    };
+  }
+  if (evidenceTenantPresent && appMatchedProofs.every((proof) => !proof.tenantKeyHash)) {
+    return {
+      appMatchedProof: appMatchedProofs[0],
+      tenantIssue: "tenant_key_unexpected",
+    };
+  }
+  return {
+    appMatchedProof: appMatchedProofs[0],
+    tenantIssue: "tenant_key_mismatch",
+  };
+}
+
+function readFeishuMatchedIdentityIntegrationId(
+  proof: FeishuExpectedBotAddedPayloadIdentityProof | undefined,
+  evidence: unknown,
+): string | undefined {
+  if (!proof || !isRecord(evidence)) {
+    return undefined;
+  }
+  if (proof.tenantKeyHash) {
+    return evidence.tenantKeyHash === proof.tenantKeyHash ? proof.integrationId : undefined;
+  }
+  return evidence.tenantKeyPresent !== true && !hasFeishuSha256HashEvidence(evidence.tenantKeyHash)
+    ? proof.integrationId
+    : undefined;
 }
 
 function hasFeishuApprovedDataTableWriteSyncEvidence(operation: ExternalDataOperationRunRecord): boolean {
@@ -7472,8 +7620,9 @@ function hasNoFeishuRawDataOperationResourceContext(metadata: Record<string, unk
 function verifyFeishuOpenApiSmokeEvidence(input: {
   evidencePath?: string;
   evidence?: unknown;
-  expectedCallbackRouteProof?: FeishuExpectedCallbackRouteProof;
+  expectedCallbackRouteProofs?: readonly FeishuExpectedCallbackRouteProof[];
   expectedIdentityProofs?: readonly FeishuExpectedBotAddedPayloadIdentityProof[];
+  expectedSecondAgentAppProofs?: readonly FeishuExpectedTodo120NativeSecondAgentAppProof[];
   remediationContext?: {
     workspaceId: string;
     integrationId?: string;
@@ -7517,6 +7666,7 @@ function verifyFeishuOpenApiSmokeEvidence(input: {
   const appIdentity = isRecord(output?.appIdentity) ? output.appIdentity : undefined;
   const todo120NativeSmoke = isRecord(output?.todo120NativeSmoke) ? output.todo120NativeSmoke : undefined;
   const steps = Array.isArray(output?.steps) ? output.steps : [];
+  let appMatchedIdentityProof: FeishuExpectedBotAddedPayloadIdentityProof | undefined;
   let matchedIdentityProof: FeishuExpectedBotAddedPayloadIdentityProof | undefined;
 
   if (!output) {
@@ -7547,21 +7697,13 @@ function verifyFeishuOpenApiSmokeEvidence(input: {
   } else if (input.expectedIdentityProofs && input.expectedIdentityProofs.length === 0) {
     issues.push("openapi_app_identity_active_integration_missing");
   } else if ((input.expectedIdentityProofs?.length ?? 0) > 0) {
-    matchedIdentityProof = input.expectedIdentityProofs?.find((proof) => proof.appIdHash === appIdentity.appIdHash);
-    if (!matchedIdentityProof) {
+    const identityMatch = matchFeishuExpectedIdentityProof(input.expectedIdentityProofs ?? [], appIdentity);
+    appMatchedIdentityProof = identityMatch.appMatchedProof;
+    matchedIdentityProof = identityMatch.fullMatchedProof;
+    if (!appMatchedIdentityProof) {
       issues.push("openapi_app_identity_app_id_mismatch");
-    } else if (matchedIdentityProof.tenantKeyHash && !hasFeishuSha256HashEvidence(appIdentity.tenantKeyHash)) {
-      issues.push("openapi_app_identity_tenant_key_hash_missing");
-    } else if (
-      matchedIdentityProof.tenantKeyHash &&
-      appIdentity.tenantKeyHash !== matchedIdentityProof.tenantKeyHash
-    ) {
-      issues.push("openapi_app_identity_tenant_key_mismatch");
-    } else if (
-      !matchedIdentityProof.tenantKeyHash &&
-      (appIdentity.tenantKeyPresent === true || hasFeishuSha256HashEvidence(appIdentity.tenantKeyHash))
-    ) {
-      issues.push("openapi_app_identity_tenant_key_unexpected");
+    } else if (identityMatch.tenantIssue) {
+      issues.push(`openapi_app_identity_${identityMatch.tenantIssue}`);
     }
   }
   if (!todo120NativeSmoke) {
@@ -7578,6 +7720,20 @@ function verifyFeishuOpenApiSmokeEvidence(input: {
     }
     if (readNumber(todo120NativeSmoke.configured) < readNumber(todo120NativeSmoke.required)) {
       issues.push("openapi_todo120_native_smoke_env_incomplete");
+    }
+    if (!hasFeishuSha256HashEvidence(todo120NativeSmoke.secondAgentAppIdHash)) {
+      issues.push("openapi_todo120_native_smoke_second_app_id_hash_missing");
+    } else if (input.expectedSecondAgentAppProofs && matchedIdentityProof) {
+      const expectedSecondAgentAppProofs = input.expectedSecondAgentAppProofs.filter((proof) =>
+        proof.anchorIntegrationId === matchedIdentityProof.integrationId
+      );
+      if (expectedSecondAgentAppProofs.length === 0) {
+        issues.push("openapi_todo120_native_smoke_second_app_local_evidence_missing");
+      } else if (!expectedSecondAgentAppProofs.some((proof) =>
+        proof.appIdHash === todo120NativeSmoke.secondAgentAppIdHash
+      )) {
+        issues.push("openapi_todo120_native_smoke_second_app_mismatch");
+      }
     }
   }
   if (readNumber(summary?.liveChecks) < FEISHU_OPENAPI_REQUIRED_LIVE_SMOKE_STEPS.length) {
@@ -7604,11 +7760,15 @@ function verifyFeishuOpenApiSmokeEvidence(input: {
   const callbackStep = steps.find((item) => isFeishuOpenApiSmokeStepNamed(item, "AgentSpace callback URL verification"));
   if (!hasValidFeishuCallbackRouteProof(callbackStep)) {
     issues.push("openapi_callback_route_proof_missing");
-  } else if (
-    input.expectedCallbackRouteProof &&
-    !matchesFeishuCallbackRouteProof(callbackStep, input.expectedCallbackRouteProof)
-  ) {
-    issues.push("openapi_callback_route_proof_mismatch");
+  } else if (input.expectedCallbackRouteProofs) {
+    const expectedCallbackRouteProofs = matchedIdentityProof
+      ? input.expectedCallbackRouteProofs.filter((proof) => proof.integrationId === matchedIdentityProof.integrationId)
+      : input.expectedCallbackRouteProofs;
+    if (expectedCallbackRouteProofs.length === 0) {
+      issues.push("openapi_callback_route_active_integration_missing");
+    } else if (!expectedCallbackRouteProofs.some((proof) => matchesFeishuCallbackRouteProof(callbackStep, proof))) {
+      issues.push("openapi_callback_route_proof_mismatch");
+    }
   }
 
   for (const stepName of FEISHU_OPENAPI_REQUIRED_REQUEST_STEPS) {
@@ -7684,7 +7844,10 @@ function verifyFeishuOpenApiSmokeEvidence(input: {
       requiredLiveSteps: FEISHU_OPENAPI_REQUIRED_LIVE_SMOKE_STEPS.length,
       appIdentityPresent: Boolean(appIdentity),
       appIdHashPresent: hasFeishuSha256HashEvidence(appIdentity?.appIdHash),
-      appIdentityMatched: Boolean(matchedIdentityProof),
+      appIdentityMatched: Boolean(appMatchedIdentityProof),
+      ...(readFeishuMatchedIdentityIntegrationId(matchedIdentityProof, appIdentity)
+        ? { matchedIntegrationId: readFeishuMatchedIdentityIntegrationId(matchedIdentityProof, appIdentity) }
+        : {}),
       tenantKeyHashPresent: hasFeishuSha256HashEvidence(appIdentity?.tenantKeyHash),
       tenantKeyMatched: Boolean(
         matchedIdentityProof &&
@@ -7696,6 +7859,9 @@ function verifyFeishuOpenApiSmokeEvidence(input: {
       todo120NativeSmokeRequiredForCommand: todo120NativeSmoke?.requiredForCommand === true,
       todo120NativeSmokeRequired: readNumber(todo120NativeSmoke?.required),
       todo120NativeSmokeConfigured: readNumber(todo120NativeSmoke?.configured),
+      todo120NativeSmokeSecondAgentAppIdHashPresent: hasFeishuSha256HashEvidence(
+        todo120NativeSmoke?.secondAgentAppIdHash,
+      ),
     },
   };
 }
@@ -7728,7 +7894,7 @@ function verifyFeishuBotAddedPayloadEvidence(input: {
   evidencePath?: string;
   evidence?: unknown;
   expectedIdentityProofs?: readonly FeishuExpectedBotAddedPayloadIdentityProof[];
-  expectedChatReferences?: readonly string[];
+  expectedChatReferences?: readonly FeishuExpectedBotAddedPayloadChatReferenceProof[];
   remediationContext?: {
     workspaceId: string;
     integrationId?: string;
@@ -7769,6 +7935,7 @@ function verifyFeishuBotAddedPayloadEvidence(input: {
   const issues: string[] = [];
   const output = isRecord(evidence) ? evidence : undefined;
   const summary = isRecord(output?.summary) ? output.summary : undefined;
+  let appMatchedIdentityProof: FeishuExpectedBotAddedPayloadIdentityProof | undefined;
   let matchedIdentityProof: FeishuExpectedBotAddedPayloadIdentityProof | undefined;
 
   if (!output) {
@@ -7783,6 +7950,20 @@ function verifyFeishuBotAddedPayloadEvidence(input: {
   if (!summary) {
     issues.push("bot_added_payload_summary_missing");
   } else {
+    if (!hasFeishuSha256HashEvidence(summary.appIdHash)) {
+      issues.push("bot_added_payload_app_id_hash_missing");
+    } else if (input.expectedIdentityProofs && input.expectedIdentityProofs.length === 0) {
+      issues.push("bot_added_payload_active_integration_missing");
+    } else if ((input.expectedIdentityProofs?.length ?? 0) > 0) {
+      const identityMatch = matchFeishuExpectedIdentityProof(input.expectedIdentityProofs ?? [], summary);
+      appMatchedIdentityProof = identityMatch.appMatchedProof;
+      matchedIdentityProof = identityMatch.fullMatchedProof;
+      if (!appMatchedIdentityProof) {
+        issues.push("bot_added_payload_app_id_mismatch");
+      } else if (identityMatch.tenantIssue) {
+        issues.push(`bot_added_payload_${identityMatch.tenantIssue}`);
+      }
+    }
     if (summary.botAddedEvent !== true) {
       issues.push("bot_added_payload_not_bot_added");
     }
@@ -7799,13 +7980,18 @@ function verifyFeishuBotAddedPayloadEvidence(input: {
       issues.push("bot_added_payload_chat_reference_missing");
     } else if (input.expectedChatReferences && input.expectedChatReferences.length === 0) {
       issues.push("bot_added_payload_chat_reference_local_evidence_missing");
-    } else if (
-      (input.expectedChatReferences?.length ?? 0) > 0 &&
-      !input.expectedChatReferences?.some((reference) =>
-        doFeishuSafeReferencesMatch(summary.chatReference, reference)
-      )
-    ) {
-      issues.push("bot_added_payload_chat_reference_mismatch");
+    } else if ((input.expectedChatReferences?.length ?? 0) > 0) {
+      const identityProof = matchedIdentityProof;
+      const expectedChatReferences = identityProof
+        ? input.expectedChatReferences?.filter((proof) => proof.integrationId === identityProof.integrationId)
+        : input.expectedChatReferences;
+      if (!expectedChatReferences || expectedChatReferences.length === 0) {
+        issues.push("bot_added_payload_chat_reference_local_evidence_missing");
+      } else if (!expectedChatReferences.some((proof) =>
+        doFeishuSafeReferencesMatch(summary.chatReference, proof.chatReference)
+      )) {
+        issues.push("bot_added_payload_chat_reference_mismatch");
+      }
     }
     if (summary.externalEventIdRedacted !== true) {
       issues.push("bot_added_payload_event_id_not_redacted");
@@ -7815,28 +8001,6 @@ function verifyFeishuBotAddedPayloadEvidence(input: {
     }
     if (!hasFeishuPayloadHashEvidence(summary.payloadHash)) {
       issues.push("bot_added_payload_hash_missing");
-    }
-    if (!hasFeishuSha256HashEvidence(summary.appIdHash)) {
-      issues.push("bot_added_payload_app_id_hash_missing");
-    } else if (input.expectedIdentityProofs && input.expectedIdentityProofs.length === 0) {
-      issues.push("bot_added_payload_active_integration_missing");
-    } else if ((input.expectedIdentityProofs?.length ?? 0) > 0) {
-      matchedIdentityProof = input.expectedIdentityProofs?.find((proof) => proof.appIdHash === summary.appIdHash);
-      if (!matchedIdentityProof) {
-        issues.push("bot_added_payload_app_id_mismatch");
-      } else if (matchedIdentityProof.tenantKeyHash && !hasFeishuSha256HashEvidence(summary.tenantKeyHash)) {
-        issues.push("bot_added_payload_tenant_key_hash_missing");
-      } else if (
-        matchedIdentityProof.tenantKeyHash &&
-        summary.tenantKeyHash !== matchedIdentityProof.tenantKeyHash
-      ) {
-        issues.push("bot_added_payload_tenant_key_mismatch");
-      } else if (
-        !matchedIdentityProof.tenantKeyHash &&
-        (summary.tenantKeyPresent === true || hasFeishuSha256HashEvidence(summary.tenantKeyHash))
-      ) {
-        issues.push("bot_added_payload_tenant_key_unexpected");
-      }
     }
     if (summary.rawPayloadStored !== false) {
       issues.push("bot_added_payload_raw_payload_stored");
@@ -7870,7 +8034,10 @@ function verifyFeishuBotAddedPayloadEvidence(input: {
           botAddedEvent: summary.botAddedEvent === true,
           appIdPresent: summary.appIdPresent === true,
           appIdHashPresent: hasFeishuSha256HashEvidence(summary.appIdHash),
-          appIdentityMatched: Boolean(matchedIdentityProof),
+          appIdentityMatched: Boolean(appMatchedIdentityProof),
+          ...(readFeishuMatchedIdentityIntegrationId(matchedIdentityProof, summary)
+            ? { matchedIntegrationId: readFeishuMatchedIdentityIntegrationId(matchedIdentityProof, summary) }
+            : {}),
           tenantKeyPresent: summary.tenantKeyPresent === true,
           tenantKeyHashPresent: hasFeishuSha256HashEvidence(summary.tenantKeyHash),
           tenantKeyMatched: Boolean(
@@ -8000,9 +8167,33 @@ function buildFeishuExpectedCallbackRouteProof(input: {
 }): FeishuExpectedCallbackRouteProof {
   const routeKey = `/api/integrations/feishu/events?workspaceId=${input.workspaceId}&integrationId=${input.integrationId}`;
   return {
+    integrationId: input.integrationId,
     callbackRoute: "/api/integrations/feishu/events",
     callbackRouteFingerprint: `sha256:${createHash("sha256").update(routeKey, "utf8").digest("hex").slice(0, 16)}`,
   };
+}
+
+function buildFeishuExpectedEvidenceCallbackRouteProofs(input: {
+  workspaceId: string;
+  requiredEvidence: FeishuEvidenceRequirement;
+  scopedIntegrationId?: string;
+  anchorIntegrationIds?: ReadonlySet<string>;
+}): FeishuExpectedCallbackRouteProof[] | undefined {
+  if (input.scopedIntegrationId) {
+    return [buildFeishuExpectedCallbackRouteProof({
+      workspaceId: input.workspaceId,
+      integrationId: input.scopedIntegrationId,
+    })];
+  }
+  if (input.requiredEvidence !== "all") {
+    return undefined;
+  }
+  return [...(input.anchorIntegrationIds ?? [])]
+    .sort()
+    .map((integrationId) => buildFeishuExpectedCallbackRouteProof({
+      workspaceId: input.workspaceId,
+      integrationId,
+    }));
 }
 
 function buildFeishuExpectedBotAddedPayloadIdentityProofs(
@@ -8065,14 +8256,81 @@ function buildFeishuExpectedBotAddedPayloadChatReferences(input: {
   scopedIntegrationId?: string;
   evidenceSources: readonly FeishuIntegrationEvidenceSource[];
   anchorIntegrationIds?: ReadonlySet<string>;
-}): readonly string[] | undefined {
+}): readonly FeishuExpectedBotAddedPayloadChatReferenceProof[] | undefined {
   if (input.requiredEvidence !== "all") {
     return undefined;
   }
   const activeSources = input.evidenceSources.filter((source) => source.integration.status === "active");
-  return listFeishuWorkspaceNativeExperienceChatReferences(activeSources, {
-    requiredIntegrationId: input.scopedIntegrationId,
-    allowedIntegrationIds: input.anchorIntegrationIds,
+  const integrationIds = input.scopedIntegrationId
+    ? [input.scopedIntegrationId]
+    : [...(input.anchorIntegrationIds ?? [])].sort();
+  return integrationIds.flatMap((integrationId) =>
+    listFeishuWorkspaceNativeExperienceChatReferences(activeSources, {
+      requiredIntegrationId: integrationId,
+      allowedIntegrationIds: input.anchorIntegrationIds,
+    }).map((chatReference) => ({
+      integrationId,
+      chatReference,
+    }))
+  );
+}
+
+function buildFeishuExpectedTodo120NativeSecondAgentAppProofs(input: {
+  requiredEvidence: FeishuEvidenceRequirement;
+  scopedIntegrationId?: string;
+  evidenceSources: readonly FeishuIntegrationEvidenceSource[];
+  anchorIntegrationIds?: ReadonlySet<string>;
+}): readonly FeishuExpectedTodo120NativeSecondAgentAppProof[] | undefined {
+  if (input.requiredEvidence !== "all") {
+    return undefined;
+  }
+  const activeSources = input.evidenceSources.filter((source) => source.integration.status === "active");
+  const activeSourcesById = new Map(activeSources.map((source) => [source.integration.id, source]));
+  const anchorIntegrationIds = input.scopedIntegrationId
+    ? [input.scopedIntegrationId]
+    : [...(input.anchorIntegrationIds ?? [])].sort();
+  const proofs: FeishuExpectedTodo120NativeSecondAgentAppProof[] = [];
+  for (const anchorIntegrationId of anchorIntegrationIds) {
+    const anchor = activeSourcesById.get(anchorIntegrationId)?.integration;
+    if (!anchor || !hasNonEmptyString(anchor.appId) || !hasNonEmptyString(anchor.agentId)) {
+      continue;
+    }
+    const chatReferences = listFeishuWorkspaceNativeExperienceChatReferences(activeSources, {
+      requiredIntegrationId: anchorIntegrationId,
+      allowedIntegrationIds: input.anchorIntegrationIds,
+    });
+    for (const chatReference of chatReferences) {
+      const scopedIntegrationIds = listFeishuIntegrationIdsForSafeChatReference(activeSources, chatReference);
+      for (const secondIntegrationId of scopedIntegrationIds) {
+        if (secondIntegrationId === anchorIntegrationId) {
+          continue;
+        }
+        const second = activeSourcesById.get(secondIntegrationId)?.integration;
+        if (
+          !second ||
+          !hasNonEmptyString(second.appId) ||
+          !hasNonEmptyString(second.agentId) ||
+          second.appId.trim() === anchor.appId.trim() ||
+          second.agentId.trim() === anchor.agentId.trim()
+        ) {
+          continue;
+        }
+        proofs.push({
+          anchorIntegrationId,
+          secondIntegrationId,
+          appIdHash: sha256FeishuEvidenceText(second.appId.trim()),
+        });
+      }
+    }
+  }
+  const seen = new Set<string>();
+  return proofs.filter((proof) => {
+    const key = `${proof.anchorIntegrationId}:${proof.secondIntegrationId}:${proof.appIdHash}`;
+    if (seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
   });
 }
 
@@ -8251,6 +8509,27 @@ function listFeishuWorkspaceNativeExperienceChatReferences(
       countFeishuThreadCollaborationEvidence(scopedThreadBindings) > 0 &&
       countFeishuThreadCollaborationCardEvidence(scopedOutbox, scopedThreadBindings) > 0;
   });
+}
+
+function listFeishuIntegrationIdsForSafeChatReference(
+  sources: readonly FeishuIntegrationEvidenceSource[],
+  chatReference: string,
+): string[] {
+  const matchingIds = sources.flatMap((source) => [
+    ...source.messageMappings
+      .filter((mapping) => readFeishuSafeChatReference(mapping.metadataJson) === chatReference)
+      .map((mapping) => mapping.integrationId),
+    ...source.outbox
+      .filter((item) => readFeishuSafeChatReference(item.metadataJson) === chatReference)
+      .map((item) => item.integrationId),
+    ...source.channelBindings
+      .filter((binding) => readFeishuSafeChatReference(binding.metadataJson) === chatReference)
+      .map((binding) => binding.integrationId),
+    ...source.threadBindings
+      .filter((binding) => readFeishuSafeChatReference(binding.metadataJson) === chatReference)
+      .map((binding) => binding.integrationId),
+  ]);
+  return uniqueStrings(matchingIds.filter(hasNonEmptyString)).sort();
 }
 
 function doFeishuSafeReferencesMatch(left: unknown, right: unknown): boolean {

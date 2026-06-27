@@ -34,6 +34,7 @@ test("verifies a complete strict live Feishu smoke evidence artifact", () => {
       todo120NativeSmokeRequiredForCommand: boolean;
       todo120NativeSmokeRequired: number;
       todo120NativeSmokeConfigured: number;
+      todo120NativeSmokeSecondAgentAppIdHashPresent: boolean;
     };
   };
   assert.equal(output.valid, true);
@@ -49,6 +50,7 @@ test("verifies a complete strict live Feishu smoke evidence artifact", () => {
   assert.equal(output.summary.todo120NativeSmokeRequiredForCommand, true);
   assert.equal(output.summary.todo120NativeSmokeRequired, 2);
   assert.equal(output.summary.todo120NativeSmokeConfigured, 2);
+  assert.equal(output.summary.todo120NativeSmokeSecondAgentAppIdHashPresent, true);
 });
 
 test("rejects old Feishu smoke evidence that lacks Doc append coverage", () => {
@@ -146,6 +148,25 @@ test("rejects Feishu smoke evidence when TODO120 native multi-agent env was not 
   assert.equal(output.summary.todo120NativeSmokeRequired, 2);
   assert.equal(output.summary.todo120NativeSmokeConfigured, 2);
   assert.ok(output.issues.includes("todo120_native_smoke_not_required"));
+});
+
+test("rejects Feishu smoke evidence without TODO120 second app hash proof", () => {
+  const evidence = buildEvidenceFixture();
+  delete (evidence.todo120NativeSmoke as { secondAgentAppIdHash?: string }).secondAgentAppIdHash;
+  const evidencePath = writeEvidenceFixture(evidence);
+  const result = runVerifyEvidence(evidencePath);
+
+  assert.equal(result.status, 1);
+  const output = JSON.parse(result.stdout) as {
+    valid: boolean;
+    issues: string[];
+    summary: {
+      todo120NativeSmokeSecondAgentAppIdHashPresent: boolean;
+    };
+  };
+  assert.equal(output.valid, false);
+  assert.ok(output.issues.includes("todo120_native_smoke_second_app_id_hash_missing"));
+  assert.equal(output.summary.todo120NativeSmokeSecondAgentAppIdHashPresent, false);
 });
 
 test("rejects Feishu smoke evidence with unredacted resource tokens", () => {
@@ -1153,6 +1174,9 @@ test("check-env reports TODO120 native multi-agent env readiness separately from
       requiredForCommand: false,
       required: 2,
       configured: 2,
+      secondAgentAppIdHash: createHash("sha256")
+        .update("cli_second_ready_secret", "utf8")
+        .digest("hex"),
       missing: [],
       invalid: [],
     });
@@ -2050,6 +2074,7 @@ function buildEvidenceFixture() {
       requiredForCommand: true,
       required: 2,
       configured: 2,
+      secondAgentAppIdHash: createHash("sha256").update("cli_second_ready_secret", "utf8").digest("hex"),
       missing: [],
       invalid: [],
     },

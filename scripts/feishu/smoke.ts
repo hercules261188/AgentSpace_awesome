@@ -116,6 +116,7 @@ interface SmokeEvidenceVerificationOutput {
     todo120NativeSmokeRequiredForCommand: boolean;
     todo120NativeSmokeRequired: number;
     todo120NativeSmokeConfigured: number;
+    todo120NativeSmokeSecondAgentAppIdHashPresent: boolean;
   };
 }
 
@@ -161,6 +162,7 @@ interface SmokeEnvCheckOutput {
     requiredForCommand: boolean;
     required: number;
     configured: number;
+    secondAgentAppIdHash?: string;
     missing: string[];
     invalid: Array<{
       key: string;
@@ -209,6 +211,7 @@ interface SafeFeishuApiRequest {
 interface SmokeEnv {
   appId?: string;
   appSecret?: string;
+  secondAgentAppId?: string;
   tenantKey?: string;
   apiBaseUrl?: string;
   callbackUrl?: string;
@@ -1063,6 +1066,7 @@ function readSmokeEnv(): SmokeEnv {
   return {
     appId: readEnv("FEISHU_APP_ID"),
     appSecret: readEnv("FEISHU_APP_SECRET"),
+    secondAgentAppId: readEnv("FEISHU_SECOND_AGENT_APP_ID"),
     tenantKey: readEnv("FEISHU_TENANT_KEY"),
     apiBaseUrl: readEnv("FEISHU_API_BASE_URL") ?? readEnv("AGENT_SPACE_FEISHU_API_BASE_URL"),
     callbackUrl: readEnv("FEISHU_SMOKE_CALLBACK_URL"),
@@ -1394,6 +1398,10 @@ function buildSmokeEnvCheckOutput(
       reason: item.reason ?? "invalid",
     }));
   const todo120NativeSmokeReady = todo120NativeSmokeItems.every((item) => item.status === "ready");
+  const secondAgentAppIdItem = todo120NativeSmokeItems.find((item) => item.key === "FEISHU_SECOND_AGENT_APP_ID");
+  const secondAgentAppId = secondAgentAppIdItem?.status === "ready"
+    ? readEnv("FEISHU_SECOND_AGENT_APP_ID")?.trim()
+    : undefined;
 
   return {
     generatedAt: new Date().toISOString(),
@@ -1413,6 +1421,7 @@ function buildSmokeEnvCheckOutput(
       requiredForCommand: Boolean(options.requireTodo120NativeSmoke),
       required: todo120NativeSmokeItems.length,
       configured: todo120NativeSmokeItems.filter((item) => item.status === "ready").length,
+      ...(secondAgentAppId ? { secondAgentAppIdHash: sha256Text(secondAgentAppId) } : {}),
       missing: todo120NativeSmokeItems
         .filter((item) => item.status === "optional")
         .map((item) => item.key),
@@ -1884,6 +1893,9 @@ function verifySmokeEvidence(path: string, evidence: unknown): SmokeEvidenceVeri
     if (readNumber(todo120NativeSmoke.configured) < readNumber(todo120NativeSmoke.required)) {
       issues.push("todo120_native_smoke_env_incomplete");
     }
+    if (!isSha256Hex(todo120NativeSmoke.secondAgentAppIdHash)) {
+      issues.push("todo120_native_smoke_second_app_id_hash_missing");
+    }
   }
   if (readNumber(summary?.liveChecks) < FEISHU_OPENAPI_REQUIRED_LIVE_SMOKE_STEPS.length) {
     issues.push("live_check_summary_incomplete");
@@ -1997,6 +2009,7 @@ function verifySmokeEvidence(path: string, evidence: unknown): SmokeEvidenceVeri
       todo120NativeSmokeRequiredForCommand: todo120NativeSmoke?.requiredForCommand === true,
       todo120NativeSmokeRequired: readNumber(todo120NativeSmoke?.required),
       todo120NativeSmokeConfigured: readNumber(todo120NativeSmoke?.configured),
+      todo120NativeSmokeSecondAgentAppIdHashPresent: isSha256Hex(todo120NativeSmoke?.secondAgentAppIdHash),
     },
   };
 }
