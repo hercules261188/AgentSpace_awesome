@@ -70,7 +70,7 @@ export function readEffectiveRuntimeEnv(input?: {
 }): NodeJS.ProcessEnv {
   const env = input?.env ?? process.env;
   const repositoryEnv = readRepositoryEnvValues({ env, startDir: input?.startDir });
-  const repositoryOverridesEnv = input?.repositoryOverridesEnv ?? env === process.env;
+  const repositoryOverridesEnv = input?.repositoryOverridesEnv ?? shouldRepositoryOverrideRuntimeEnv(env);
   return repositoryOverridesEnv
     ? { ...env, ...repositoryEnv }
     : { ...repositoryEnv, ...env };
@@ -90,6 +90,17 @@ export function loadRepositoryEnvIntoProcess(input?: {
     }
     env[key] = value;
   }
+}
+
+function shouldRepositoryOverrideRuntimeEnv(env: NodeJS.ProcessEnv): boolean {
+  const configured = env.AGENT_SPACE_REPOSITORY_ENV_OVERRIDE?.trim().toLowerCase();
+  if (configured === "0" || configured === "false") {
+    return false;
+  }
+  if (configured === "1" || configured === "true") {
+    return true;
+  }
+  return env === process.env;
 }
 
 function findRepositoryRootByWalking(startDir: string): string | null {

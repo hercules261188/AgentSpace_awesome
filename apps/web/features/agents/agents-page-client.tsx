@@ -364,11 +364,11 @@ export function AgentsPageClient({
         const created = await createContainerInstallTokenAction();
         const origin = window.location.origin;
         const daemonId = `daemon-${Date.now().toString(36)}`;
-        const command = [
-          `bash <(curl -fsSL ${origin}/api/daemon/install-script) \\`,
-          `  --daemon-token "${created.token}" \\`,
-          `  --daemon-id "${daemonId}"`,
-        ].join("\n");
+        const command = buildCreateRuntimeCommand({
+          origin,
+          daemonToken: created.token,
+          daemonKey: daemonId,
+        });
         setGeneratedInstallCommand({
           command,
           daemonId,
@@ -1076,6 +1076,19 @@ export function AgentsPageClient({
       )}
     </section>
   );
+}
+
+function buildCreateRuntimeCommand(input: {
+  origin: string;
+  daemonToken: string;
+  daemonKey: string;
+}): string {
+  return [
+    `bash <(curl -fsSL ${input.origin}/api/daemon/install-script) \\`,
+    `  --server-url ${shellDoubleQuote(input.origin)} \\`,
+    `  --daemon-token ${shellDoubleQuote(input.daemonToken)} \\`,
+    `  --daemon-id ${shellDoubleQuote(input.daemonKey)}`,
+  ].join("\n");
 }
 
 function buildUpdateRuntimeCommand(input: {

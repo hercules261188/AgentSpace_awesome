@@ -1247,6 +1247,7 @@ describe("AgentsPageClient", () => {
     expect(createContainerInstallTokenAction).toHaveBeenCalledTimes(1);
     expect(await screen.findByRole("heading", { name: "接入服务器" })).toBeInTheDocument();
     expect(screen.getByDisplayValue(/bash <\(curl -fsSL http:\/\/localhost(?::3000)?\/api\/daemon\/install-script\)/)).toBeInTheDocument();
+    expect(screen.getByDisplayValue(/--server-url "http:\/\/localhost(?::3000)?"/)).toBeInTheDocument();
     expect(screen.getByDisplayValue(/--daemon-token "adt_test"/)).toBeInTheDocument();
     expect(screen.getByDisplayValue(/--daemon-id "daemon-/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "我已运行" })).toBeInTheDocument();

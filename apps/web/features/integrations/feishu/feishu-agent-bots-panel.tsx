@@ -1,6 +1,6 @@
 "use client";
 
-import { type TransitionStartFunction, useMemo, useState } from "react";
+import { type TransitionStartFunction, useEffect, useMemo, useState } from "react";
 import type { SettingsTx } from "@/features/settings/settings-types";
 import { translateSettingsActionError } from "@/features/settings/settings-utils";
 import {
@@ -33,10 +33,20 @@ export function FeishuAgentBotsPanel({
   startTransition: TransitionStartFunction;
   tx: SettingsTx;
 }) {
-  const agentBots = integrations.filter((integration) => Boolean(integration.agentId));
-  const boundAgentIds = new Set(agentBots.filter((integration) => integration.status !== "disabled").map((integration) => integration.agentId));
-  const firstUnboundAgent = availableAgents.find((agent) => !boundAgentIds.has(agent.id)) ?? availableAgents[0];
-  const [agentId, setAgentId] = useState(firstUnboundAgent?.id ?? "");
+  const agentBots = useMemo(() => integrations.filter((integration) => Boolean(integration.agentId)), [integrations]);
+  const boundAgentIds = useMemo(
+    () => new Set(agentBots
+      .filter((integration) => integration.status !== "disabled")
+      .map((integration) => integration.agentId)
+      .filter((agentId): agentId is string => Boolean(agentId))),
+    [agentBots],
+  );
+  const agentOptions = useMemo(() => availableAgents.map((agent) => ({
+    ...agent,
+    label: agent.remarkName ? `${agent.name} · ${agent.remarkName}` : agent.name,
+  })), [availableAgents]);
+  const firstUnboundAgentId = agentOptions.find((agent) => !boundAgentIds.has(agent.id))?.id ?? "";
+  const [agentId, setAgentId] = useState(firstUnboundAgentId);
   const [displayName, setDisplayName] = useState("");
   const [transportMode, setTransportMode] = useState<"websocket_worker" | "http_webhook">("websocket_worker");
   const [appId, setAppId] = useState("");
@@ -52,11 +62,15 @@ export function FeishuAgentBotsPanel({
   const [guestPermissionProfile, setGuestPermissionProfile] = useState<"none" | "channel_context_only" | "channel_readonly">("channel_context_only");
   const requiresVerificationToken = transportMode === "http_webhook";
   const canTestConnection = Boolean(appId.trim() && appSecret.trim());
-  const canCreate = Boolean(agentId.trim() && appId.trim() && appSecret.trim() && (!requiresVerificationToken || verificationToken.trim()));
-  const agentOptions = useMemo(() => availableAgents.map((agent) => ({
-    ...agent,
-    label: agent.remarkName ? `${agent.name} · ${agent.remarkName}` : agent.name,
-  })), [availableAgents]);
+  const selectedAgentIsBindable = agentOptions.some((agent) => agent.id === agentId && !boundAgentIds.has(agent.id));
+  const canCreate = Boolean(selectedAgentIsBindable && appId.trim() && appSecret.trim() && (!requiresVerificationToken || verificationToken.trim()));
+
+  useEffect(() => {
+    const selectedAgent = agentOptions.find((agent) => agent.id === agentId);
+    if (!selectedAgent || boundAgentIds.has(selectedAgent.id)) {
+      setAgentId(firstUnboundAgentId);
+    }
+  }, [agentId, agentOptions, boundAgentIds, firstUnboundAgentId]);
 
   return (
     <section
@@ -74,31 +88,42 @@ export function FeishuAgentBotsPanel({
       </div>
 
       <div className="feishu-integration-form feishu-agent-bot-form">
-        {agentOptions.length > 0 ? (
-          <label className="form-field">
-            <span>{tx("Agent", "Agent")}</span>
-            <select
-              disabled={isPending}
-              onChange={(event) => setAgentId(event.currentTarget.value)}
-              value={agentId}
-            >
-              {agentOptions.map((agent) => (
-                <option key={agent.id} value={agent.id}>
-                  {agent.label}
+        <label className="form-field">
+          <span>{tx("Agent", "Agent")}</span>
+          <select
+            disabled={isPending || !firstUnboundAgentId}
+            onChange={(event) => setAgentId(event.currentTarget.value)}
+            value={agentId}
+          >
+            {!firstUnboundAgentId ? (
+              <option value="">
+                {agentOptions.length === 0
+                  ? tx("暂无可绑定 Agent", "No agents available")
+                  : tx("所有 Agent 都已绑定", "All agents are already bound")}
+              </option>
+            ) : !agentId ? (
+              <option disabled value="">
+                {tx("请选择 Agent", "Select an agent")}
+              </option>
+            ) : null}
+            {agentOptions.map((agent) => {
+              const isBound = boundAgentIds.has(agent.id);
+              return (
+                <option disabled={isBound} key={agent.id} value={agent.id}>
+                  {isBound ? tx(`${agent.label}（已绑定）`, `${agent.label} (bound)`) : agent.label}
                 </option>
-              ))}
-            </select>
-          </label>
-        ) : (
-          <label className="form-field">
-            <span>{tx("Agent", "Agent")}</span>
-            <input
-              disabled={isPending}
-              onChange={(event) => setAgentId(event.currentTarget.value)}
-              value={agentId}
-            />
-          </label>
-        )}
+              );
+            })}
+          </select>
+        </label>
+
+        {!firstUnboundAgentId ? (
+          <p className="settings-panel-note">
+            {agentOptions.length === 0
+              ? tx("请先在 Agent 管理中创建 Agent，再为它绑定飞书 Bot。", "Create an agent in Agent Management before binding a Feishu bot.")
+              : tx("当前所有 Agent 都已经绑定启用中的飞书 Bot。", "Every agent already has an active Feishu bot binding.")}
+          </p>
+        ) : null}
 
         <label className="form-field">
           <span>{tx("App ID", "App ID")}</span>

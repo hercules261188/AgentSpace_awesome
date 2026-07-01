@@ -22,21 +22,23 @@ export function LanguageProvider({
   initialLanguage?: LanguageCode;
 }) {
   const [language, setLanguageState] = useState<LanguageCode>(initialLanguage ?? "en");
+  const [hasLoadedStoredLanguage, setHasLoadedStoredLanguage] = useState(false);
 
   useEffect(() => {
-    if (initialLanguage) {
-      return;
-    }
     const stored = window.localStorage.getItem(STORAGE_KEY);
     if (stored === "zh" || stored === "en") {
       setLanguageState(stored);
     }
-  }, [initialLanguage]);
+    setHasLoadedStoredLanguage(true);
+  }, []);
 
   useEffect(() => {
     document.documentElement.lang = language === "zh" ? "zh-CN" : "en";
+    if (!hasLoadedStoredLanguage) {
+      return;
+    }
     window.localStorage.setItem(STORAGE_KEY, language);
-  }, [language]);
+  }, [hasLoadedStoredLanguage, language]);
 
   const value = useMemo<LanguageContextValue>(
     () => ({

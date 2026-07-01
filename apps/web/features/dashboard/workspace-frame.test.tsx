@@ -225,7 +225,7 @@ describe("WorkspaceFrame", () => {
 
   it("shows the compact default sidebar groups with dividers", async () => {
     render(
-      <LanguageProvider>
+      <LanguageProvider initialLanguage="zh">
         <FeedbackToastProvider>
           <WorkspaceFrame currentMembershipRole="owner" currentWorkspace={workspaces[0]} shell={shell} user={user} workspaces={workspaces}>
             <div>Workspace content</div>
@@ -264,7 +264,7 @@ describe("WorkspaceFrame", () => {
     );
 
     render(
-      <LanguageProvider>
+      <LanguageProvider initialLanguage="zh">
         <FeedbackToastProvider>
           <WorkspaceFrame currentMembershipRole="owner" currentWorkspace={workspaces[0]} shell={shell} user={user} workspaces={workspaces}>
             <div>Workspace content</div>
@@ -302,7 +302,7 @@ describe("WorkspaceFrame", () => {
     pathname = "/w/workspace-alpha/market";
 
     render(
-      <LanguageProvider>
+      <LanguageProvider initialLanguage="zh">
         <FeedbackToastProvider>
           <WorkspaceFrame currentMembershipRole="owner" currentWorkspace={workspaces[0]} shell={shell} user={user} workspaces={workspaces}>
             <div>Workspace content</div>
@@ -351,7 +351,7 @@ describe("WorkspaceFrame", () => {
     const userEventApi = userEvent.setup();
 
     render(
-      <LanguageProvider>
+      <LanguageProvider initialLanguage="zh">
         <FeedbackToastProvider>
           <WorkspaceFrame currentMembershipRole="owner" currentWorkspace={workspaces[0]} shell={shell} user={user} workspaces={workspaces}>
             <div>Workspace content</div>
@@ -394,7 +394,7 @@ describe("WorkspaceFrame", () => {
     const userEventApi = userEvent.setup();
 
     render(
-      <LanguageProvider>
+      <LanguageProvider initialLanguage="zh">
         <FeedbackToastProvider>
           <WorkspaceFrame currentMembershipRole="owner" currentWorkspace={workspaces[0]} shell={shell} user={user} workspaces={workspaces}>
             <div>Workspace content</div>
@@ -428,7 +428,7 @@ describe("WorkspaceFrame", () => {
     const userEventApi = userEvent.setup();
 
     render(
-      <LanguageProvider>
+      <LanguageProvider initialLanguage="zh">
         <FeedbackToastProvider>
           <WorkspaceFrame currentMembershipRole="owner" currentWorkspace={workspaces[0]} shell={shell} user={user} workspaces={workspaces}>
             <div>Workspace content</div>
@@ -471,7 +471,7 @@ describe("WorkspaceFrame", () => {
     const userEventApi = userEvent.setup();
 
     render(
-      <LanguageProvider>
+      <LanguageProvider initialLanguage="zh">
         <FeedbackToastProvider>
           <WorkspaceFrame currentMembershipRole="owner" currentWorkspace={workspaces[0]} shell={shell} user={user} workspaces={workspaces}>
             <div>Workspace content</div>
@@ -522,7 +522,7 @@ describe("WorkspaceFrame", () => {
     const userEventApi = userEvent.setup();
 
     render(
-      <LanguageProvider>
+      <LanguageProvider initialLanguage="zh">
         <FeedbackToastProvider>
           <WorkspaceFrame currentMembershipRole="owner" currentWorkspace={workspaces[0]} shell={shell} user={user} workspaces={workspaces}>
             <div>Workspace content</div>
@@ -574,7 +574,7 @@ describe("WorkspaceFrame", () => {
     const intersectionObserver = installIntersectionObserverMock();
 
     render(
-      <LanguageProvider>
+      <LanguageProvider initialLanguage="zh">
         <FeedbackToastProvider>
           <WorkspaceFrame currentMembershipRole="owner" currentWorkspace={workspaces[0]} shell={shell} user={user} workspaces={workspaces}>
             <div>Workspace content</div>
@@ -641,7 +641,7 @@ describe("WorkspaceFrame", () => {
     const userEventApi = userEvent.setup();
 
     render(
-      <LanguageProvider>
+      <LanguageProvider initialLanguage="zh">
         <FeedbackToastProvider>
           <WorkspaceFrame currentMembershipRole="owner" currentWorkspace={workspaces[0]} shell={shell} user={user} workspaces={workspaces}>
             <WorkspaceInitialModuleData
@@ -702,7 +702,7 @@ describe("WorkspaceFrame", () => {
     const userEventApi = userEvent.setup();
 
     render(
-      <LanguageProvider>
+      <LanguageProvider initialLanguage="zh">
         <FeedbackToastProvider>
           <WorkspaceFrame currentMembershipRole="owner" currentWorkspace={workspaces[0]} shell={shell} user={user} workspaces={workspaces}>
             <WorkspaceInitialModuleData
@@ -738,7 +738,7 @@ describe("WorkspaceFrame", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     const view = render(
-      <LanguageProvider>
+      <LanguageProvider initialLanguage="zh">
         <FeedbackToastProvider>
           <WorkspaceFrame currentMembershipRole="owner" currentWorkspace={workspaces[0]} shell={shell} user={user} workspaces={workspaces}>
             <WorkspaceInitialModuleData
@@ -759,7 +759,7 @@ describe("WorkspaceFrame", () => {
     expect(await screen.findByPlaceholderText("发送到 general")).toBeInTheDocument();
 
     view.rerender(
-      <LanguageProvider>
+      <LanguageProvider initialLanguage="zh">
         <FeedbackToastProvider>
           <WorkspaceFrame
             accessScope="channel"
@@ -824,7 +824,7 @@ describe("WorkspaceFrame", () => {
     const userEventApi = userEvent.setup();
 
     render(
-      <LanguageProvider>
+      <LanguageProvider initialLanguage="zh">
         <FeedbackToastProvider>
           <WorkspaceFrame currentMembershipRole="owner" currentWorkspace={workspaces[0]} shell={shell} user={user} workspaces={workspaces}>
             <WorkspaceInitialModuleData
@@ -939,7 +939,7 @@ describe("WorkspaceFrame", () => {
     const userEventApi = userEvent.setup();
 
     render(
-      <LanguageProvider>
+      <LanguageProvider initialLanguage="zh">
         <FeedbackToastProvider>
           <WorkspaceFrame currentMembershipRole="owner" currentWorkspace={workspaces[0]} shell={shell} user={user} workspaces={workspaces}>
             <div>Workspace content</div>
@@ -1026,7 +1026,7 @@ describe("WorkspaceFrame", () => {
     const userEventApi = userEvent.setup();
 
     render(
-      <LanguageProvider>
+      <LanguageProvider initialLanguage="zh">
         <FeedbackToastProvider>
           <WorkspaceFrame currentMembershipRole="owner" currentWorkspace={workspaces[0]} shell={shell} user={user} workspaces={workspaces}>
             <div>Workspace content</div>
@@ -1099,7 +1099,7 @@ describe("WorkspaceFrame", () => {
     const userEventApi = userEvent.setup();
 
     render(
-      <LanguageProvider>
+      <LanguageProvider initialLanguage="zh">
         <FeedbackToastProvider>
           <WorkspaceFrame currentMembershipRole="owner" currentWorkspace={workspaces[0]} shell={shell} user={user} workspaces={workspaces}>
             <div>Workspace content</div>
@@ -1141,6 +1141,7 @@ describe("WorkspaceFrame", () => {
               channelInvitations: [],
               feishuAvailableChannels: [],
               feishuAvailableUsers: [],
+              feishuAvailableAgents: [],
               feishuIntegrations: [],
               members: [
                 {
@@ -1163,7 +1164,7 @@ describe("WorkspaceFrame", () => {
     const userEventApi = userEvent.setup();
 
     render(
-      <LanguageProvider>
+      <LanguageProvider initialLanguage="zh">
         <FeedbackToastProvider>
           <WorkspaceFrame currentMembershipRole="owner" currentWorkspace={workspaces[0]} shell={shell} user={user} workspaces={workspaces}>
             <WorkspaceInitialModuleData
@@ -1182,6 +1183,7 @@ describe("WorkspaceFrame", () => {
                   channelInvitations: [],
                   feishuAvailableChannels: [],
                   feishuAvailableUsers: [],
+                  feishuAvailableAgents: [],
                   feishuIntegrations: [],
                   members: [],
                   sessions: [],
@@ -1227,7 +1229,7 @@ describe("WorkspaceFrame", () => {
     window.history.replaceState(null, "", "/w/workspace-alpha/settings/members");
 
     render(
-      <LanguageProvider>
+      <LanguageProvider initialLanguage="zh">
         <FeedbackToastProvider>
           <WorkspaceFrame currentMembershipRole="member" currentWorkspace={workspaces[0]} shell={shell} user={user} workspaces={workspaces}>
             <WorkspaceInitialModuleData
@@ -1246,6 +1248,7 @@ describe("WorkspaceFrame", () => {
                   channelInvitations: [],
                   feishuAvailableChannels: [],
                   feishuAvailableUsers: [],
+                  feishuAvailableAgents: [],
                   feishuIntegrations: [],
                   members: [],
                   sessions: [],
@@ -1291,7 +1294,7 @@ describe("WorkspaceFrame", () => {
     const userEventApi = userEvent.setup();
 
     render(
-      <LanguageProvider>
+      <LanguageProvider initialLanguage="zh">
         <FeedbackToastProvider>
           <WorkspaceFrame currentMembershipRole="owner" currentWorkspace={workspaces[0]} shell={shell} user={user} workspaces={workspaces}>
             <WorkspaceInitialModuleData
@@ -1310,6 +1313,7 @@ describe("WorkspaceFrame", () => {
                   channelInvitations: [],
                   feishuAvailableChannels: [],
                   feishuAvailableUsers: [],
+                  feishuAvailableAgents: [],
                   feishuIntegrations: [],
                   members: [],
                   sessions: [],
@@ -1351,7 +1355,7 @@ describe("WorkspaceFrame", () => {
     const userEventApi = userEvent.setup();
 
     render(
-      <LanguageProvider>
+      <LanguageProvider initialLanguage="zh">
         <WorkspaceFrame currentMembershipRole="owner" currentWorkspace={workspaces[0]} shell={shell} user={user} workspaces={workspaces}>
           <div>Workspace content</div>
         </WorkspaceFrame>
@@ -1374,7 +1378,7 @@ describe("WorkspaceFrame", () => {
     const userEventApi = userEvent.setup();
 
     render(
-      <LanguageProvider>
+      <LanguageProvider initialLanguage="zh">
         <WorkspaceFrame currentMembershipRole="owner" currentWorkspace={workspaces[0]} shell={shell} user={user} workspaces={workspaces}>
           <div>Workspace content</div>
         </WorkspaceFrame>
@@ -1404,7 +1408,7 @@ describe("WorkspaceFrame", () => {
     window.localStorage.setItem(buildWorkspaceOnboardingStorageKey(user.id, workspaces[0].id), "done");
 
     render(
-      <LanguageProvider>
+      <LanguageProvider initialLanguage="zh">
         <WorkspaceFrame currentMembershipRole="owner" currentWorkspace={workspaces[0]} shell={shell} user={user} workspaces={workspaces}>
           <div>Workspace content</div>
         </WorkspaceFrame>
@@ -1425,7 +1429,7 @@ describe("WorkspaceFrame", () => {
     searchParams.set("view", "direct");
 
     render(
-      <LanguageProvider>
+      <LanguageProvider initialLanguage="zh">
         <WorkspaceFrame currentMembershipRole="owner" currentWorkspace={workspaces[0]} shell={shell} user={user} workspaces={workspaces}>
           <div>Workspace content</div>
         </WorkspaceFrame>
@@ -1443,7 +1447,7 @@ describe("WorkspaceFrame", () => {
     const userEventApi = userEvent.setup();
 
     render(
-      <LanguageProvider>
+      <LanguageProvider initialLanguage="zh">
         <WorkspaceFrame currentMembershipRole="owner" currentWorkspace={workspaces[0]} shell={shell} user={user} workspaces={workspaces}>
           <div>Workspace content</div>
         </WorkspaceFrame>
@@ -1465,7 +1469,7 @@ describe("WorkspaceFrame", () => {
     };
 
     render(
-      <LanguageProvider>
+      <LanguageProvider initialLanguage="zh">
         <WorkspaceFrame currentMembershipRole="member" currentWorkspace={workspaces[0]} shell={memberShell} user={user} workspaces={workspaces}>
           <div>Workspace content</div>
         </WorkspaceFrame>
@@ -1484,7 +1488,7 @@ describe("WorkspaceFrame", () => {
     searchParams.set("mode", "container");
 
     render(
-      <LanguageProvider>
+      <LanguageProvider initialLanguage="zh">
         <WorkspaceFrame currentMembershipRole="owner" currentWorkspace={workspaces[0]} shell={shell} user={user} workspaces={workspaces}>
           <div>Workspace content</div>
         </WorkspaceFrame>
@@ -1500,7 +1504,7 @@ describe("WorkspaceFrame", () => {
     const userEventApi = userEvent.setup();
 
     render(
-      <LanguageProvider>
+      <LanguageProvider initialLanguage="zh">
         <WorkspaceFrame currentMembershipRole="owner" currentWorkspace={workspaces[0]} shell={shell} user={user} workspaces={workspaces}>
           <div>Workspace content</div>
         </WorkspaceFrame>
@@ -1541,7 +1545,7 @@ describe("WorkspaceFrame", () => {
     const userEventApi = userEvent.setup();
 
     render(
-      <LanguageProvider>
+      <LanguageProvider initialLanguage="zh">
         <FeedbackToastProvider>
           <WorkspaceFrame currentMembershipRole="owner" currentWorkspace={workspaces[0]} shell={shell} user={user} workspaces={workspaces}>
             <div>Workspace content</div>
@@ -1570,7 +1574,7 @@ describe("WorkspaceFrame", () => {
     pathname = "/w/workspace-alpha/contacts";
 
     render(
-      <LanguageProvider>
+      <LanguageProvider initialLanguage="zh">
         <WorkspaceFrame currentMembershipRole="owner" currentWorkspace={workspaces[0]} shell={shell} user={user} workspaces={workspaces}>
           <div>Workspace content</div>
         </WorkspaceFrame>
@@ -1586,7 +1590,7 @@ describe("WorkspaceFrame", () => {
     const userEventApi = userEvent.setup();
 
     render(
-      <LanguageProvider>
+      <LanguageProvider initialLanguage="zh">
         <WorkspaceFrame currentMembershipRole="owner" currentWorkspace={workspaces[0]} shell={shell} user={user} workspaces={workspaces}>
           <div>Workspace content</div>
         </WorkspaceFrame>
@@ -1603,7 +1607,7 @@ describe("WorkspaceFrame", () => {
     pathname = "/w/workspace-alpha/settings/security";
 
     render(
-      <LanguageProvider>
+      <LanguageProvider initialLanguage="zh">
         <WorkspaceFrame currentMembershipRole="owner" currentWorkspace={workspaces[0]} shell={shell} user={user} workspaces={workspaces}>
           <div>Workspace content</div>
         </WorkspaceFrame>

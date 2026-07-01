@@ -1011,6 +1011,27 @@ describe("SettingsPageClient", () => {
     expect(within(panel).getByRole("combobox", { name: "未绑定用户" })).toBeVisible();
   });
 
+  it("renders the Agent field as a disabled dropdown when no agents can be bound", () => {
+    renderSettingsPage({
+      currentMembershipRole: "admin",
+      feishuAvailableAgents: [],
+      feishuAvailableChannels: [],
+      feishuAvailableUsers: [],
+      feishuIntegrations: [],
+      initialSection: "integrations",
+    });
+
+    const panel = screen.getByRole("region", { name: "Agent 飞书 Bot" });
+    const agentSelect = within(panel).getByRole("combobox", { name: "Agent" });
+
+    expect(agentSelect).toBeDisabled();
+    expect(agentSelect).toHaveValue("");
+    expect(within(panel).queryByRole("textbox", { name: "Agent" })).not.toBeInTheDocument();
+    expect(within(panel).getByText("暂无可绑定 Agent")).toBeInTheDocument();
+    expect(within(panel).getByText("请先在 Agent 管理中创建 Agent，再为它绑定飞书 Bot。")).toBeInTheDocument();
+    expect(within(panel).getByRole("button", { name: "绑定 Bot" })).toBeDisabled();
+  });
+
   it("tests an agent Feishu bot connection with only App ID and App Secret", async () => {
     const user = userEvent.setup();
     mockTestFeishuIntegrationConnectionAction.mockResolvedValue({
@@ -2060,6 +2081,7 @@ function buildFeishuSetupGuide(options: { agentBot?: boolean } = {}): NonNullabl
       checkEnv: "npm run smoke:feishu -- --env-file scripts/feishu/.env --check-env --json --require-todo120-native",
       strictLiveSmoke: "npm run smoke:feishu -- --env-file scripts/feishu/.env --live --strict-live --evidence runtime-output/feishu-smoke/live.json --json --require-todo120-native",
       verifyOpenApiEvidence: "npm run smoke:feishu -- --verify-evidence runtime-output/feishu-smoke/live.json --json",
+      verifyBotAddedPayload: "npm run smoke:feishu -- --verify-bot-added-payload runtime-output/feishu-smoke/bot-added-callback.json --bot-added-payload-evidence runtime-output/feishu-smoke/bot-added-payload-evidence.json --json",
       smokePlan: "agent-space integrations feishu smoke-plan --workspace-id workspace-1 --integration feishu-1 --app-url https://agent.test",
       evidence: "agent-space integrations feishu evidence --workspace-id workspace-1 --integration feishu-1 --openapi-evidence runtime-output/feishu-smoke/live.json --bot-added-payload-evidence runtime-output/feishu-smoke/bot-added-payload-evidence.json --strict --require all",
     },

@@ -384,10 +384,10 @@ export function listFeishuAvailableChannels(input: {
   }));
 }
 
-export function listFeishuAvailableAgents(_input: {
+export function listFeishuAvailableAgents(input: {
   workspaceId: string;
 }): FeishuAvailableAgentItem[] {
-  return listActiveEmployeesSync().map((agent) => ({
+  return listActiveEmployeesSync(input.workspaceId).map((agent) => ({
     id: agent.name,
     name: agent.name,
     role: agent.role,

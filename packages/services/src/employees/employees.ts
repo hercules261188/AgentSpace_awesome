@@ -33,8 +33,8 @@ import {
 
 const RUNTIME_COORDINATOR = "系统提示";
 
-export function listActiveEmployeesSync(): ActiveEmployee[] {
-  return ensureWorkspaceStateSync().activeEmployees;
+export function listActiveEmployeesSync(workspaceId?: string): ActiveEmployee[] {
+  return ensureWorkspaceStateSync(workspaceId).activeEmployees;
 }
 
 export function listEmployeeRuntimeBindingsForWorkspaceSync(

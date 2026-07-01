@@ -866,6 +866,7 @@ describe("Feishu settings data", () => {
         remarkName: undefined,
       },
     ]);
+    expect(mockListActiveEmployeesSync).toHaveBeenCalledWith("workspace-1");
   });
 });
 

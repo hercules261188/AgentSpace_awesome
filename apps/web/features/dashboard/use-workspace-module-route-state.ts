@@ -30,19 +30,32 @@ export function useWorkspaceModuleRouteState(currentWorkspaceSlug: string): {
     [pathname, searchKey, searchParams],
   );
   const [optimisticRouteState, setOptimisticRouteState] = useState<{
+    pathKey: string;
     routeState: WorkspaceModuleRouteState;
     source: "next" | "client";
   } | null>(null);
 
   useEffect(() => {
-    setOptimisticRouteState((current) => current?.source === "client" ? current : null);
+    setOptimisticRouteState((current) => {
+      if (!current) {
+        return null;
+      }
+      if (current.source !== "client") {
+        return null;
+      }
+      return current.pathKey === readCurrentBrowserPathKey() ? current : null;
+    });
   }, [pathname, searchKey]);
 
   useEffect(() => {
     function handlePopState(): void {
       const nextHref = `${window.location.pathname}${window.location.search}`;
       const nextRouteState = parseWorkspaceModuleHref(nextHref);
-      setOptimisticRouteState({ routeState: nextRouteState, source: "client" });
+      setOptimisticRouteState({
+        pathKey: readHrefPathKey(nextHref, window.location.href),
+        routeState: nextRouteState,
+        source: "client",
+      });
     }
 
     window.addEventListener("popstate", handlePopState);
@@ -55,7 +68,11 @@ export function useWorkspaceModuleRouteState(currentWorkspaceSlug: string): {
       return null;
     }
 
-    setOptimisticRouteState({ routeState: nextRouteState, source: "next" });
+    setOptimisticRouteState({
+      pathKey: readHrefPathKey(href),
+      routeState: nextRouteState,
+      source: "next",
+    });
     return nextRouteState;
   }, [currentWorkspaceSlug]);
 
@@ -73,7 +90,11 @@ export function useWorkspaceModuleRouteState(currentWorkspaceSlug: string): {
     } else {
       window.history.pushState(historyState, "", nextPath);
     }
-    setOptimisticRouteState({ routeState: nextRouteState, source: "client" });
+    setOptimisticRouteState({
+      pathKey: readHrefPathKey(href, window.location.href),
+      routeState: nextRouteState,
+      source: "client",
+    });
     return nextRouteState;
   }, [currentWorkspaceSlug]);
 
@@ -97,4 +118,16 @@ export function useWorkspaceModuleRouteState(currentWorkspaceSlug: string): {
     navigateHrefLocally,
     navigateModule,
   };
+}
+
+function readCurrentBrowserPathKey(): string {
+  if (typeof window === "undefined") {
+    return "";
+  }
+  return `${window.location.pathname}${window.location.search}${window.location.hash}`;
+}
+
+function readHrefPathKey(href: string, base = "https://agent-space.local"): string {
+  const parsed = new URL(href, base);
+  return `${parsed.pathname}${parsed.search}${parsed.hash}`;
 }
