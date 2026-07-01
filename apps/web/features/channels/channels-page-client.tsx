@@ -52,6 +52,7 @@ import {
 } from "@/features/dashboard/workspace-module-cache";
 import { ChannelDocumentsPanel } from "@/features/channels/channel-documents-panel";
 import { buildWorkspacePath, parseWorkspacePathname } from "@/features/auth/workspace-paths";
+import { FeishuChannelSummaryPanel } from "@/features/integrations/feishu/feishu-channel-summary-panel";
 import { useLanguage } from "@/features/i18n/language-provider";
 import { HoverTooltip } from "@/shared/ui/hover-tooltip";
 import { useDialogSurface } from "@/shared/lib/use-dialog-surface";
@@ -2613,6 +2614,10 @@ function ChannelWorkspaceHeader({
           ) : null}
         </div>
       </div>
+
+      {selectedChannel.feishu ? (
+        <FeishuChannelSummaryPanel feishu={selectedChannel.feishu} tx={tx} />
+      ) : null}
 
       <div className="channel-workspace-header__tabs">
         <ChannelTabButton

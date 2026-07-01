@@ -21,10 +21,14 @@ import { sameValue } from "../shared/helpers.ts";
 import { resolveChannelHumanMemberNames } from "../channels/channels.ts";
 import {
   pushWorkspaceMessageToChannel,
+  applyWorkspaceDataPolicyToExternalMessageInput,
+  assertWorkspaceDataPolicyAllowsExternalMessageInput,
+  buildExternalMessageData,
   buildChannelHistorySnapshot,
   buildMentionCandidates,
   enqueueChannelMentionStepSync,
   getChannelHistoryFilePath,
+  type ExternalMessageInputContext,
 } from "../shared/messaging.ts";
 import {
   createAutoContinuationState,
@@ -249,6 +253,7 @@ export function sendChannelHumanMessageSync(
   replyToMessageId?: string,
   workspaceId?: string,
   requesterUserId?: string,
+  externalInput?: ExternalMessageInputContext,
 ): AgentSpaceState {
   const state = ensureWorkspaceStateSync(workspaceId);
   const effectiveWorkspaceId = workspaceId ?? DEFAULT_WORKSPACE_ID;
@@ -256,12 +261,16 @@ export function sendChannelHumanMessageSync(
   if (!channel) {
     throw new Error(`Channel "${channelName}" does not exist.`);
   }
-  assertHumanCanAccessChannel(state, channel.name, speaker, requesterUserId, effectiveWorkspaceId);
 
   const trimmed = summary.trim();
   if (!trimmed) {
     throw new Error("Message content is required.");
   }
+  const governedExternalInput = applyWorkspaceDataPolicyToExternalMessageInput(externalInput, effectiveWorkspaceId, {
+    hasAttachments: Boolean(attachments && attachments.length > 0),
+  });
+  assertWorkspaceDataPolicyAllowsExternalMessageInput(governedExternalInput);
+  assertHumanCanAccessChannel(state, channel.name, speaker, requesterUserId, effectiveWorkspaceId, governedExternalInput);
 
   const mentionCandidates = buildMentionCandidates(state, channel.name);
   const mentionParse = parseChannelMentionsSync(state, channel.name, trimmed);
@@ -287,6 +296,7 @@ export function sendChannelHumanMessageSync(
     attachments,
     mentions: mentionParse.allMentions,
     replyToMessageId,
+    data: buildExternalMessageData(governedExternalInput),
   }, effectiveWorkspaceId);
 
   if (mentionParse.agentMentions.length === 0) {
@@ -343,6 +353,7 @@ export function sendChannelHumanMessageSync(
         workspaceId: effectiveWorkspaceId,
         requesterUserId,
         requesterDisplayName: speaker,
+        externalInput: governedExternalInput,
       });
 
       if (queued) {
@@ -451,6 +462,7 @@ export function sendChannelHumanMessageSync(
         channelHistory: buildChannelHistorySnapshot(state, channel.name),
         channelHistoryPath: getChannelHistoryFilePath(channel.name, effectiveWorkspaceId),
         channelSessionId: resumedSessionId,
+        ...(governedExternalInput ? { externalInput: governedExternalInput } : {}),
         autoContinuation,
         attachments:
           attachments?.map((attachment) => ({
@@ -507,7 +519,10 @@ export function sendChannelHumanMessageSync(
         role: "agent",
         summary: "Thinking",
         code: "agent.pending",
-        data: { agent_name: agent.name },
+        data: {
+          agent_name: agent.name,
+          source_message_id: humanMessage.id,
+        },
         status: "pending",
       }, effectiveWorkspaceId);
       continue;
@@ -601,10 +616,14 @@ function assertHumanCanAccessChannel(
   actorName: string,
   actorUserId?: string,
   workspaceId?: string,
+  externalInput?: ExternalMessageInputContext,
 ): void {
   const channel = state.channels.find((item) => sameValue(item.name, channelName));
   if (!channel) {
     throw new Error(`Channel "${channelName}" does not exist.`);
+  }
+  if (isExternalGuestChannelContextActor(externalInput)) {
+    return;
   }
   if (
     actorUserId &&
@@ -621,6 +640,16 @@ function assertHumanCanAccessChannel(
     return;
   }
   throw new Error(`Human member "${actorName}" does not belong to channel "${channelName}".`);
+}
+
+function isExternalGuestChannelContextActor(input: ExternalMessageInputContext | undefined): boolean {
+  const actor = input?.actor;
+  return actor?.actorType === "external_guest" &&
+    !actor.userId &&
+    typeof actor.externalActorReference === "string" &&
+    actor.externalActorReference.trim().length > 0 &&
+    (actor.externalGuestPermissionProfile === "channel_context_only" ||
+      actor.externalGuestPermissionProfile === "channel_readonly");
 }
 
 export function completeAgentChannelReplySync(input: {

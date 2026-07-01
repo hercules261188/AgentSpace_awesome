@@ -12,6 +12,8 @@ export const DEFAULT_WORKSPACE_ID = "default";
 
 const WORKER_REQUEST_TIMEOUT_MS = resolveWorkerRequestTimeoutMs();
 const WORKER_WAIT_SLICE_MS = 50;
+const POSTGRES_SCHEMA_LOCK_TIMEOUT_MS = resolveSchemaLockTimeoutMs();
+const POSTGRES_SCHEMA_LOCK_RETRY_MS = 100;
 const WORKER_SIGNAL_BUFFER = new SharedArrayBuffer(4);
 const WORKER_SIGNAL = new Int32Array(WORKER_SIGNAL_BUFFER);
 const POSTGRES_SYNC_WORKER_SOURCE = String.raw`
@@ -22,13 +24,18 @@ const responseSignal = new Int32Array(workerData.responseSignalBuffer);
 types.setTypeParser(types.builtins.JSON, (value) => value);
 types.setTypeParser(types.builtins.JSONB, (value) => value);
 types.setTypeParser(types.builtins.DATE, (value) => value);
-types.setTypeParser(types.builtins.TIMESTAMP, (value) => value);
-types.setTypeParser(types.builtins.TIMESTAMPTZ, (value) => value);
+types.setTypeParser(types.builtins.TIMESTAMP, normalizeTimestampValue);
+types.setTypeParser(types.builtins.TIMESTAMPTZ, normalizeTimestampValue);
 types.setTypeParser(types.builtins.INT8, (value) => Number(value));
 
 let port = null;
 let client = null;
 let connectedDatabaseUrl = null;
+
+function normalizeTimestampValue(value) {
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? value : parsed.toISOString();
+}
 
 parentPort?.on("message", (message) => {
   if (!isPortMessage(message)) {
@@ -248,6 +255,60 @@ const NORMALIZED_ROW_KEY_ALIASES = new Map([
   ["respondedat", "respondedAt"],
   ["respondedby", "respondedBy"],
   ["accesstokenencrypted", "accessTokenEncrypted"],
+  ["agentspacemessageid", "agentSpaceMessageId"],
+  ["agentspaceresourceid", "agentSpaceResourceId"],
+  ["agentspaceresourcetype", "agentSpaceResourceType"],
+  ["appid", "appId"],
+  ["capabilitiesjson", "capabilitiesJson"],
+  ["channelbindingid", "channelBindingId"],
+  ["channelname", "channelName"],
+  ["configjson", "configJson"],
+  ["createdbyuserid", "createdByUserId"],
+  ["disabledat", "disabledAt"],
+  ["displayname", "displayName"],
+  ["encryptedcredentialsjson", "encryptedCredentialsJson"],
+  ["errorcode", "errorCode"],
+  ["errormessage", "errorMessage"],
+  ["eventtype", "eventType"],
+  ["externalchatid", "externalChatId"],
+  ["externalchatname", "externalChatName"],
+  ["externalchattype", "externalChatType"],
+  ["externaleventid", "externalEventId"],
+  ["externalmessageid", "externalMessageId"],
+  ["externalopenid", "externalOpenId"],
+  ["externalemail", "externalEmail"],
+  ["externalsenderid", "externalSenderId"],
+  ["externalthreadid", "externalThreadId"],
+  ["externalunionid", "externalUnionId"],
+  ["externaluserid", "externalUserId"],
+  ["finishedat", "finishedAt"],
+  ["integrationid", "integrationId"],
+  ["lastattemptat", "lastAttemptAt"],
+  ["lasterror", "lastError"],
+  ["lasthealthcheckedat", "lastHealthCheckedAt"],
+  ["lasthealthstatus", "lastHealthStatus"],
+  ["lastmessageat", "lastMessageAt"],
+  ["lastseenat", "lastSeenAt"],
+  ["lockedat", "lockedAt"],
+  ["lockedby", "lockedBy"],
+  ["nextattemptat", "nextAttemptAt"],
+  ["operationtype", "operationType"],
+  ["permissionsjson", "permissionsJson"],
+  ["payloadjson", "payloadJson"],
+  ["processedat", "processedAt"],
+  ["providerresourcetoken", "providerResourceToken"],
+  ["providerresourcetype", "providerResourceType"],
+  ["providerresourceurl", "providerResourceUrl"],
+  ["receivedat", "receivedAt"],
+  ["requestjson", "requestJson"],
+  ["resourcebindingid", "resourceBindingId"],
+  ["scopesjson", "scopesJson"],
+  ["sentat", "sentAt"],
+  ["syncmode", "syncMode"],
+  ["targetexternalchatid", "targetExternalChatId"],
+  ["targetexternalthreadid", "targetExternalThreadId"],
+  ["tenantkey", "tenantKey"],
+  ["transportmode", "transportMode"],
   ["removedat", "removedAt"],
   ["recipientid", "recipientId"],
   ["recipienttype", "recipientType"],
@@ -466,7 +527,7 @@ function ensureRuntimeSchema(db: PostgresSyncDatabase): void {
   }
 
   let transactionStarted = false;
-  db.prepare("SELECT pg_advisory_lock(?)").get(POSTGRES_SCHEMA_VERSION);
+  acquireRuntimeSchemaLock(db);
   try {
     if (schemaEnsuredForUrl === currentUrl || isRuntimeSchemaCurrent(db)) {
       schemaEnsuredForUrl = currentUrl;
@@ -495,6 +556,60 @@ function ensureRuntimeSchema(db: PostgresSyncDatabase): void {
   } finally {
     db.prepare("SELECT pg_advisory_unlock(?)").get(POSTGRES_SCHEMA_VERSION);
   }
+}
+
+interface RuntimeSchemaLockOptions {
+  timeoutMs?: number;
+  retryMs?: number;
+  now?: () => number;
+  sleep?: (durationMs: number) => void;
+}
+
+export function acquireRuntimeSchemaLockForTests(
+  db: Pick<PostgresSyncDatabase, "prepare">,
+  options: RuntimeSchemaLockOptions = {},
+): { attempts: number } {
+  return acquireRuntimeSchemaLock(db, options);
+}
+
+function acquireRuntimeSchemaLock(
+  db: Pick<PostgresSyncDatabase, "prepare">,
+  options: RuntimeSchemaLockOptions = {},
+): { attempts: number } {
+  const timeoutMs = options.timeoutMs ?? POSTGRES_SCHEMA_LOCK_TIMEOUT_MS;
+  const retryMs = options.retryMs ?? POSTGRES_SCHEMA_LOCK_RETRY_MS;
+  const now = options.now ?? Date.now;
+  const sleep = options.sleep ?? sleepSync;
+  const startedAt = now();
+  let attempts = 0;
+
+  while (true) {
+    attempts += 1;
+    const row = db.prepare("SELECT pg_try_advisory_lock(?) AS acquired").get(POSTGRES_SCHEMA_VERSION) as
+      | { acquired?: boolean }
+      | undefined;
+    if (row?.acquired === true) {
+      return { attempts };
+    }
+
+    const elapsedMs = Math.max(0, now() - startedAt);
+    if (elapsedMs >= timeoutMs) {
+      throw new Error(
+        `PostgreSQL schema migration lock is busy after ${timeoutMs}ms. `
+        + `Another AgentSpace process may be initializing schema version ${POSTGRES_SCHEMA_VERSION}; `
+        + "wait for it to finish or stop the stale process before rerunning the command.",
+      );
+    }
+
+    sleep(Math.min(retryMs, timeoutMs - elapsedMs));
+  }
+}
+
+function sleepSync(durationMs: number): void {
+  if (durationMs <= 0) {
+    return;
+  }
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, durationMs);
 }
 
 function isRuntimeSchemaCurrent(db: PostgresSyncDatabase): boolean {
@@ -780,6 +895,11 @@ function resolveLocalDbPackageJsonPath(): string {
 function resolveWorkerRequestTimeoutMs(): number {
   const parsed = Number.parseInt(process.env.AGENT_SPACE_DB_WORKER_TIMEOUT_MS ?? "", 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 10_000;
+}
+
+function resolveSchemaLockTimeoutMs(): number {
+  const parsed = Number.parseInt(process.env.AGENT_SPACE_DB_SCHEMA_LOCK_TIMEOUT_MS ?? "", 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : Math.max(1_000, WORKER_REQUEST_TIMEOUT_MS - 1_000);
 }
 
 function normalizeWorkerFailure(error: unknown): Error {

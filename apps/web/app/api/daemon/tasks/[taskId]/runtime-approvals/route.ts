@@ -1,4 +1,11 @@
-import { createRuntimeToolApprovalRequestSync } from "@agent-space/services";
+import { createExternalMessageOutboxSync } from "@agent-space/db";
+import {
+  buildFeishuIdentityBindingRequiredCard,
+  buildFeishuInteractiveCardOutboundMessage,
+  createRuntimeToolApprovalRequestSync,
+  evaluateFeishuExternalGuestRuntimeToolIdentityRequirementFromTaskInput,
+  type FeishuRuntimeToolIdentityRequirement,
+} from "@agent-space/services";
 import type { CreateRuntimeApprovalRequest } from "@agent-space/domain";
 import { readTaskForWorkspace, requireDaemonAuth } from "../../../_lib/auth";
 
@@ -26,6 +33,24 @@ export async function POST(
   }
   if (body.runtimeId !== task.runtimeId) {
     return Response.json({ error: "Runtime approval does not match the task runtime." }, { status: 400 });
+  }
+
+  const identityRequirement = evaluateFeishuExternalGuestRuntimeToolIdentityRequirementFromTaskInput(task.inputJson);
+  if (identityRequirement.required) {
+    const identityNoticeQueued = queueFeishuRuntimeToolIdentityRequiredNoticeBestEffort({
+      workspaceId: auth.workspaceId,
+      taskAgentId: task.agentId,
+      identityRequirement,
+    });
+    return Response.json({
+      error: "External guests must bind an AgentSpace identity before approving runtime-sensitive tools.",
+      errorCode: "feishu.runtime_tool_external_guest_requires_identity",
+      reasonCode: identityRequirement.reasonCode,
+      requireIdentity: true,
+      actorType: "external_guest",
+      externalActorReference: identityRequirement.externalActorReference,
+      identityNoticeQueued,
+    }, { status: 403 });
   }
 
   const approval = createRuntimeToolApprovalRequestSync({
@@ -60,4 +85,35 @@ function resolveTaskChannelName(inputJson: string): string {
 
 function readString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function queueFeishuRuntimeToolIdentityRequiredNoticeBestEffort(input: {
+  workspaceId: string;
+  taskAgentId: string;
+  identityRequirement: FeishuRuntimeToolIdentityRequirement;
+}): boolean {
+  const integrationId = input.identityRequirement.botBindingId;
+  const targetExternalChatId = input.identityRequirement.externalChatId;
+  if (!integrationId || !targetExternalChatId) {
+    return false;
+  }
+  try {
+    const outbound = buildFeishuInteractiveCardOutboundMessage({
+      targetExternalChatId,
+      targetExternalThreadId: input.identityRequirement.externalMessageId,
+      card: buildFeishuIdentityBindingRequiredCard({
+        agentId: input.identityRequirement.agentId ?? input.taskAgentId,
+      }),
+    });
+    createExternalMessageOutboxSync({
+      workspaceId: input.workspaceId,
+      integrationId,
+      targetExternalChatId: outbound.targetExternalChatId,
+      targetExternalThreadId: outbound.targetExternalThreadId,
+      payloadJson: outbound.payload,
+    });
+    return true;
+  } catch {
+    return false;
+  }
 }

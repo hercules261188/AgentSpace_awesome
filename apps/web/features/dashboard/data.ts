@@ -82,6 +82,14 @@ import type {
 import { formatDaemonProviderLabel } from "@agent-space/domain";
 import type { RuntimeProviderHealth } from "@agent-space/domain";
 import { formatCompactTimestamp } from "@/shared/lib/time-format";
+import {
+  buildFeishuAgentBotSetupReference,
+  listFeishuIntegrationSettingsItems,
+} from "@/features/integrations/feishu/feishu-settings-data";
+import type {
+  FeishuAgentBotSetupReference,
+  FeishuIntegrationSettingsItem,
+} from "@/features/integrations/feishu/feishu-types";
 export {
   getApprovalsPageData,
   getPendingApprovalCount,
@@ -280,6 +288,34 @@ export interface ChannelListItem {
   canManage?: boolean;
   accessState?: "accessible" | "pending" | "requestable";
   accessRequestId?: string;
+  feishu?: ChannelFeishuSummaryRecord;
+}
+
+export interface ChannelFeishuSummaryRecord {
+  bindingCount: number;
+  externalChatReference?: string;
+  externalChatName?: string;
+  externalChatType?: string;
+  provisionSource?: string;
+  reviewStatus?: string;
+  connectedAgentBots: Array<{
+    integrationId: string;
+    displayName: string;
+    agentId: string;
+    status: string;
+    unboundUserMode?: string;
+    guestPermissionProfile?: string;
+  }>;
+  resourceBindings: Array<{
+    id: string;
+    integrationId: string;
+    integrationDisplayName: string;
+    providerResourceType: string;
+    displayName?: string;
+    canWrite: boolean;
+    guestReadable: boolean;
+    status: string;
+  }>;
 }
 
 export interface ChannelThreadData {
@@ -735,6 +771,9 @@ export interface WorkspaceAgentRecord extends ManagementRecordBase {
   instructions?: string;
   knowledge?: WorkspaceAgentKnowledgeRecord;
   googleWorkspaceDelegation?: WorkspaceAgentGoogleWorkspaceDelegationRecord;
+  feishuAgentBot?: FeishuIntegrationSettingsItem;
+  feishuAgentBotSetupReference?: FeishuAgentBotSetupReference;
+  canManageFeishuAgentBot?: boolean;
   documentAccess?: WorkspaceAgentDocumentAccessSummaryRecord;
   forkedFrom?: {
     sourceAgentName: string;
@@ -1908,6 +1947,96 @@ function dedupeLinkedChannelDocuments(
   );
 }
 
+function buildFeishuChannelSummaryByChannelName(input: {
+  workspaceId: string;
+  canView: boolean;
+  viewer?: {
+    role: WorkspaceRole;
+    userId: string;
+  };
+}): Map<string, ChannelFeishuSummaryRecord> {
+  if (!input.canView) {
+    return new Map();
+  }
+
+  const summaries = new Map<string, ChannelFeishuSummaryRecord>();
+  const connectedBotKeys = new Set<string>();
+  const resourceKeys = new Set<string>();
+  const integrations = listFeishuIntegrationSettingsItems({
+    workspaceId: input.workspaceId,
+    viewer: input.viewer,
+  });
+
+  const ensureSummary = (channelName: string): ChannelFeishuSummaryRecord => {
+    const current = summaries.get(channelName);
+    if (current) {
+      return current;
+    }
+    const next: ChannelFeishuSummaryRecord = {
+      bindingCount: 0,
+      connectedAgentBots: [],
+      resourceBindings: [],
+    };
+    summaries.set(channelName, next);
+    return next;
+  };
+
+  for (const integration of integrations) {
+    for (const binding of integration.channelBindings) {
+      if (binding.status === "archived") {
+        continue;
+      }
+      const summary = ensureSummary(binding.channelName);
+      summary.bindingCount += 1;
+      if (!summary.externalChatReference || binding.status === "active") {
+        summary.externalChatReference = binding.externalChatReference;
+        summary.externalChatName = binding.externalChatName;
+        summary.externalChatType = binding.externalChatType;
+        summary.provisionSource = binding.provisionSource;
+        summary.reviewStatus = binding.reviewStatus;
+      }
+      if (integration.agentId && binding.status === "active") {
+        const key = `${binding.channelName}:${integration.id}:${integration.agentId}`;
+        if (!connectedBotKeys.has(key)) {
+          connectedBotKeys.add(key);
+          summary.connectedAgentBots.push({
+            integrationId: integration.id,
+            displayName: integration.displayName,
+            agentId: integration.agentId,
+            status: integration.status,
+            unboundUserMode: integration.externalGuestPolicy?.unboundUserMode,
+            guestPermissionProfile: integration.externalGuestPolicy?.guestPermissionProfile,
+          });
+        }
+      }
+    }
+
+    for (const resourceBinding of integration.resourceBindings) {
+      if (!resourceBinding.channelName || resourceBinding.status === "archived") {
+        continue;
+      }
+      const key = `${resourceBinding.channelName}:${integration.id}:${resourceBinding.id}`;
+      if (resourceKeys.has(key)) {
+        continue;
+      }
+      resourceKeys.add(key);
+      const summary = ensureSummary(resourceBinding.channelName);
+      summary.resourceBindings.push({
+        id: resourceBinding.id,
+        integrationId: integration.id,
+        integrationDisplayName: integration.displayName,
+        providerResourceType: resourceBinding.providerResourceType,
+        displayName: resourceBinding.displayName,
+        canWrite: resourceBinding.canWrite,
+        guestReadable: resourceBinding.guestReadable,
+        status: resourceBinding.status,
+      });
+    }
+  }
+
+  return summaries;
+}
+
 const CHANNEL_DOCUMENT_PRESENCE_TTL_MS = 90_000;
 const CHANNEL_DOCUMENT_SYNC_EVENT_TTL_MS = 10 * 60_000;
 
@@ -1963,6 +2092,16 @@ export function getChannelsPageData(
   );
   const canSeeAllAgents = isWorkspaceManager;
   const canManageChannels = isWorkspaceManager;
+  const feishuChannelSummaryByChannelName = buildFeishuChannelSummaryByChannelName({
+    workspaceId,
+    canView: isWorkspaceManager,
+    viewer: currentUserId && currentMembershipRole
+      ? {
+        role: currentMembershipRole,
+        userId: currentUserId,
+      }
+      : undefined,
+  });
   const mentionUnreadViewer = buildMentionUnreadViewer(state, currentUserDisplayName, currentUserId);
   const visibleEmployees = channelScoped
     ? (state.activeEmployees ?? []).filter((employee) =>
@@ -2076,6 +2215,7 @@ export function getChannelsPageData(
           canManage: canManageChannels,
           accessState: access?.state ?? "accessible",
           accessRequestId: access?.requestId,
+          feishu: feishuChannelSummaryByChannelName.get(channel.name),
           lastMessage: access?.state === "accessible" ? latestMessage?.summary : undefined,
           updatedAt: access?.state === "accessible" ? latestMessage?.time : undefined,
           unread: access?.state === "accessible" ? hasUnreadMentionForViewer(channelMessages, mentionUnreadViewer) : false,
@@ -2515,6 +2655,24 @@ export function getAgentsPageData(input: string | AgentsPageDataOptions = DEFAUL
       .map((delegation) => [delegation.employeeName, delegation]),
   );
   const documentAccessByEmployeeName = buildWorkspaceAgentDocumentAccessSummaries(workspaceId, state);
+  const feishuAgentBotByAgentId = new Map(
+    canManageAllAgents
+      ? listFeishuIntegrationSettingsItems({
+        workspaceId,
+        viewer: currentUserId && currentMembershipRole
+          ? {
+            role: currentMembershipRole,
+            userId: currentUserId,
+          }
+          : undefined,
+      })
+        .filter((integration) => integration.agentId)
+        .map((integration) => [integration.agentId!, integration])
+      : [],
+  );
+  const feishuAgentBotSetupReference = canManageAllAgents
+    ? buildFeishuAgentBotSetupReference()
+    : undefined;
   const activeRuntimeGrants = listRuntimeGrantsCached(workspaceId).filter((grant) => grant.status === "active");
   const grantsByRuntimeId = new Map<string, RuntimeGrantMember[]>();
   for (const grant of activeRuntimeGrants) {
@@ -2572,6 +2730,9 @@ export function getAgentsPageData(input: string | AgentsPageDataOptions = DEFAUL
         memberByUserId,
         currentUserId,
       ),
+      feishuAgentBot: feishuAgentBotByAgentId.get(agent.internalName),
+      feishuAgentBotSetupReference,
+      canManageFeishuAgentBot: canManageAllAgents,
       canManage: canManageAllAgents || (typeof currentUserId === "string" && agent.ownerUserId === currentUserId),
       canManageChannelMemberAccess: canManageAllAgents || (typeof currentUserId === "string" && agent.ownerUserId === currentUserId),
     }))

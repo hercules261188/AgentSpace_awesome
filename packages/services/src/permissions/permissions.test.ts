@@ -6,6 +6,8 @@ import test, { before, beforeEach } from "node:test";
 import {
   createChannelParticipantSync,
   createDaemonApiTokenSync,
+  createExternalIntegrationSync,
+  createExternalMessageMappingSync,
   createUserSync,
   createWorkspaceMembershipSync,
   createWorkspaceSync,
@@ -49,6 +51,8 @@ beforeEach(() => {
   getDatabase().exec(`
     DELETE FROM agent_google_workspace_delegation;
     DELETE FROM google_oauth_credential;
+    DELETE FROM external_message_mapping;
+    DELETE FROM external_integration;
     DELETE FROM employee_runtime_binding;
     DELETE FROM workspace_runtime_grant;
     DELETE FROM agent_runtime;
@@ -96,6 +100,72 @@ test("permission center aggregates workspace, channel, agent, runtime, document,
   assert.equal(serialized.includes("tokenHash"), false);
   assert.equal(serialized.includes("accessTokenEncrypted"), false);
   assert.equal(serialized.includes("refreshTokenEncrypted"), false);
+});
+
+test("permission center exposes Feishu external guest policy and recent guest interactions safely", () => {
+  const fixtures = seedPermissionWorkspace();
+  const integration = createExternalIntegrationSync({
+    workspaceId: fixtures.workspace.id,
+    provider: "feishu",
+    displayName: "Atlas Feishu Bot",
+    transportMode: "websocket_worker",
+    agentId: "Atlas",
+    appId: "cli_atlas_feishu",
+    encryptedCredentialsJson: {
+      appSecret: "encrypted-secret",
+    },
+    configJson: {
+      externalGuestPolicy: {
+        unboundUserMode: "reply_on_mention",
+        guestPermissionProfile: "channel_context_only",
+        requireIdentityFor: ["writes", "approvals"],
+      },
+    },
+  });
+  createExternalMessageMappingSync({
+    workspaceId: fixtures.workspace.id,
+    integrationId: integration.id,
+    direction: "inbound",
+    externalMessageId: "om_guest_secret",
+    externalThreadId: "om_thread_secret",
+    externalSenderId: "ou_guest_secret",
+    externalEventId: "evt_guest_secret",
+    metadataJson: {
+      provider: "feishu",
+      actorType: "external_guest",
+      externalChatReference: "chat abc123",
+      mappedChannelName: "general",
+      agentId: "Atlas",
+      externalGuestReference: "guest 93af1c",
+      externalGuestPermissionProfile: "channel_context_only",
+      externalGuestPolicyDecision: "allow",
+      externalGuestPolicyReasonCode: "feishu_external_guest_allowed",
+      externalGuestUnboundUserMode: "reply_on_mention",
+      dispatchStatus: "sent",
+    },
+  });
+
+  const center = getWorkspacePermissionCenterSync({
+    workspaceId: fixtures.workspace.id,
+    actor: {
+      userId: fixtures.owner.id,
+      displayName: fixtures.owner.displayName,
+      role: "owner",
+    },
+  });
+  const serialized = JSON.stringify(center);
+  const feishuPolicyNode = flattenPermissionTree(center.tree).find((node) => node.id === `external-guest-policy:${integration.id}`);
+  const guestActor = center.actors.find((actor) => actor.subjectType === "external_guest");
+
+  assert.ok(feishuPolicyNode);
+  assert.equal(feishuPolicyNode.resourceType, "external_identity_policy");
+  assert.match(serialized, /Atlas Feishu Bot guest policy/);
+  assert.match(serialized, /unbound users: reply_on_mention; channel_context_only/);
+  assert.match(serialized, /Guest interaction · general/);
+  assert.ok(guestActor);
+  assert.equal(guestActor.status, "external");
+  assert.match(JSON.stringify(guestActor), /guest interaction: allow/);
+  assert.doesNotMatch(serialized, /ou_guest_secret|om_guest_secret|om_thread_secret|evt_guest_secret/);
 });
 
 test("plain members only receive their effective permission subset", () => {

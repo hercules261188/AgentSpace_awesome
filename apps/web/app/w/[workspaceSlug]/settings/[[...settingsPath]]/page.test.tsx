@@ -24,6 +24,20 @@ const {
   mockReadUserSync: vi.fn(),
 }));
 
+const {
+  mockBuildFeishuIntegrationCreationGuide,
+  mockListFeishuAvailableAgents,
+  mockListFeishuAvailableChannels,
+  mockListFeishuAvailableUsers,
+  mockListFeishuIntegrationSettingsItems,
+} = vi.hoisted(() => ({
+  mockBuildFeishuIntegrationCreationGuide: vi.fn(),
+  mockListFeishuAvailableAgents: vi.fn(),
+  mockListFeishuAvailableChannels: vi.fn(),
+  mockListFeishuAvailableUsers: vi.fn(),
+  mockListFeishuIntegrationSettingsItems: vi.fn(),
+}));
+
 const { mockGetCurrentSession } = vi.hoisted(() => ({
   mockGetCurrentSession: vi.fn(),
 }));
@@ -68,6 +82,20 @@ vi.mock("@/features/auth/server-workspace", () => ({
   getWorkspaceContextForIdentifier: mockGetWorkspaceContextForIdentifier,
 }));
 
+vi.mock("@/features/auth/public-app-url", () => ({
+  readPublicAppUrl: () => undefined,
+}));
+
+vi.mock("@/features/integrations/feishu/feishu-settings-data", () => ({
+  buildFeishuIntegrationCreationGuide: mockBuildFeishuIntegrationCreationGuide,
+  canManageFeishuIntegrations: (role?: "owner" | "admin" | "member") =>
+    role === undefined || role === "owner" || role === "admin",
+  listFeishuAvailableAgents: mockListFeishuAvailableAgents,
+  listFeishuAvailableChannels: mockListFeishuAvailableChannels,
+  listFeishuAvailableUsers: mockListFeishuAvailableUsers,
+  listFeishuIntegrationSettingsItems: mockListFeishuIntegrationSettingsItems,
+}));
+
 import WorkspaceSettingsPage from "./page";
 import { WorkspaceInitialModuleData } from "@/features/dashboard/workspace-initial-module-data";
 
@@ -88,6 +116,11 @@ describe("workspace settings route", () => {
     mockListSessionsForUserSync.mockReset();
     mockListWorkspaceInvitationsSync.mockReset();
     mockListWorkspaceMemberUsersSync.mockReset();
+    mockListFeishuAvailableAgents.mockReset();
+    mockListFeishuAvailableChannels.mockReset();
+    mockListFeishuAvailableUsers.mockReset();
+    mockListFeishuIntegrationSettingsItems.mockReset();
+    mockBuildFeishuIntegrationCreationGuide.mockReset();
     mockReadWorkspaceSync.mockReset();
     mockReadUserSync.mockReset();
 
@@ -115,6 +148,24 @@ describe("workspace settings route", () => {
     mockListChannelInvitationsSync.mockReturnValue([]);
     mockListWorkspaceInvitationsSync.mockReturnValue([{ id: "invite-1" }]);
     mockListWorkspaceMemberUsersSync.mockReturnValue([{ userId: "user-1" }]);
+    mockListFeishuAvailableAgents.mockReturnValue([{ id: "Codex", name: "Codex", role: "Engineer" }]);
+    mockListFeishuAvailableChannels.mockReturnValue([{ name: "general", kind: "group" }]);
+    mockListFeishuAvailableUsers.mockReturnValue([{ userId: "user-1", displayName: "Mina", role: "owner" }]);
+    mockListFeishuIntegrationSettingsItems.mockReturnValue([{ id: "feishu-1" }]);
+    mockBuildFeishuIntegrationCreationGuide.mockReturnValue({
+      requiredCredentialFields: ["app_id", "app_secret", "verification_token"],
+      requiredEvents: ["im.message.receive_v1", "im.chat.member.bot.added_v1", "card.action.trigger"],
+      requiredScopes: ["im:message", "docx:document", "sheets:spreadsheet", "bitable:app"],
+      eventCallbackPath: "/api/integrations/feishu/events",
+      developerConsoleUrl: "https://open.feishu.cn/app",
+      openPlatformSetupSteps: [
+        {
+          id: "create_custom_app",
+          consoleUrl: "https://open.feishu.cn/app",
+          required: ["app_id", "app_secret"],
+        },
+      ],
+    });
     mockReadUserSync.mockReturnValue({ displayName: "Mina" });
     mockGetWorkspacePermissionCenterSync.mockReturnValue({
       tree: [],
@@ -157,6 +208,9 @@ describe("workspace settings route", () => {
     expect(data.members).toEqual([]);
     expect(data.invitations).toEqual([]);
     expect(data.sessions).toEqual([{ id: "session-1" }]);
+    expect(data.feishuAvailableChannels).toEqual([]);
+    expect(data.feishuAvailableUsers).toEqual([]);
+    expect(data.feishuIntegrations).toEqual([]);
     expect(mockListWorkspaceMemberUsersSync).not.toHaveBeenCalled();
     expect(mockListWorkspaceInvitationsSync).not.toHaveBeenCalled();
     expect(mockListSessionsForUserSync).toHaveBeenCalledWith("user-1");
@@ -185,6 +239,9 @@ describe("workspace settings route", () => {
     expect(data.members).toEqual([{ userId: "user-1" }]);
     expect(data.invitations).toEqual([]);
     expect(data.sessions).toEqual([]);
+    expect(data.feishuAvailableChannels).toEqual([]);
+    expect(data.feishuAvailableUsers).toEqual([]);
+    expect(data.feishuIntegrations).toEqual([]);
     expect(mockListWorkspaceMemberUsersSync).toHaveBeenCalledWith("workspace-mars");
     expect(mockListWorkspaceInvitationsSync).not.toHaveBeenCalled();
     expect(mockListSessionsForUserSync).not.toHaveBeenCalled();
@@ -203,6 +260,9 @@ describe("workspace settings route", () => {
     expect(data.channelAccessRequests).toEqual([]);
     expect(data.channelInvitations).toEqual([]);
     expect(data.sessions).toEqual([]);
+    expect(data.feishuAvailableChannels).toEqual([]);
+    expect(data.feishuAvailableUsers).toEqual([]);
+    expect(data.feishuIntegrations).toEqual([]);
     expect(mockListWorkspaceInvitationsSync).toHaveBeenCalledWith("workspace-mars", {
       statuses: ["active", "accepted", "revoked", "expired"],
     });
@@ -210,6 +270,85 @@ describe("workspace settings route", () => {
     expect(mockListChannelInvitationsSync).toHaveBeenCalledWith("workspace-mars", { statuses: ["pending"] });
     expect(mockListWorkspaceMemberUsersSync).not.toHaveBeenCalled();
     expect(mockListSessionsForUserSync).not.toHaveBeenCalled();
+  });
+
+  it("loads only Feishu integration data for the integrations section", async () => {
+    const page = await WorkspaceSettingsPage({
+      params: Promise.resolve({ workspaceSlug: "mars-labs", settingsPath: ["integrations"] }),
+      searchParams: Promise.resolve({}),
+    });
+
+    const data = getSettingsPageData(page);
+    expect(data.initialSection).toBe("integrations");
+    expect(data.feishuAvailableAgents).toEqual([{ id: "Codex", name: "Codex", role: "Engineer" }]);
+    expect(data.feishuAvailableChannels).toEqual([{ name: "general", kind: "group" }]);
+    expect(data.feishuAvailableUsers).toEqual([{ userId: "user-1", displayName: "Mina", role: "owner" }]);
+    expect(data.feishuIntegrationCreationGuide).toEqual({
+      requiredCredentialFields: ["app_id", "app_secret", "verification_token"],
+      requiredEvents: ["im.message.receive_v1", "im.chat.member.bot.added_v1", "card.action.trigger"],
+      requiredScopes: ["im:message", "docx:document", "sheets:spreadsheet", "bitable:app"],
+      eventCallbackPath: "/api/integrations/feishu/events",
+      developerConsoleUrl: "https://open.feishu.cn/app",
+      openPlatformSetupSteps: [
+        {
+          id: "create_custom_app",
+          consoleUrl: "https://open.feishu.cn/app",
+          required: ["app_id", "app_secret"],
+        },
+      ],
+    });
+    expect(data.feishuIntegrations).toEqual([{ id: "feishu-1" }]);
+    expect(data.members).toEqual([]);
+    expect(data.invitations).toEqual([]);
+    expect(data.sessions).toEqual([]);
+    expect(mockListFeishuAvailableChannels).toHaveBeenCalledWith({
+      workspaceId: "workspace-mars",
+    });
+    expect(mockListFeishuAvailableAgents).toHaveBeenCalledWith({
+      workspaceId: "workspace-mars",
+    });
+    expect(mockListFeishuAvailableUsers).toHaveBeenCalledWith({
+      workspaceId: "workspace-mars",
+    });
+    expect(mockListFeishuIntegrationSettingsItems).toHaveBeenCalledWith({
+      workspaceId: "workspace-mars",
+      appUrl: undefined,
+      viewer: {
+        role: "owner",
+        userId: "user-1",
+      },
+    });
+    expect(mockBuildFeishuIntegrationCreationGuide).toHaveBeenCalledTimes(1);
+    expect(mockListWorkspaceMemberUsersSync).not.toHaveBeenCalled();
+    expect(mockListWorkspaceInvitationsSync).not.toHaveBeenCalled();
+    expect(mockListSessionsForUserSync).not.toHaveBeenCalled();
+  });
+
+  it("loads only self-service Feishu identity data for members", async () => {
+    mockGetWorkspaceContextForIdentifier.mockResolvedValue(buildWorkspaceContext("member"));
+    mockListFeishuAvailableUsers.mockReturnValue([
+      { userId: "user-1", displayName: "Mina", role: "member" },
+      { userId: "user-2", displayName: "Alex", role: "member" },
+    ]);
+
+    const page = await WorkspaceSettingsPage({
+      params: Promise.resolve({ workspaceSlug: "mars-labs", settingsPath: ["integrations"] }),
+      searchParams: Promise.resolve({}),
+    });
+
+    const data = getSettingsPageData(page);
+    expect(data.initialSection).toBe("integrations");
+    expect(data.feishuAvailableChannels).toEqual([]);
+    expect(data.feishuAvailableUsers).toEqual([{ userId: "user-1", displayName: "Mina", role: "member" }]);
+    expect(mockListFeishuAvailableChannels).not.toHaveBeenCalled();
+    expect(mockListFeishuIntegrationSettingsItems).toHaveBeenCalledWith({
+      workspaceId: "workspace-mars",
+      appUrl: undefined,
+      viewer: {
+        role: "member",
+        userId: "user-1",
+      },
+    });
   });
 
   it("loads only permission-center data for the permissions section", async () => {
@@ -284,6 +423,8 @@ describe("workspace settings route", () => {
   it.each([
     { role: "member", section: "security" },
     { role: "member", section: "permissions" },
+    { role: "member", section: "integrations" },
+    { role: "admin", section: "integrations" },
     { role: "admin", section: "members" },
     { role: "admin", section: "access" },
     { role: "owner", section: "workspace" },

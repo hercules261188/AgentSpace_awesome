@@ -6,6 +6,7 @@ import { AppIcon } from "@/shared/ui/app-icon";
 import { DeleteAgentModal } from "@/features/agents/components/delete-agent-modal";
 import { ExecutionEngineSelect, resolveExecutionEngineValue } from "@/features/agents/components/execution-engine-select";
 import { SkillPickerModal } from "@/features/agents/components/skill-picker-modal";
+import { FeishuAgentBotAgentSettingsPanel } from "@/features/integrations/feishu/feishu-agent-bot-agent-settings-panel";
 import { GeneratedAvatar } from "@/shared/ui/generated-avatar";
 import { formatCompactTimestamp } from "@/shared/lib/time-format";
 import {
@@ -42,6 +43,7 @@ interface AgentDetailProps {
   readonly onRevokeForkInvitation?: (invitationId: string) => void;
   readonly onConnectGoogleWorkspace?: () => void;
   readonly onRevokeGoogleWorkspaceDelegation?: () => void;
+  readonly onFeishuAgentBotUpdated?: () => void;
 }
 
 export function AgentDetail({
@@ -61,6 +63,7 @@ export function AgentDetail({
   onRevokeForkInvitation,
   onConnectGoogleWorkspace,
   onRevokeGoogleWorkspaceDelegation,
+  onFeishuAgentBotUpdated,
 }: AgentDetailProps) {
   const { tx } = useLanguage();
   const [activeTab, setActiveTab] = useState<"instructions" | "skills" | "knowledge" | "documents" | "workspaces" | "settings">("instructions");
@@ -450,6 +453,15 @@ export function AgentDetail({
 
         {activeTab === "settings" ? (
           <>
+            <FeishuAgentBotAgentSettingsPanel
+              agentId={record.internalName}
+              agentName={record.name}
+              canManage={Boolean(record.canManageFeishuAgentBot)}
+              integration={record.feishuAgentBot}
+              onUpdated={onFeishuAgentBotUpdated}
+              setupReference={record.feishuAgentBotSetupReference}
+            />
+
             <section className="form-panel form-panel--nested agent-access-panel">
               <div className="panel-header">
                 <div>

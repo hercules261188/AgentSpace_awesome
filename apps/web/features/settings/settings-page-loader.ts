@@ -8,6 +8,15 @@ import {
   type WorkspaceRole,
 } from "@agent-space/db";
 import { getWorkspacePermissionCenterSync } from "@agent-space/services";
+import { readPublicAppUrl } from "@/features/auth/public-app-url";
+import {
+  buildFeishuIntegrationCreationGuide,
+  canManageFeishuIntegrations,
+  listFeishuAvailableAgents,
+  listFeishuAvailableChannels,
+  listFeishuAvailableUsers,
+  listFeishuIntegrationSettingsItems,
+} from "@/features/integrations/feishu/feishu-settings-data";
 import {
   canAccessSettingsSection,
   DEFAULT_SETTINGS_SECTION,
@@ -18,6 +27,11 @@ import {
 import type {
   SettingsChannelAccessRequestItem,
   SettingsChannelInvitationItem,
+  SettingsFeishuAvailableAgentItem,
+  SettingsFeishuAvailableChannelItem,
+  SettingsFeishuAvailableUserItem,
+  SettingsFeishuIntegrationCreationGuide,
+  SettingsFeishuIntegrationItem,
   SettingsPermissionCenterData,
   SettingsSessionItem,
   SettingsWorkspaceInvitationItem,
@@ -38,6 +52,11 @@ export interface SettingsPageData {
   invitations: SettingsWorkspaceInvitationItem[];
   channelAccessRequests: SettingsChannelAccessRequestItem[];
   channelInvitations: SettingsChannelInvitationItem[];
+  feishuAvailableAgents: SettingsFeishuAvailableAgentItem[];
+  feishuAvailableChannels: SettingsFeishuAvailableChannelItem[];
+  feishuAvailableUsers: SettingsFeishuAvailableUserItem[];
+  feishuIntegrationCreationGuide?: SettingsFeishuIntegrationCreationGuide;
+  feishuIntegrations: SettingsFeishuIntegrationItem[];
   members: SettingsWorkspaceMemberItem[];
   permissions?: SettingsPermissionCenterData;
   sessions: SettingsSessionItem[];
@@ -82,8 +101,14 @@ export function loadSettingsPageData(input: {
   const workspaceId = input.currentWorkspace.id;
   const shouldLoadMembers = requestedSection === "members";
   const shouldLoadInvitations = requestedSection === "access";
+  const shouldLoadIntegrations = requestedSection === "integrations";
   const shouldLoadPermissions = requestedSection === "permissions";
   const shouldLoadSessions = requestedSection === "security";
+  const canManageIntegrations = canManageFeishuIntegrations(input.role);
+  const feishuAvailableUsers = shouldLoadIntegrations
+    ? listFeishuAvailableUsers({ workspaceId })
+      .filter((user) => canManageIntegrations || user.userId === input.currentUser.id)
+    : [];
 
   return {
     currentMembershipRole: input.role,
@@ -128,6 +153,33 @@ export function loadSettingsPageData(input: {
           createdAt: invitation.createdAt,
           expiresAt: invitation.expiresAt,
         };
+      })
+      : [],
+    feishuAvailableChannels: shouldLoadIntegrations
+      ? canManageIntegrations
+        ? listFeishuAvailableChannels({ workspaceId })
+        : []
+      : [],
+    feishuAvailableAgents: shouldLoadIntegrations
+      ? canManageIntegrations
+        ? listFeishuAvailableAgents({ workspaceId })
+        : []
+      : [],
+    feishuAvailableUsers,
+    feishuIntegrationCreationGuide: shouldLoadIntegrations && canManageIntegrations
+      ? buildFeishuIntegrationCreationGuide({
+        workspaceId,
+        appUrl: readPublicAppUrl(),
+      })
+      : undefined,
+    feishuIntegrations: shouldLoadIntegrations
+      ? listFeishuIntegrationSettingsItems({
+        workspaceId,
+        appUrl: readPublicAppUrl(),
+        viewer: {
+          role: input.role,
+          userId: input.currentUser.id,
+        },
       })
       : [],
     members: shouldLoadMembers ? listWorkspaceMemberUsersSync(workspaceId) : [],

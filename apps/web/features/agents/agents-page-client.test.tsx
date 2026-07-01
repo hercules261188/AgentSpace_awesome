@@ -17,6 +17,10 @@ import {
   setWorkspaceAgentChannelMemberAccessAction,
   updateWorkspaceRuntimeDisplayNameAction,
 } from "@/features/agents/actions";
+import {
+  createFeishuAgentBotBindingAction,
+  rotateFeishuAgentBotCredentialsAction,
+} from "@/features/integrations/feishu/feishu-actions";
 import { LanguageProvider } from "@/features/i18n/language-provider";
 import { FeedbackToastProvider } from "@/shared/ui/feedback-toast-provider";
 import type { AgentsPageData } from "@/features/dashboard/data";
@@ -71,6 +75,106 @@ vi.mock("@/features/settings/actions", () => ({
     },
   })),
   revokeDaemonApiTokenAction: vi.fn(async () => {}),
+}));
+
+vi.mock("@/features/integrations/feishu/feishu-actions", () => ({
+  createFeishuAgentBotBindingAction: vi.fn(async () => ({
+    id: "feishu-agent-bot-planner",
+    displayName: "Planner Feishu Bot",
+    status: "active",
+    transportMode: "websocket_worker",
+    agentId: "planner",
+    appId: "cli_planner",
+    callbackUrl: "",
+    createdAt: "2026-04-10T08:00:00.000Z",
+    updatedAt: "2026-04-10T08:00:00.000Z",
+    hasAppSecret: true,
+    hasVerificationToken: false,
+    hasEncryptKey: false,
+    userBindingCount: 0,
+    channelBindingCount: 0,
+    resourceBindingCount: 0,
+    operationRunCount: 0,
+    outboxFailureCount: 0,
+    userBindings: [],
+    channelBindings: [],
+    resourceBindings: [],
+    operationRuns: [],
+    recentOutboxFailures: [],
+    recentInboundEvents: [],
+  })),
+  disableFeishuAgentBotBindingAction: vi.fn(async () => ({
+    id: "feishu-agent-bot-planner",
+    displayName: "Planner Feishu Bot",
+    status: "disabled",
+    transportMode: "websocket_worker",
+    agentId: "planner",
+    callbackUrl: "",
+    createdAt: "2026-04-10T08:00:00.000Z",
+    updatedAt: "2026-04-10T08:00:00.000Z",
+    hasAppSecret: true,
+    hasVerificationToken: false,
+    hasEncryptKey: false,
+    userBindingCount: 0,
+    channelBindingCount: 0,
+    resourceBindingCount: 0,
+    operationRunCount: 0,
+    outboxFailureCount: 0,
+    userBindings: [],
+    channelBindings: [],
+    resourceBindings: [],
+    operationRuns: [],
+    recentOutboxFailures: [],
+    recentInboundEvents: [],
+  })),
+  rotateFeishuAgentBotCredentialsAction: vi.fn(async () => ({
+    id: "feishu-agent-bot-planner",
+    displayName: "Planner Feishu Bot",
+    status: "active",
+    transportMode: "websocket_worker",
+    agentId: "planner",
+    callbackUrl: "",
+    createdAt: "2026-04-10T08:00:00.000Z",
+    updatedAt: "2026-04-10T08:00:00.000Z",
+    hasAppSecret: true,
+    hasVerificationToken: false,
+    hasEncryptKey: false,
+    userBindingCount: 0,
+    channelBindingCount: 0,
+    resourceBindingCount: 0,
+    operationRunCount: 0,
+    outboxFailureCount: 0,
+    userBindings: [],
+    channelBindings: [],
+    resourceBindings: [],
+    operationRuns: [],
+    recentOutboxFailures: [],
+    recentInboundEvents: [],
+  })),
+  updateFeishuAgentBotPolicyAction: vi.fn(async () => ({
+    id: "feishu-agent-bot-planner",
+    displayName: "Planner Feishu Bot",
+    status: "active",
+    transportMode: "websocket_worker",
+    agentId: "planner",
+    callbackUrl: "",
+    createdAt: "2026-04-10T08:00:00.000Z",
+    updatedAt: "2026-04-10T08:00:00.000Z",
+    hasAppSecret: true,
+    hasVerificationToken: false,
+    hasEncryptKey: false,
+    userBindingCount: 0,
+    channelBindingCount: 0,
+    resourceBindingCount: 0,
+    operationRunCount: 0,
+    outboxFailureCount: 0,
+    userBindings: [],
+    channelBindings: [],
+    resourceBindings: [],
+    operationRuns: [],
+    recentOutboxFailures: [],
+    recentInboundEvents: [],
+  })),
 }));
 
 function mockMatchMedia(matches: boolean): void {
@@ -243,6 +347,20 @@ const data: AgentsPageData = {
           },
         ],
       },
+      feishuAgentBotSetupReference: {
+        requiredCredentialFields: ["app_id", "app_secret"],
+        requiredEvents: ["im.message.receive_v1", "im.chat.member.bot.added_v1", "card.action.trigger"],
+        requiredScopes: [
+          "im:message",
+          "im:message:send_as_bot",
+          "contact:user.base:readonly",
+          "docx:document",
+          "drive:drive",
+          "sheets:spreadsheet",
+          "bitable:app",
+        ],
+        eventCallbackPath: "/api/integrations/feishu/events",
+      },
     },
   ],
   showcaseAgents: [
@@ -399,7 +517,7 @@ function renderAgentsPage(
   );
 
   return render(
-    <LanguageProvider>
+    <LanguageProvider initialLanguage="zh">
       <FeedbackToastProvider>
         {props?.navigateWorkspaceModule ? (
           <WorkspaceModuleNavigationProvider navigateWorkspaceModule={props.navigateWorkspaceModule}>
@@ -412,6 +530,76 @@ function renderAgentsPage(
 }
 
 type AgentsPageClientProps = ComponentProps<typeof AgentsPageClient>;
+
+function buildAgentFeishuBot(
+  overrides: Partial<NonNullable<AgentsPageData["agents"][number]["feishuAgentBot"]>> = {},
+): NonNullable<AgentsPageData["agents"][number]["feishuAgentBot"]> {
+  return {
+    id: "feishu-agent-bot-planner",
+    displayName: "Planner Feishu Bot",
+    status: "active",
+    transportMode: "websocket_worker",
+    agentId: "planner",
+    appId: "cli_planner",
+    callbackUrl: "",
+    createdAt: "2026-04-10T08:00:00.000Z",
+    updatedAt: "2026-04-10T08:00:00.000Z",
+    lastHealthStatus: "healthy",
+    hasAppSecret: true,
+    hasVerificationToken: false,
+    hasEncryptKey: false,
+    userBindingCount: 1,
+    channelBindingCount: 2,
+    resourceBindingCount: 0,
+    operationRunCount: 0,
+    outboxFailureCount: 0,
+    userBindings: [],
+    channelBindings: [],
+    resourceBindings: [],
+    operationRuns: [],
+    recentOutboxFailures: [],
+    recentInboundEvents: [],
+    channelAutoProvisioning: {
+      botAdded: "auto_create_channel",
+      firstMessage: "auto_create_if_bot_mentioned",
+      reviewStatus: "approved",
+    },
+    externalGuestPolicy: {
+      unboundUserMode: "reply_on_mention",
+      guestPermissionProfile: "channel_context_only",
+      requireIdentityFor: ["writes", "approvals", "private_resources", "runtime_sensitive_tools"],
+    },
+    setupGuide: {
+      requiredCredentialFields: ["app_id", "app_secret"],
+      requiredEvents: ["im.message.receive_v1", "im.chat.member.bot.added_v1", "card.action.trigger"],
+      requiredScopes: ["im:message"],
+      eventCallbackPath: "/api/integrations/feishu/events",
+      developerConsoleUrl: "https://open.feishu.cn/app",
+      openPlatformSetupSteps: [],
+      checks: [],
+      evidenceGates: [],
+      commands: {
+        healthCheck: "agent-space integrations feishu health-check --workspace-id workspace-1 --agent planner --strict --json",
+        bindSecondAgentBot: "agent-space integrations feishu bind-agent-bot --workspace-id workspace-1 --agent CHANGE_ME_SECOND_AGENT_NAME --env-file scripts/feishu/.env --app-id-env FEISHU_SECOND_AGENT_APP_ID --app-secret-env FEISHU_SECOND_AGENT_APP_SECRET --json",
+        botReadiness: "agent-space integrations feishu agent-bot-readiness --workspace-id workspace-1 --agent planner --strict --require bot --json",
+        dataPlaneReadiness: "agent-space integrations feishu agent-bot-readiness --workspace-id workspace-1 --agent planner --strict --require data-plane --json",
+        workerReadiness: "agent-space integrations feishu agent-bot-readiness --workspace-id workspace-1 --agent planner --strict --require worker --json",
+        autoProvisionPolicy: "agent-space integrations feishu auto-provision-policy --workspace-id workspace-1 --agent planner --bot-added-policy auto_create_channel --first-message-policy auto_create_if_bot_mentioned --unbound-user-mode reply_on_mention --guest-permission-profile channel_context_only --json",
+        agentChannelAccessDisable: "agent-space integrations feishu agent-channel-access --workspace-id workspace-1 --agent planner --access disabled --json",
+        agentChannelAccessRestore: "agent-space integrations feishu agent-channel-access --workspace-id workspace-1 --agent planner --access enabled --json",
+        channelBindings: "agent-space integrations feishu channel-bindings --workspace-id workspace-1 --integration feishu-agent-bot-planner --json",
+        smokeEnv: "agent-space integrations feishu smoke-env --workspace-id workspace-1 --integration feishu-agent-bot-planner --app-url https://agent.test > scripts/feishu/.env",
+        checkEnv: "npm run smoke:feishu -- --env-file scripts/feishu/.env --check-env --json --require-todo120-native",
+        strictLiveSmoke: "npm run smoke:feishu -- --env-file scripts/feishu/.env --live --strict-live --evidence runtime-output/feishu-smoke/live.json --json --require-todo120-native",
+        verifyOpenApiEvidence: "npm run smoke:feishu -- --verify-evidence runtime-output/feishu-smoke/live.json --json",
+        verifyBotAddedPayload: "npm run smoke:feishu -- --verify-bot-added-payload runtime-output/feishu-smoke/bot-added-callback.json --bot-added-payload-evidence runtime-output/feishu-smoke/bot-added-payload-evidence.json --json",
+        smokePlan: "agent-space integrations feishu smoke-plan --workspace-id workspace-1 --integration feishu-agent-bot-planner --app-url https://agent.test",
+        evidence: "agent-space integrations feishu evidence --workspace-id workspace-1 --integration feishu-agent-bot-planner --openapi-evidence runtime-output/feishu-smoke/live.json --bot-added-payload-evidence runtime-output/feishu-smoke/bot-added-payload-evidence.json --strict --require all",
+      },
+    },
+    ...overrides,
+  };
+}
 
 describe("AgentsPageClient", () => {
   beforeEach(() => {
@@ -615,6 +803,192 @@ describe("AgentsPageClient", () => {
     expect(screen.getByText("Provider 状态")).toBeInTheDocument();
     expect(screen.getAllByText("不可用").length).toBeGreaterThan(0);
     expect(screen.getByText(/provider.auth_invalid/)).toBeInTheDocument();
+  });
+
+  it("shows an agent-scoped Feishu bot in agent settings", async () => {
+    const user = userEvent.setup();
+
+    renderAgentsPage({
+      ...data,
+      agents: [
+        {
+          ...data.agents[0]!,
+          feishuAgentBot: buildAgentFeishuBot(),
+          canManageFeishuAgentBot: true,
+        },
+      ],
+    });
+
+    await user.click(screen.getByRole("button", { name: "设置" }));
+
+    expect(screen.getByText("Feishu Bot")).toBeInTheDocument();
+    expect(screen.getByText("Planner Feishu Bot")).toBeInTheDocument();
+    expect(screen.getByText("健康")).toBeInTheDocument();
+    expect(screen.getByText("agent-space integrations feishu health-check --workspace-id workspace-1 --agent planner --strict --json")).toBeInTheDocument();
+    expect(screen.getByText("agent-space integrations feishu bind-agent-bot --workspace-id workspace-1 --agent CHANGE_ME_SECOND_AGENT_NAME --env-file scripts/feishu/.env --app-id-env FEISHU_SECOND_AGENT_APP_ID --app-secret-env FEISHU_SECOND_AGENT_APP_SECRET --json")).toBeInTheDocument();
+    expect(screen.getByText("先在 scripts/feishu/.env 填入第二个飞书 app 凭据，再运行此命令创建第二个 Bot 绑定；通过 Phase 6 前置检查前，最终 evidence --require all 会保持 blocked。")).toBeInTheDocument();
+    expect(screen.getByText("agent-space integrations feishu agent-channel-access --workspace-id workspace-1 --agent planner --access disabled --json")).toBeInTheDocument();
+    expect(screen.getByText("agent-space integrations feishu agent-channel-access --workspace-id workspace-1 --agent planner --access enabled --json")).toBeInTheDocument();
+    expect(screen.getByText("npm run smoke:feishu -- --env-file scripts/feishu/.env --check-env --json --require-todo120-native")).toBeInTheDocument();
+    expect(screen.getByText("npm run smoke:feishu -- --env-file scripts/feishu/.env --live --strict-live --evidence runtime-output/feishu-smoke/live.json --json --require-todo120-native")).toBeInTheDocument();
+    expect(screen.getByText("agent-space integrations feishu smoke-plan --workspace-id workspace-1 --integration feishu-agent-bot-planner --app-url https://agent.test")).toBeInTheDocument();
+    expect(screen.getByText("agent-space integrations feishu evidence --workspace-id workspace-1 --integration feishu-agent-bot-planner --openapi-evidence runtime-output/feishu-smoke/live.json --bot-added-payload-evidence runtime-output/feishu-smoke/bot-added-payload-evidence.json --strict --require all")).toBeInTheDocument();
+    expect(screen.getByText("im.chat.member.bot.added_v1")).toBeInTheDocument();
+    expect(screen.getByText("im:message")).toBeInTheDocument();
+    expect(screen.getByText("调整治理策略")).toBeInTheDocument();
+  });
+
+  it("binds a Feishu bot from agent settings with only App ID and App Secret", async () => {
+    const user = userEvent.setup();
+
+    renderAgentsPage({
+      ...data,
+      agents: [
+        {
+          ...data.agents[0]!,
+          canManageFeishuAgentBot: true,
+        },
+      ],
+    });
+
+    await user.click(screen.getByRole("button", { name: "设置" }));
+    expect(screen.getByLabelText("App ID")).toBeVisible();
+    expect(screen.getByLabelText("App Secret")).toBeVisible();
+    expect(screen.getByText("自定义高级功能").closest("details")).not.toHaveAttribute("open");
+    expect(screen.getByLabelText("连接方式")).not.toBeVisible();
+    expect(screen.getByLabelText("Tenant Key")).not.toBeVisible();
+    expect(screen.getByText("im.chat.member.bot.added_v1")).not.toBeVisible();
+    expect(screen.getByText("sheets:spreadsheet")).not.toBeVisible();
+    await user.type(screen.getByLabelText("App ID"), "cli_planner");
+    await user.type(screen.getByLabelText("App Secret"), "secret_planner");
+    await user.click(screen.getByRole("button", { name: "绑定 Bot" }));
+
+    await waitFor(() => {
+      expect(createFeishuAgentBotBindingAction).toHaveBeenCalledWith({
+        agentId: "planner",
+        displayName: "",
+        transportMode: "websocket_worker",
+        appId: "cli_planner",
+        appSecret: "secret_planner",
+        verificationToken: "",
+        encryptKey: "",
+        tenantKey: "",
+        channelAutoProvisioning: {
+          botAdded: "auto_create_channel",
+          firstMessage: "auto_create_if_bot_mentioned",
+          reviewStatus: "approved",
+        },
+        externalGuestPolicy: {
+          unboundUserMode: "reply_on_mention",
+          guestPermissionProfile: "channel_context_only",
+          requireIdentityFor: [
+            "writes",
+            "approvals",
+            "private_resources",
+            "runtime_sensitive_tools",
+          ],
+        },
+      });
+    });
+  });
+
+  it("binds a Feishu bot from agent settings with EventCallback advanced options", async () => {
+    const user = userEvent.setup();
+
+    renderAgentsPage({
+      ...data,
+      agents: [
+        {
+          ...data.agents[0]!,
+          canManageFeishuAgentBot: true,
+        },
+      ],
+    });
+
+    await user.click(screen.getByRole("button", { name: "设置" }));
+    await user.type(screen.getByLabelText("App ID"), "cli_planner_event");
+    await user.type(screen.getByLabelText("App Secret"), "secret_planner_event");
+    await user.click(screen.getByText("自定义高级功能"));
+    await user.type(screen.getByLabelText("名称"), "Planner Event Bot");
+    await user.selectOptions(screen.getByLabelText("连接方式"), "http_webhook");
+    await user.type(screen.getByLabelText("Tenant Key"), "tenant_planner");
+    await user.type(screen.getByLabelText(/Verification Token/), "verify_planner");
+    await user.type(screen.getByLabelText("Encrypt Key"), "encrypt_planner");
+    await user.selectOptions(screen.getByLabelText("机器人进群"), "pending_admin_review");
+    await user.selectOptions(screen.getByLabelText("首次消息"), "reply_with_setup_card");
+    await user.selectOptions(screen.getByLabelText("建群审核状态"), "needs_identity_binding");
+    await user.selectOptions(screen.getByLabelText("未绑定用户"), "require_identity");
+    await user.selectOptions(screen.getByLabelText("访客权限"), "none");
+    await user.click(screen.getByRole("button", { name: "绑定 Bot" }));
+
+    await waitFor(() => {
+      expect(createFeishuAgentBotBindingAction).toHaveBeenCalledWith({
+        agentId: "planner",
+        displayName: "Planner Event Bot",
+        transportMode: "http_webhook",
+        appId: "cli_planner_event",
+        appSecret: "secret_planner_event",
+        verificationToken: "verify_planner",
+        encryptKey: "encrypt_planner",
+        tenantKey: "tenant_planner",
+        channelAutoProvisioning: {
+          botAdded: "pending_admin_review",
+          firstMessage: "reply_with_setup_card",
+          reviewStatus: "needs_identity_binding",
+        },
+        externalGuestPolicy: {
+          unboundUserMode: "require_identity",
+          guestPermissionProfile: "none",
+          requireIdentityFor: [
+            "writes",
+            "approvals",
+            "private_resources",
+            "runtime_sensitive_tools",
+          ],
+        },
+      });
+    });
+  });
+
+  it("rotates EventCallback Feishu bot credentials from agent settings", async () => {
+    const user = userEvent.setup();
+
+    renderAgentsPage({
+      ...data,
+      agents: [
+        {
+          ...data.agents[0]!,
+          feishuAgentBot: buildAgentFeishuBot({
+            transportMode: "http_webhook",
+            appId: "cli_planner_old",
+            tenantKey: "tenant_old",
+            hasVerificationToken: true,
+            hasEncryptKey: true,
+          }),
+          canManageFeishuAgentBot: true,
+        },
+      ],
+    });
+
+    await user.click(screen.getByRole("button", { name: "设置" }));
+    await user.click(screen.getByText("轮换凭据", { selector: "span" }));
+    await user.type(screen.getByLabelText("App ID"), "cli_planner_rotated");
+    await user.type(screen.getByLabelText("新 App Secret"), "secret_rotated");
+    await user.type(screen.getByLabelText("Tenant Key"), "tenant_rotated");
+    await user.type(screen.getByLabelText("Verification Token"), "verify_rotated");
+    await user.type(screen.getByLabelText("Encrypt Key"), "encrypt_rotated");
+    await user.click(screen.getByRole("button", { name: "轮换凭据" }));
+
+    await waitFor(() => {
+      expect(rotateFeishuAgentBotCredentialsAction).toHaveBeenCalledWith({
+        integrationId: "feishu-agent-bot-planner",
+        appId: "cli_planner_rotated",
+        appSecret: "secret_rotated",
+        tenantKey: "tenant_rotated",
+        verificationToken: "verify_rotated",
+        encryptKey: "encrypt_rotated",
+      });
+    });
   });
 
   it("lets admins toggle channel member access for a workspace agent", async () => {
@@ -988,7 +1362,7 @@ describe("AgentDetail", () => {
     const onSetKnowledgePageIds = vi.fn();
 
     render(
-      <LanguageProvider>
+      <LanguageProvider initialLanguage="zh">
         <AgentDetail
           containerOptions={data.containerOptions}
           pending={false}
