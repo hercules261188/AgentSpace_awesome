@@ -1,10 +1,13 @@
+import { writeFileSync } from "node:fs";
 import {
   bindEmployeeRuntimeSync,
   createEmployeeSync,
   listActiveEmployeesSync,
   listEmployeeRuntimeBindingsForWorkspaceSync,
+  listEmployeeSkillIdsSync,
   unbindEmployeeRuntimeSync,
 } from "@agent-space/services";
+import { employeeToPersona } from "@agent-space/domain";
 import { parseArgs, getStringFlag } from "../lib/args.ts";
 import { writeData, type OutputFormat } from "../lib/format.ts";
 
@@ -111,6 +114,43 @@ export function runEmployeeCommand(
     return 0;
   }
 
+  if (subcommand === "export-persona") {
+    const { flags } = parseArgs(args);
+    const name = getStringFlag(flags, "name");
+
+    if (!name) {
+      console.error(
+        "Usage: agent-space employee export-persona --name <employee> [--sign] [--out <path>] [--json]",
+      );
+      return 1;
+    }
+
+    const employee = listActiveEmployeesSync().find((candidate) => candidate.name === name);
+    if (!employee) {
+      console.error(`No active employee named "${name}".`);
+      return 1;
+    }
+
+    const skills = listEmployeeSkillIdsSync(name);
+    const sign = flags.sign === true || getStringFlag(flags, "sign") !== undefined;
+    const { persona, didKey } = employeeToPersona(employee, skills, { sign });
+    const serialized = JSON.stringify(persona, null, 2);
+
+    const out = getStringFlag(flags, "out");
+    if (out) {
+      writeFileSync(out, `${serialized}\n`);
+    }
+
+    if (format === "json") {
+      writeData(format, { ok: true, employee: name, signed: sign, didKey: didKey ?? null, out: out ?? null, persona });
+    } else if (out) {
+      writeData(format, { ok: true, employee: name, signed: sign, didKey: didKey ?? "", out });
+    } else {
+      console.log(serialized);
+    }
+    return 0;
+  }
+
   console.error("Usage: agent-space employee list [--json]");
   console.error(
     "   or: agent-space employee create --name <name> --role <role> [--traits a,b] [--summary <text>] [--fit <text>] [--origin <label>] [--json]",
@@ -119,5 +159,8 @@ export function runEmployeeCommand(
     "   or: agent-space employee bind-runtime --name <employee> --runtime-id <runtime-id> [--json]",
   );
   console.error("   or: agent-space employee unbind-runtime --name <employee> [--json]");
+  console.error(
+    "   or: agent-space employee export-persona --name <employee> [--sign] [--out <path>] [--json]",
+  );
   return 1;
 }
