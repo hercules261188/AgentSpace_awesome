@@ -197,7 +197,10 @@ function personaRole(employee: ActiveEmployee): string {
 }
 
 function personaBehavior(employee: ActiveEmployee): string {
-  const parts = [employee.summary, employee.instructions, employee.fit]
+  // summary is the primary "who they are"; instructions refine how they operate.
+  // `fit` is a readiness note, not behavior — appending it produced dangling
+  // fragments, so it is intentionally left out here.
+  const parts = [employee.summary, employee.instructions]
     .map((part) => part?.trim())
     .filter((part): part is string => Boolean(part));
   return parts.join(" ") || `${employee.name}, ${employee.role}.`;
