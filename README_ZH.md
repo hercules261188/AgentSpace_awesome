@@ -81,6 +81,8 @@ AgentSpace 支持两种部署模式，可以按团队需要选择：
 
 ## 最新动态
 
+- **2026-07-09** — Slack 插件实现已推送到远程 `slack` 测试分支，用于集成测试和最终验收。
+
 - **2026-07-02** — 飞书功能已全部通过测试，并已合并到 `main` 分支。
 
 - **2026-06-26** — 本地 `quality:web` 命令现在更贴近 Web static-check 流程，会在 lint 和 Vitest 之前额外检查 Web 测试用 TypeScript project。

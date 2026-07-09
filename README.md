@@ -80,6 +80,8 @@ Both modes run the same product — digital employees, AgentRouter scheduling, w
 
 ## News
 
+- **2026-07-09** — The Slack plugin implementation has been pushed to the remote `slack` testing branch for integration testing and final validation.
+
 - **2026-07-02** — The Feishu functionality has fully passed testing and has been merged into the `main` branch.
 
 - **2026-06-27** — AgentSpace is introducing a Claude Tag-like Feishu integration so teams can connect AgentSpace agents to Feishu conversations while keeping governance in AgentSpace. The implementation branch is `codex/feishu-integration`.
