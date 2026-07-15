@@ -1,4 +1,5 @@
 export * from "./workspace.ts";
+export * from "./openagent-persona.ts";
 export * from "./mentions.ts";
 export * from "./mention-plan.ts";
 export * from "./channel-document-runs.ts";
